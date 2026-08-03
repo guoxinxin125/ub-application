@@ -1,58 +1,38 @@
-for parameter in mempool_allocator mem_allocator_granu mempool_size; do
-    parameter_path="/sys/module/obmm/parameters/$parameter"
-    [ -r "$parameter_path" ] &&
-      echo "$parameter=$(cat "$parameter_path")"
-  done
-
- ### 如果是 buddy_highmem
-
-  说明内核尝试从 node 1 找到连续2 MiB范围，但可能因内存碎片或可借出地址范围不足而失败。
-
-  检查：
-
-  grep -E 'MemTotal|MemFree' \
-    /sys/devices/system/node/node1/meminfo
-
-  cat /proc/buddyinfo
-
-  在4 KiB页系统中，连续2 MiB大致对应 order-9。如果 node 1 对应 zone 的高阶空闲块全为0，即使总空闲内存很多，也可能无法分
-  配连续2 MiB。
-
-  同时检查内核启动参数：
-
-  cat /proc/cmdline
-
-  重点看是否有：
-
-  pmd_mapping=<比例>%
-
-  buddy_highmem 不只是需要普通空闲内存，还需要能够满足 OBMM 特殊映射属性的物理范围。
-
-  ### 如果是 hugetlb_pmd
-
-  检查 node 1 是否有空闲2 MiB hugepage：
-
-  grep . \
-    /sys/devices/system/node/node1/hugepages/hugepages-2048kB/nr_hugepages \
-    /sys/devices/system/node/node1/hugepages/hugepages-2048kB/free_hugepages \
-    /sys/devices/system/node/node1/hugepages/hugepages-2048kB/resv_hugepages
-
-  如果：
-
-  free_hugepages=0
-
-  那么这是直接原因。
-
-  ## 查看 OBMM node 1 内存池
-
-  for attr in total used available_cleared available_uncleared; do
+ for attr in total used available_cleared available_uncleared; do
     attr_path="/sys/kernel/obmm_mempool/obmm-1/$attr"
     if [ -r "$attr_path" ]; then
       printf '%-24s %s\n' "$attr" "$(cat "$attr_path")"
+    else
+      printf '%-24s %s\n' "$attr" "<missing>"
     fi
   done
 
-  如果：
 
-  available_cleared=0
-  available_uncleared=0
+
+  watch -n 0.5 "
+  echo '===== Linux hugetlb pool ====='
+  grep . \
+    $HUGEPAGE_DIR/nr_hugepages \
+    $HUGEPAGE_DIR/free_hugepages \
+    2>/dev/null
+
+  echo '===== OBMM pool ====='
+  grep . \
+    $OBMM_POOL_DIR/total \
+    $OBMM_POOL_DIR/used \
+    $OBMM_POOL_DIR/available_cleared \
+    $OBMM_POOL_DIR/available_uncleared \
+    2>/dev/null
+  "
+
+
+
+  cat /sys/devices/system/node/online
+  cat /sys/devices/system/node/has_memory
+  cat /sys/devices/system/node/has_cpu
+
+  for node_id in 1 3; do
+    echo "===== node $node_id ====="
+    grep -E 'MemTotal|MemFree' \
+      /sys/devices/system/node/node${node_id}/meminfo
+  done
