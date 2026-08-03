@@ -1,5 +1,158 @@
 # UB two-node benchmark
 
+This directory contains independent OBMM micro tests and the existing Memlink
+benchmark. The OBMM programs are deliberately separate executables so a local
+test cannot accidentally join or reuse a two-host run:
+
+- `ub_two_node_bench`: the existing Memlink latency/correctness benchmark;
+- `obmm_local_nc_test`: one-host OBMM export, NC mmap, correctness, and local
+  load/store latency;
+- `obmm_nc_exporter`: owner/export half of the two-host NC visibility test;
+- `obmm_nc_importer`: remote/import half of the two-host NC visibility test.
+
+## OBMM micro tests
+
+Every OBMM test opens `/dev/obmm_shmdev<mem_id>` with `O_RDWR | O_SYNC` and
+maps it with `PROT_READ | PROT_WRITE | MAP_SHARED`. All mappings in this first
+round are non-cacheable. The programs do not call `obmm_set_ownership`, CLWB,
+or any cache invalidation instruction.
+
+The local test creates and destroys its own export without using TCP. In the
+two-host test, TCP carries only the export descriptor and phase notifications;
+the payload travels only through the OBMM mapping:
+
+```text
+owner NC store    -> importer NC load and byte-for-byte verification
+importer NC store -> owner NC load and byte-for-byte verification
+```
+
+### 1. Check each host before building
+
+The kernel module must already be loaded and its control device must exist:
+
+```bash
+grep '^obmm ' /proc/modules
+ls -l /dev/obmm
+```
+
+It is normal for `/dev/obmm_shmdev*` not to exist before the first successful
+export or import.
+
+Find the local UB controller values used by the test:
+
+```bash
+find /sys/devices -path '*/ubc/eid' -print
+find /sys/devices -path '*/ubc/primary_cna' -print
+
+cat /sys/devices/ub_bus_controller0/*/ubc/eid
+cat /sys/devices/ub_bus_controller0/*/ubc/primary_cna
+```
+
+Use the controller that belongs to the intended UB path. The exporter and
+local test need the local EID. The importer needs both its local EID and its
+`primary_cna`.
+
+### 2. Build three independent OBMM executables
+
+When `libobmm.so` has not been built, point CMake at the directory containing
+`libobmm.c`, `vendor_adaptor.c`, and their headers. The two C files will be
+compiled into a private static library for this test. Since `libobmm.h`
+includes `ub/obmm.h`, also provide the UAPI include root:
+
+```bash
+cmake -S tests/ub-two-node -B tests/ub-two-node/build-obmm \
+  -DOBMM_SOURCE_DIR=/path/to/obmm-master/src/libobmm \
+  -DOBMM_UAPI_INCLUDE_DIR=/path/to/include-root-containing-ub-directory
+cmake --build tests/ub-two-node/build-obmm \
+  --target obmm_local_nc_test obmm_nc_exporter obmm_nc_importer -j
+```
+
+`OBMM_INCLUDE_DIR` is inferred from `OBMM_SOURCE_DIR`. Set it explicitly only
+if `libobmm.h` is stored elsewhere. If a prebuilt library becomes available,
+you may instead set `OBMM_LIBRARY=/path/to/libobmm.so`.
+
+For example, if the UAPI header is
+`/opt/obmm-master/include/uapi/ub/obmm.h`, pass
+`-DOBMM_UAPI_INCLUDE_DIR=/opt/obmm-master/include/uapi`.
+
+Check that all executables were produced:
+
+```bash
+ls -l tests/ub-two-node/build-obmm/obmm_local_nc_test \
+      tests/ub-two-node/build-obmm/obmm_nc_exporter \
+      tests/ub-two-node/build-obmm/obmm_nc_importer
+```
+
+### 3. Run the local test independently on each host
+
+Run this first on host 0, with no process running on host 1:
+
+```bash
+tests/ub-two-node/build-obmm/obmm_local_nc_test \
+  --local-eid 0x10 --numa-id 0 \
+  --region-mb 2 --test-bytes 4096 --iterations 100000
+```
+
+After it exits and removes its export, run the same executable independently
+on host 1 using host 1's EID and valid local NUMA node. The result contains:
+
+```text
+PASS local NC load/store correctness (4096 bytes)
+local_nc_load_avg_ns=...
+local_nc_fenced_store_avg_ns=...
+PASS local OBMM NC test and cleanup
+```
+
+`local_nc_load_avg_ns` measures repeated volatile 8-byte loads. The fenced
+store metric executes a full compiler/CPU barrier after every 8-byte store; it
+is an ordered-store cost, not a claim about persistent-media completion.
+
+The program maps the complete `--region-mb` region but touches
+`--test-bytes` for correctness. OBMM may require a larger region than 2 MiB on
+systems with a larger basic allocation granularity.
+
+### 4. Run the two-host NC export/import test
+
+After both local tests have exited, start the exporter on host 0. Its EID is
+placed in the export descriptor's `deid` field:
+
+```bash
+tests/ub-two-node/build-obmm/obmm_nc_exporter \
+  --bind-ip 192.0.2.10 --port 18515 \
+  --local-eid 0x10 --numa-id 0 \
+  --region-mb 2 --test-bytes 4096
+```
+
+The exporter creates and maps its memory before listening. While it waits,
+host 0 should show one `/dev/obmm_shmdev<mem_id>` device. Then start the
+importer on host 1. Its EID and primary CNA become `seid` and `scna`:
+
+```bash
+tests/ub-two-node/build-obmm/obmm_nc_importer \
+  --owner-ip 192.0.2.10 --port 18515 \
+  --local-eid 0x20 --local-scna 0x1 \
+  --test-bytes 4096
+```
+
+Use the actual `eid`, `primary_cna`, IP addresses, valid owner NUMA ID, and
+OBMM allocation granularity from the two machines. On kernels whose OBMM basic
+granularity is larger than 2 MiB, increase `--region-mb` accordingly.
+
+Successful exporter output ends with:
+
+```text
+PASS exporter NC store -> importer NC load (4096 bytes)
+PASS importer NC store -> exporter NC load (4096 bytes)
+PASS two-node OBMM NC exporter and cleanup
+```
+
+The importer first performs `munmap`, `close`, and `obmm_unimport`, and only
+then sends the final cleanup notification. The exporter subsequently performs
+`munmap`, `close`, and `obmm_unexport`. After both programs exit successfully,
+their newly created `/dev/obmm_shmdev*` devices should disappear.
+
+## Memlink benchmark
+
 `ub_two_node_bench` runs the same binary on two UB hosts. TCP is used only for
 reachability, phase synchronization, and correctness acknowledgements. The
 measured data accesses use the Memlink mappings directly. One invocation runs
