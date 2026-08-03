@@ -1,81 +1,178 @@
-# UB two-node benchmark
+# OBMM 微测试
 
-This directory contains independent OBMM micro tests and the existing Memlink
-benchmark. The OBMM programs are deliberately separate executables so a local
-test cannot accidentally join or reuse a two-host run:
+本目录包含三个彼此独立的 OBMM 测试程序。单机测试与双机测试使用不同的可执行文件，避免误用角色参数或复用其他测试的运行状态。
 
-- `ub_two_node_bench`: the existing Memlink latency/correctness benchmark;
-- `obmm_local_nc_test`: one-host OBMM export, NC mmap, correctness, and local
-  load/store latency;
-- `obmm_nc_exporter`: owner/export half of the two-host NC visibility test;
-- `obmm_nc_importer`: remote/import half of the two-host NC visibility test.
+- `obmm_local_nc_test`：单机执行 OBMM export、NC mmap、本地 load/store 正确性和时延测试；
+- `obmm_nc_exporter`：双机 NC 可见性测试的 owner/export 端；
+- `obmm_nc_importer`：双机 NC 可见性测试的 remote/import 端。
 
-## OBMM micro tests
+## 1. 当前测试语义
 
-Every OBMM test opens `/dev/obmm_shmdev<mem_id>` with `O_RDWR | O_SYNC` and
-maps it with `PROT_READ | PROT_WRITE | MAP_SHARED`. All mappings in this first
-round are non-cacheable. The programs do not call `obmm_set_ownership`, CLWB,
-or any cache invalidation instruction.
+所有测试都通过以下方式映射 `/dev/obmm_shmdev<mem_id>`：
 
-The local test creates and destroys its own export without using TCP. In the
-two-host test, TCP carries only the export descriptor and phase notifications;
-the payload travels only through the OBMM mapping:
-
-```text
-owner NC store    -> importer NC load and byte-for-byte verification
-importer NC store -> owner NC load and byte-for-byte verification
+```c
+open(path, O_RDWR | O_SYNC);
+mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 ```
 
-### 1. Check each host before building
+`O_SYNC` 表示使用 non-cacheable（NC）映射。因此当前程序：
 
-The kernel module must already be loaded and its control device must exist:
+- 不调用 `obmm_set_ownership()`；
+- 不执行 CLWB；
+- 不执行 cache invalidate；
+- owner 和 importer 都通过普通 CPU load/store 访问 NC 映射。
+
+单机测试不使用 TCP，它会独立创建和销毁自己的 export。双机测试中的 TCP 只负责传递 export 描述符和阶段同步消息，测试数据只通过 OBMM mmap 地址传递：
+
+```text
+exporter NC store → importer NC load → 逐字节校验
+importer NC store → exporter NC load → 逐字节校验
+```
+
+## 2. 运行前检查
+
+两台机器都应确认 OBMM 模块已经加载，并且控制设备存在：
 
 ```bash
 grep '^obmm ' /proc/modules
 ls -l /dev/obmm
 ```
 
-It is normal for `/dev/obmm_shmdev*` not to exist before the first successful
-export or import.
+第一次成功执行 export/import 之前不存在 `/dev/obmm_shmdev*` 是正常现象。
 
-Find the local UB controller values used by the test:
+先查看本机 UB Controller 入口。它们可能是符号链接：
 
 ```bash
-find /sys/devices -path '*/ubc/eid' -print
-find /sys/devices -path '*/ubc/primary_cna' -print
-
-cat /sys/devices/ub_bus_controller0/*/ubc/eid
-cat /sys/devices/ub_bus_controller0/*/ubc/primary_cna
+ls -la /sys/devices | grep -E 'ub_bus_controller[0-9]+'
 ```
 
-Use the controller that belongs to the intended UB path. The exporter and
-local test need the local EID. The importer needs both its local EID and its
-`primary_cna`.
+普通的 `find /sys/devices` 默认不会进入符号链接，因此可能找不到其中的 `ubc/eid`。应使用 `find -L`，或者直接沿 controller 入口读取：
 
-### 2. Build three independent OBMM executables
+```bash
+find -L /sys/devices/ub_bus_controller0 \
+        /sys/devices/ub_bus_controller1 \
+  \( -name eid -o -name primary_cna -o -name ummu_map -o -name numa \) \
+  -print 2>/dev/null
+```
 
-When `libobmm.so` has not been built, point CMake at the directory containing
-`libobmm.c`, `vendor_adaptor.c`, and their headers. The two C files will be
-compiled into a private static library for this test. Since `libobmm.h`
-includes `ub/obmm.h`, also provide the UAPI include root:
+一次打印 controller 0 和 1 的全部关键属性：
+
+```bash
+for controller in 0 1; do
+  for ubc in /sys/devices/ub_bus_controller${controller}/*/ubc; do
+    [ -d "$ubc" ] || continue
+    echo "===== controller ${controller}: ${ubc} ====="
+    for attr in eid primary_cna ummu_map numa; do
+      [ -r "$ubc/$attr" ] && printf '%-12s %s\n' "$attr" "$(cat "$ubc/$attr")"
+    done
+  done
+done
+```
+
+需要选择实际参与这条 UB 链路的 Controller：
+
+- 单机测试需要本机 EID；
+- exporter 需要 owner 机器的 EID；
+- importer 需要 importer 机器的 EID 和 `primary_cna`。
+
+`--local-eid` 和 `--local-scna` 必须来自同一个 `ubc`。对于单机测试和 exporter，建议让 `--numa-id` 与该 `ubc` 输出的 `numa` 一致。
+
+## 3. 在哪里设置 OBMM 和 libobmm 目录
+
+这些路径在第一次执行 CMake 配置时，通过 `-D变量=路径` 设置。路径会保存在：
+
+```text
+tests/ub-two-node/build-obmm/CMakeCache.txt
+```
+
+当前支持以下变量：
+
+| CMake 变量 | 应指向的内容 | 是否必须 |
+|---|---|---|
+| `OBMM_SOURCE_DIR` | 包含 `libobmm.c`、`libobmm.h`、`vendor_adaptor.c`、`vendor_adaptor.h` 的目录 | 没有 `libobmm.so` 时必须 |
+| `OBMM_UAPI_INCLUDE_DIR` | `ub` 目录的直接父目录，使编译器能找到 `<ub/obmm.h>` | 必须 |
+| `OBMM_INCLUDE_DIR` | 包含 `libobmm.h` 的目录 | 通常自动从 `OBMM_SOURCE_DIR` 推导 |
+| `OBMM_LIBRARY` | 已经编译好的 `libobmm.so` 或 `libobmm.a` | 当前没有该库，不需要设置 |
+
+不需要向 CMake 传递 `obmm.ko.xz` 的路径。`obmm.ko.xz` 是已经由内核运行的驱动模块；测试程序编译时只使用用户态源代码和 UAPI 头文件。
+
+### 3.1 查找 `OBMM_SOURCE_DIR`
+
+在机器的 `obmm-master` 中执行：
+
+```bash
+find /实际路径/obmm-master -type f -name libobmm.c -print
+find /实际路径/obmm-master -type f -name vendor_adaptor.c -print
+```
+
+设置：
+
+```text
+OBMM_SOURCE_DIR=../../../obmm-master/libobmm
+```
+
+确认该目录完整：
+
+```bash
+ls -l /opt/obmm-master/src/libobmm/libobmm.c \
+      /opt/obmm-master/src/libobmm/libobmm.h \
+      /opt/obmm-master/src/libobmm/vendor_adaptor.c \
+      /opt/obmm-master/src/libobmm/vendor_adaptor.h
+```
+
+### 3.2 查找 `OBMM_UAPI_INCLUDE_DIR`
+
+执行：
+
+```bash
+find /实际路径/obmm-master -type f -path '*/ub/obmm.h' -print
+```
+设置：
+
+```text
+OBMM_UAPI_INCLUDE_DIR=../../../obmm-master/include/uapi
+```
+
+注意，应传入 `ub` 目录的父目录，不能传入：
+
+```text
+../../../obmm-master/include/uapi/ub
+```
+
+可以用下面的命令验证：
+
+```bash
+test -f ../../../obmm-master/include/uapi/ub/obmm.h && echo "UAPI 路径正确"
+```
+
+## 4. 编译三个独立测试程序
+
+下面假设：
+
+```text
+libobmm.c 位于 ../../../obmm-master/libobmm/libobmm.c
+UAPI 位于      ../../../obmm-master/include/uapi/ub/obmm.h
+```
+
+配置 CMake：
 
 ```bash
 cmake -S tests/ub-two-node -B tests/ub-two-node/build-obmm \
-  -DOBMM_SOURCE_DIR=/path/to/obmm-master/src/libobmm \
-  -DOBMM_UAPI_INCLUDE_DIR=/path/to/include-root-containing-ub-directory
-cmake --build tests/ub-two-node/build-obmm \
-  --target obmm_local_nc_test obmm_nc_exporter obmm_nc_importer -j
+  -DOBMM_SOURCE_DIR=../../../obmm-master/libobmm \
+  -DOBMM_UAPI_INCLUDE_DIR=../../../obmm-master/include/uapi
 ```
 
-`OBMM_INCLUDE_DIR` is inferred from `OBMM_SOURCE_DIR`. Set it explicitly only
-if `libobmm.h` is stored elsewhere. If a prebuilt library becomes available,
-you may instead set `OBMM_LIBRARY=/path/to/libobmm.so`.
+这里会直接编译 `libobmm.c` 和 `vendor_adaptor.c`。
 
-For example, if the UAPI header is
-`/opt/obmm-master/include/uapi/ub/obmm.h`, pass
-`-DOBMM_UAPI_INCLUDE_DIR=/opt/obmm-master/include/uapi`.
+编译三个目标：
 
-Check that all executables were produced:
+```bash
+cmake --build tests/ub-two-node/build-obmm \
+  --target obmm_local_nc_test obmm_nc_exporter obmm_nc_importer \
+  -j
+```
+
+确认结果：
 
 ```bash
 ls -l tests/ub-two-node/build-obmm/obmm_local_nc_test \
@@ -83,18 +180,30 @@ ls -l tests/ub-two-node/build-obmm/obmm_local_nc_test \
       tests/ub-two-node/build-obmm/obmm_nc_importer
 ```
 
-### 3. Run the local test independently on each host
+查看 CMake 当前实际保存的路径：
 
-Run this first on host 0, with no process running on host 1:
+```bash
+grep '^OBMM_' tests/ub-two-node/build-obmm/CMakeCache.txt
+```
+
+如果第一次填写错了，可以重新执行 `cmake -S ... -B ... -DOBMM_SOURCE_DIR=... -DOBMM_UAPI_INCLUDE_DIR=...` 覆盖缓存中的值，也可以使用一个新的构建目录，例如 `build-obmm-2`。
+
+## 5. 分别执行两台机器的单机测试
+
+先在机器 0 上独立运行，此时机器 1 不需要运行任何测试程序：
 
 ```bash
 tests/ub-two-node/build-obmm/obmm_local_nc_test \
-  --local-eid 0x10 --numa-id 0 \
-  --region-mb 2 --test-bytes 4096 --iterations 100000
+  --local-eid 0x10 \
+  --numa-id 0 \
+  --region-mb 2 \
+  --test-bytes 4096 \
+  --iterations 100000
 ```
 
-After it exits and removes its export, run the same executable independently
-on host 1 using host 1's EID and valid local NUMA node. The result contains:
+将 `0x10` 替换为机器 0 的实际 EID。
+
+成功输出应包含：
 
 ```text
 PASS local NC load/store correctness (4096 bytes)
@@ -103,42 +212,67 @@ local_nc_fenced_store_avg_ns=...
 PASS local OBMM NC test and cleanup
 ```
 
-`local_nc_load_avg_ns` measures repeated volatile 8-byte loads. The fenced
-store metric executes a full compiler/CPU barrier after every 8-byte store; it
-is an ordered-store cost, not a claim about persistent-media completion.
+其中：
 
-The program maps the complete `--region-mb` region but touches
-`--test-bytes` for correctness. OBMM may require a larger region than 2 MiB on
-systems with a larger basic allocation granularity.
+- `local_nc_load_avg_ns`：重复执行 volatile 8 字节 load 的平均耗时；
+- `local_nc_fenced_store_avg_ns`：每次 8 字节 store 后执行完整 CPU/compiler fence 的平均耗时。
 
-### 4. Run the two-host NC export/import test
+第二项表示有序 store 的成本，不表示持久化介质已经完成写入。
 
-After both local tests have exited, start the exporter on host 0. Its EID is
-placed in the export descriptor's `deid` field:
+机器 0 测试退出并完成 unexport 后，再在机器 1 上独立运行相同程序，换成机器 1 的 EID 和有效 NUMA ID。
+
+程序会 mmap 完整的 `--region-mb` 区域，但正确性测试只访问前 `--test-bytes` 字节。如果机器的 OBMM 基础分配粒度大于 2 MiB，需要相应增大 `--region-mb`，例如 32 或 512。
+
+## 6. 执行双机 NC export/import 测试
+
+确认两台机器的单机测试都已退出。正常情况下，测试创建的 shmdev 应已消失：
+
+```bash
+ls -l /dev/obmm_shmdev* 2>/dev/null
+```
+
+### 6.1 机器 0：启动 exporter
 
 ```bash
 tests/ub-two-node/build-obmm/obmm_nc_exporter \
-  --bind-ip 192.0.2.10 --port 18515 \
-  --local-eid 0x10 --numa-id 0 \
-  --region-mb 2 --test-bytes 4096
-```
-
-The exporter creates and maps its memory before listening. While it waits,
-host 0 should show one `/dev/obmm_shmdev<mem_id>` device. Then start the
-importer on host 1. Its EID and primary CNA become `seid` and `scna`:
-
-```bash
-tests/ub-two-node/build-obmm/obmm_nc_importer \
-  --owner-ip 192.0.2.10 --port 18515 \
-  --local-eid 0x20 --local-scna 0x1 \
+  --bind-ip 192.0.2.10 \
+  --port 18515 \
+  --local-eid 0x10 \
+  --numa-id 0 \
+  --region-mb 2 \
   --test-bytes 4096
 ```
 
-Use the actual `eid`, `primary_cna`, IP addresses, valid owner NUMA ID, and
-OBMM allocation granularity from the two machines. On kernels whose OBMM basic
-granularity is larger than 2 MiB, increase `--region-mb` accordingly.
+替换 IP、EID、NUMA ID 和内存大小。exporter 会先执行 export 和 mmap，然后输出：
 
-Successful exporter output ends with:
+```text
+waiting for importer on 192.0.2.10:18515
+```
+
+此时机器 0 应该可以看到新创建的数据设备：
+
+```bash
+ls -l /dev/obmm_shmdev*
+```
+
+### 6.2 机器 1：启动 importer
+
+```bash
+tests/ub-two-node/build-obmm/obmm_nc_importer \
+  --owner-ip 192.0.2.10 \
+  --port 18515 \
+  --local-eid 0x20 \
+  --local-scna 0x1 \
+  --test-bytes 4096
+```
+
+其中：
+
+- `--owner-ip`：机器 0 的 IP；
+- `--local-eid`：机器 1 的本地 UB Controller EID；
+- `--local-scna`：机器 1 对应 UB Controller 的 `primary_cna`。
+
+成功时 exporter 输出：
 
 ```text
 PASS exporter NC store -> importer NC load (4096 bytes)
@@ -146,167 +280,32 @@ PASS importer NC store -> exporter NC load (4096 bytes)
 PASS two-node OBMM NC exporter and cleanup
 ```
 
-The importer first performs `munmap`, `close`, and `obmm_unimport`, and only
-then sends the final cleanup notification. The exporter subsequently performs
-`munmap`, `close`, and `obmm_unexport`. After both programs exit successfully,
-their newly created `/dev/obmm_shmdev*` devices should disappear.
-
-## Memlink benchmark
-
-`ub_two_node_bench` runs the same binary on two UB hosts. TCP is used only for
-reachability, phase synchronization, and correctness acknowledgements. The
-measured data accesses use the Memlink mappings directly. One invocation runs
-one test point so that failures remain isolated and easy to diagnose.
-
-List the test points without requiring Memlink arguments:
-
-```bash
-tests/ub-two-node/build/ub_two_node_bench --list-tests
-```
-
-Available test points:
-
-- `connectivity`: TCP reachability and bidirectional RTT only;
-- `basic`: the original local/remote latency and 8-byte visibility test;
-- `size_visibility`: bidirectional 8B, 64B, 256B, 4KiB, and 64KiB tests;
-- `owner_stream_remote_read`: continuous owner writes with high-frequency
-  remote snapshot reads;
-- `remote_atomic`: the explicitly selected experimental remote CPU atomic
-  capability test.
-
-The `basic` test reports:
-
-- bidirectional TCP round-trip latency;
-- owner-local hot read, pointer-chase read, cached write, and ordered write;
-- owner-local atomic load, store, fetch-add, and successful CAS;
-- owner write followed by remote invalidate and load, in both directions;
-- remote invalidate, store, write-back, and owner read, in both directions.
-
-The `remote_atomic` test measures sequential remote fetch-add/CAS and stresses
-one counter with concurrent owner-local and remote fetch-add operations. A
-latency number does not prove distributed atomicity. Only a PASS from the
-contended correctness test supports using that operation on this mapping, and
-the result still applies only to the tested platform/configuration.
-
-## Build
-
-```bash
-cmake -S tests/ub-two-node -B tests/ub-two-node/build \
-  -DMEMLINK_CLIENT_LIBRARY=/path/to/libmemlink_client.so
-cmake --build tests/ub-two-node/build -j
-```
-
-If the client library has further runtime dependencies:
-
-```bash
-export LD_LIBRARY_PATH=/path/to/vendor/libs:${LD_LIBRARY_PATH}
-ldd tests/ub-two-node/build/ub_two_node_bench | grep 'not found'
-```
-
-The final command must print nothing.
-
-## Run
-
-Use a new prefix for every run.  Start both commands within the startup
-timeout.  Replace the IP addresses and physical Memlink node IDs.
-
-Host 0:
-
-```bash
-tests/ub-two-node/build/ub_two_node_bench \
-  --id 0 --local-ip 192.0.2.10 --peer-ip 192.0.2.11 \
-  --owner-node-id 0 --prefix ub_probe_001 \
-  --test basic \
-  --region-mb 64 --working-set-mb 4 --iterations 10000
-```
-
-Host 1:
-
-```bash
-tests/ub-two-node/build/ub_two_node_bench \
-  --id 1 --local-ip 192.0.2.11 --peer-ip 192.0.2.10 \
-  --owner-node-id 1 --prefix ub_probe_001 \
-  --test basic \
-  --region-mb 64 --working-set-mb 4 --iterations 10000
-```
-
-For another test point, keep all networking and owner arguments the same on
-the two hosts, choose a new prefix, and change `--test` on both commands.
-
-### Different-size visibility
-
-```bash
---test size_visibility \
---prefix ub_size_probe_001 \
---size-iterations 1000
-```
-
-Every size is run separately in these four directions:
+成功时 importer 输出：
 
 ```text
-owner 0 write -> host 1 invalidate/read
-host 1 invalidate/write/writeback -> owner 0 ordinary read
-owner 1 write -> host 0 invalidate/read
-host 0 invalidate/write/writeback -> owner 1 ordinary read
+PASS importer observed exporter pattern
+PASS importer NC store observed by exporter
+PASS two-node OBMM NC importer and cleanup
 ```
 
-The complete payload is compared byte by byte. A 64-byte guard exists before
-and after the payload, so partial-cache-line corruption is also detected.
+## 7. 清理顺序
 
-### Continuous owner write and remote polling
+双机测试严格使用以下顺序：
 
-```bash
---test owner_stream_remote_read \
---prefix ub_stream_probe_001 \
---stream-payload-size 4096 \
---stream-duration-ms 3000
+```text
+importer: munmap → close → obmm_unimport
+                         ↓
+                   通知 exporter
+                         ↓
+exporter: munmap → close → obmm_unexport
 ```
 
-The owner continuously publishes a versioned multi-cache-line record using
-ordinary cached stores and fences only. It never flushes or invalidates. The
-remote host repeatedly:
+两个程序正常退出后，它们新创建的 `/dev/obmm_shmdev*` 应当消失。
 
-1. invalidates and reads the leading version;
-2. invalidates and copies the payload plus trailing version;
-3. invalidates and reads the leading version again;
-4. accepts the snapshot only when both versions match, are even, and every
-   payload byte matches that version's deterministic pattern.
-
-The output reports accepted snapshots, retries caused by concurrent updates,
-corruption, version regressions, and whether the final owner version was seen.
-Both hosts take a turn as owner.
-
-### Remote atomics
-
-After the base tests pass, explicitly select the remote-atomic capability
-probe on both hosts with a new prefix:
+如果测试失败，请保留两端完整输出，并额外收集：
 
 ```bash
---test remote_atomic \
---prefix ub_atomic_probe_001 \
---atomic-iterations 10000
-```
-
-The test unmaps its virtual mappings but deliberately does not delete named
-Memlink regions.  Deleting a region can affect the peer, so cleanup must use
-the vendor Memlink management command after both processes have exited.
-
-## Interpreting the main metrics
-
-- `local_owner_*`: owner CPU access; no cache-line flush/invalidate is used.
-- `remote_read_*_invalidate_load`: remote correctness path including explicit
-  invalidation and the following load.
-- `remote_write_*_invalidate_store_writeback`: safe partial-line remote write
-  path including invalidation, store, write-back, and completion fence.
-- `remote_atomic_*_with_cache_maintenance`: experimental CPU atomic on a
-  remote mapping; it is not a device-atomic API.
-- `contended_cross_host_fetch_add`: the important cross-host atomic
-  correctness result.  FAIL means remote CPU atomics must not be used for
-  cross-host locks or counters.
-
-Run with CPU and memory placement pinned when comparing machines, for example
-with the appropriate local NUMA node:
-
-```bash
-numactl --physcpubind=4 --membind=0 tests/ub-two-node/build/ub_two_node_bench ...
+dmesg | tail -n 100
+ls -l /dev/obmm /dev/obmm_shmdev* 2>/dev/null
+grep '^OBMM_' tests/ub-two-node/build-obmm/CMakeCache.txt
 ```
