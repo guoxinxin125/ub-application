@@ -1,0 +1,18 @@
+  find -L \
+    /sys/devices/ub_bus_controller0 \
+    /sys/devices/ub_bus_controller1 \
+    -type d -name ubc -print 2>/dev/null
+
+  find -L \
+    /sys/devices/ub_bus_controller0 \
+    /sys/devices/ub_bus_controller1 \
+    \( -name primary_cna -o -name ummu_map \) \
+    -print 2>/dev/null
+
+  for module in hisi_ubus hisi_ummu_core hisi_soc_cache_framework hisi_soc_hha; do
+    if [ -d "/sys/module/$module" ]; then
+      echo "$module: present"
+    else
+      echo "$module: absent"
+    fi
+  done
