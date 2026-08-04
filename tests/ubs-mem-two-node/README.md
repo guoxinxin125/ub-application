@@ -3,8 +3,9 @@
 本目录使用 `ubs-mem` 的公开 SDK 测试单边 CC 共享内存。它与
 `tests/ub-two-node` 中直接调用 OBMM 的测试相互独立，不共享构建目录或运行状态。
 
-包含三个可执行程序：
+包含四个可执行程序：
 
+- `ubsm_shm_admin`：按精确名称查询或清理残留共享内存对象；
 - `ubsm_local_one_sided_test`：单机创建、映射、load/store 正确性与时延；
 - `ubsm_one_sided_owner`：双机测试的物理 owner 端；
 - `ubsm_one_sided_remote`：双机测试的 remote/import 端。
@@ -322,7 +323,8 @@ cmake -S tests/ubs-mem-two-node \
   -DUBSM_LIBRARY=/usr/local/ubs_mem/lib/libubsm_sdk.so
 
 cmake --build tests/ubs-mem-two-node/build-ubsm \
-  --target ubsm_local_one_sided_test \
+  --target ubsm_shm_admin \
+           ubsm_local_one_sided_test \
            ubsm_one_sided_owner \
            ubsm_one_sided_remote \
   -j
@@ -342,7 +344,8 @@ CMake 配置失败时会分别打印两个头文件和 SDK 库哪个缺失。
 验证产物：
 
 ```bash
-ls -l tests/ubs-mem-two-node/build-ubsm/ubsm_local_one_sided_test \
+ls -l tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_local_one_sided_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_owner \
       tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_remote
 ```
@@ -468,6 +471,48 @@ PASS two-node UBS Memory owner and cleanup
 
 ## 9. 清理与故障排查
 
+### 9.1 查询和清理残留对象
+
+必须在对象的 owner 机器上运行管理工具。按精确名称查询：
+
+```bash
+tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
+  --query ubsm_micro_ab
+```
+
+对象存在时返回码为 0，并输出类似：
+
+```text
+FOUND name=ubsm_micro_ab size=4194304 mem_num=... mem_unit_size=...
+```
+
+对象不存在时返回码为 1，并输出：
+
+```text
+NOT_FOUND name=ubsm_micro_ab
+```
+
+确认 owner 和 remote 测试进程都已经退出后，按精确名称清理：
+
+```bash
+tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
+  --remove ubsm_micro_ab
+```
+
+成功时输出 `REMOVED name=ubsm_micro_ab`。再次执行 `--query` 应返回
+`NOT_FOUND`。`--remove` 对已经不存在的对象是幂等的，会输出 `NOT_FOUND` 并返回 0。
+
+如果返回 `UBSM_ERR_IN_USING=6024`，说明仍有映射或引用，不能强制删除。先在两台机器上检查：
+
+```bash
+pgrep -af 'ubsm_(local_one_sided_test|one_sided_owner|one_sided_remote)'
+```
+
+管理工具只接受精确名称，不支持通配删除。不要用 `rm` 删除
+`/dev/obmm_shmdev*`，也不要为了清理单个测试对象重启共享的服务。
+
+### 9.2 正常清理和故障信息
+
 正常双机清理顺序是：
 
 ```text
@@ -478,8 +523,9 @@ remote unmap
     -> 两端 finalize
 ```
 
-不要在 remote 仍映射时手动 deallocate。程序被 `SIGKILL`、机器掉电或服务异常中止时，
-C++ 清理代码无法运行；此时由 ubsmd/UBS Engine 的引用记录和泄漏清理机制处理。
+不要在 remote 仍映射时手动 deallocate。程序被 `SIGINT`、`SIGKILL`、机器掉电或服务异常
+中止时，C++ 清理代码可能无法运行；ubsmd/UBS Engine 可以回收死亡进程的引用记录，但
+具名共享内存对象仍可能保留。确认引用已经释放后，使用 `ubsm_shm_admin --remove` 清理。
 
 失败后收集：
 

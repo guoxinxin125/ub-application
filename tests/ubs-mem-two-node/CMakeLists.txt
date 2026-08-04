@@ -70,6 +70,7 @@ endif()
 
 get_filename_component(UBSM_LIBRARY_DIR "${UBSM_LIBRARY}" DIRECTORY)
 set(UBSM_TEST_TARGETS
+    ubsm_shm_admin
     ubsm_local_one_sided_test
     ubsm_one_sided_owner
     ubsm_one_sided_remote)
