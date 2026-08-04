@@ -1,0 +1,468 @@
+# UBS Memory 单机/双机微测试
+
+本目录使用 `ubs-mem` 的公开 SDK 测试单边 CC 共享内存。它与
+`tests/ub-two-node` 中直接调用 OBMM 的测试相互独立，不共享构建目录或运行状态。
+
+包含三个可执行程序：
+
+- `ubsm_local_one_sided_test`：单机创建、映射、load/store 正确性与时延；
+- `ubsm_one_sided_owner`：双机测试的物理 owner 端；
+- `ubsm_one_sided_remote`：双机测试的 remote/import 端。
+
+## 1. 测试的缓存语义
+
+创建共享内存时固定使用：
+
+```cpp
+UBSM_FLAG_ONLY_IMPORT_NONCACHE | UBSM_FLAG_WR_DELAY_COMP
+```
+
+预期语义是：
+
+- owner/export 节点以 cacheable 方式映射；
+- remote/import 节点以 `O_SYNC`、non-cacheable 方式映射；
+- owner 的读写由硬件维持一致性，不执行 CLWB、flush 或 invalidate；
+- remote 直接 load/store NC 映射，不执行软件 cache maintenance；
+- 不调用 `ubsmem_shmem_set_ownership()`。
+
+双机测试的数据只通过 UB 映射地址传递。TCP 连接仅传递单字节阶段通知，用来保证
+“先写后读”和安全的 unmap/deallocate 顺序，不承载被测试的数据。
+
+测试顺序为：
+
+```text
+owner cacheable store
+        -> remote NC load 并逐字节校验
+        -> remote NC store
+        -> owner cacheable load 并逐字节校验
+        -> remote unmap
+        -> owner unmap + deallocate
+```
+
+这同时验证了最基本的单边 CC 正确性：owner 的 cacheable 写入对 remote NC 可见，
+remote NC 写入对 owner 的 cacheable 读取可见。
+
+## 2. 与直接 OBMM 测试的区别
+
+应用不再自行调用 `obmm_export()`/`obmm_import()`，也不交换 EID、token 和
+`obmm_mem_desc`。应用只使用一个全局共享内存名称：
+
+```text
+ubsmem_shmem_allocate(name)
+ubsmem_shmem_map(name)
+```
+
+`libubsm_sdk.so`、`ubsmd` 和 UBS Engine 负责节点发现、OBMM export/import、
+mem_id 管理和异常资源清理。映射成功后的 load/store 仍然直接访问
+`/dev/obmm_shmdev<mem_id>` 对应的内存，不经过 daemon 或 RPC。
+
+因此，请先跑通直接 OBMM 测试，再运行本目录测试。这样若失败，可以区分是底层
+OBMM/UB 通路问题，还是 UBS Engine/ubsmd 控制面问题。
+
+双机 owner 程序通过 `ubsmem_shmem_allocate_with_provider()` 显式指定本机 hostname
+作为物理 provider，避免共享内存被调度到另一台主机。socket、NUMA 和 UB port 默认
+传入 `UINT32_MAX` 让 UBS Engine 选择，也可以通过命令行进一步限定。
+
+## 3. 两台机器都要执行的环境检查
+
+### 3.1 操作系统、软件包和内核驱动
+
+```bash
+cat /etc/os-release
+uname -r
+
+rpm -q ubs-mem-shmem ubs-engine ubs-engine-client-libs ubs-comm-lib
+
+grep -E '^(obmm|ubcore|ubus) ' /proc/modules
+ls -l /dev/obmm
+```
+
+软件包名字可能随发行版变化。如果 `rpm -q` 找不到，继续用下面的库、服务和文件
+检查确认实际安装情况。
+
+第一次成功 create/attach 前没有 `/dev/obmm_shmdev*` 是正常的。
+
+### 3.2 动态库和头文件
+
+```bash
+ldconfig -p | grep -E 'libubsm_sdk|libubse-client|libobmm|libhcom'
+
+ls -l /usr/local/ubs_mem/lib/libubsm_sdk.so* 2>/dev/null
+ls -l /usr/lib64/libubse-client.so* /usr/lib64/libobmm.so* 2>/dev/null
+ls -l /usr/local/ubs_mem/include/ubs_mem.h \
+      /usr/local/ubs_mem/include/ubs_mem_def.h 2>/dev/null
+```
+
+必须至少能够找到：
+
+```text
+libubsm_sdk.so
+libubse-client.so.1
+libobmm.so.1
+ubs_mem.h
+ubs_mem_def.h
+```
+
+注意：`ubs-mem-master/3rdparty/obmm_ub` 只提供 OBMM 头文件，不能代替
+`libobmm.so.1`。当前 `libubsm_sdk.so` 初始化时会加载该库，即使本测试不调用
+ownership 切换也仍然需要它。
+
+查看依赖是否有缺失：
+
+```bash
+ldd /usr/local/ubs_mem/lib/libubsm_sdk.so | grep 'not found' || true
+```
+
+若库已安装但 `ldconfig -p` 找不到，可先为当前终端设置：
+
+```bash
+export LD_LIBRARY_PATH=/usr/local/ubs_mem/lib:/usr/lib64:${LD_LIBRARY_PATH}
+```
+
+### 3.3 UBS Engine 和 ubsmd 服务
+
+```bash
+systemctl status ubse.service --no-pager
+systemctl status ubsmd --no-pager
+
+systemctl is-active ubse.service
+systemctl is-active ubsmd
+```
+
+两项都应返回 `active`。若失败，收集：
+
+```bash
+journalctl -u ubse.service -b --no-pager | tail -n 200
+journalctl -u ubsmd -b --no-pager | tail -n 200
+```
+
+### 3.4 NC-CC/snoop 能力
+
+本测试使用 `UBSM_FLAG_ONLY_IMPORT_NONCACHE`。当前 ubs-mem 代码要求 BIOS snoop
+开启，对应 `/sys/bus/ub/ub_feature` 的 Bit3 为 0。
+
+```bash
+if [ -r /sys/bus/ub/ub_feature ]; then
+    value=$(cat /sys/bus/ub/ub_feature)
+    printf 'ub_feature=%s\n' "$value"
+    printf 'bit3=%d (0 expected for this NC-CC test)\n' "$((value & 0x8 ? 1 : 0))"
+else
+    echo '/sys/bus/ub/ub_feature 不存在；当前版本会跳过自动兼容性校验'
+fi
+```
+
+如果 Bit3 为 1，`ubsmem_shmem_allocate()` 预计返回
+`UBSM_ERR_NOT_SUPPORTED`（6025）。不要为了绕过检查修改测试 flag；应先确认 BIOS、
+ubus 驱动和实际机器的一侧 CC 配置。
+
+### 3.5 NUMA、hugepage 和 OBMM 资源池
+
+```bash
+cat /sys/devices/system/node/online
+cat /sys/devices/system/node/has_memory
+cat /sys/devices/system/node/has_cpu
+numactl --hardware
+
+grep . /sys/module/obmm/parameters/* 2>/dev/null
+grep -R . /sys/kernel/mm/hugepages/hugepages-2048kB/ 2>/dev/null | \
+  grep -E 'nr_hugepages|free_hugepages' || true
+```
+
+如果 OBMM 使用 `hugetlb_pmd`，应在实际有内存的 NUMA 节点上准备足够的 2 MiB
+hugepage。不要在 `has_memory` 中不存在的 I/O/CPU-only NUMA 节点上预留 hugepage。
+
+如果系统提供 OBMM mempool 状态文件，也应在测试前确认 `total` 或 `available` 不为
+零。具体路径随 OBMM 版本变化，可先查找：
+
+```bash
+find /sys -path '*obmm*' -type f 2>/dev/null | sort
+```
+
+### 3.6 用户权限与主机名
+
+SDK 通过本机 Unix socket 连接 `ubsmd`。两台机器上的测试用户都应有权限访问该
+服务：
+
+```bash
+id
+getent group ubsmd
+```
+
+如尚未加入用户组：
+
+```bash
+sudo usermod -aG ubsmd "$(id -un)"
+```
+
+重新登录后再运行测试。双机共享对象使用 `0660`，建议两台机器使用一致的测试用户
+UID/GID，并确认 UBS Memory 的权限策略允许远端 attach。
+
+确认两机 hostname 唯一且可以解析：
+
+```bash
+hostname
+hostname -f
+getent hosts <另一台机器的hostname>
+ping -c 3 <另一台机器的管理IP>
+```
+
+## 4. 首次部署和双机配置
+
+如果完整软件栈尚未安装，应优先使用发行版对应的软件包：
+
+```bash
+sudo dnf install -y ubs-mem-shmem ubs-engine ubs-engine-client-libs
+```
+
+若软件源不提供这些包，需要分别按当前机器版本构建和安装 UBS Engine、UBS Comm、
+OBMM 用户态库以及 ubs-mem；仅编译本仓库中的 `ubs-mem-master` 不能补齐运行依赖。
+
+配置文件通常是：
+
+```text
+/usr/local/ubs_mem/config/ubsmd.conf
+```
+
+两台机器需要互相配置 RPC 地址。假设：
+
+```text
+机器 A：192.0.2.10
+机器 B：192.0.2.11
+ubsmd RPC 端口：7301
+```
+
+机器 A：
+
+```ini
+ubsm.discovery.min.nodes = 2
+ubsm.server.rpc.local.ipseg = 192.0.2.10:7301
+ubsm.server.rpc.remote.ipseg = 192.0.2.11:7301
+ubsm.lock.enable = off
+```
+
+机器 B：
+
+```ini
+ubsm.discovery.min.nodes = 2
+ubsm.server.rpc.local.ipseg = 192.0.2.11:7301
+ubsm.server.rpc.remote.ipseg = 192.0.2.10:7301
+ubsm.lock.enable = off
+```
+
+本测试不使用 UBS Memory 分布式锁，因此 `ubsm.lock.enable=off` 即可。
+
+生产环境应按项目文档配置 TLS 和证书。只在隔离测试网络中临时验证时，才可以在
+明确接受风险后设置：
+
+```ini
+ubsm.server.tls.enable = off
+```
+
+确保防火墙允许两机之间的 ubsmd RPC 端口和本测试 TCP 端口：
+
+```text
+7301/tcp   ubsmd RPC（以实际配置为准）
+18525/tcp  本测试阶段同步（可通过 --port 修改）
+```
+
+先启动 UBS Engine，再启动 ubsmd：
+
+```bash
+sudo systemctl enable --now ubse.service
+sudo systemctl restart ubsmd
+
+systemctl is-active ubse.service ubsmd
+```
+
+配置完成后，在任意一台机器查询端口：
+
+```bash
+ss -lntp | grep -E ':7301|:18525' || true
+```
+
+`18525` 只有 owner 测试程序启动后才会监听。
+
+## 5. 编译
+
+推荐使用安装后的 SDK：
+
+```bash
+cmake -S tests/ubs-mem-two-node \
+      -B tests/ubs-mem-two-node/build-ubsm \
+  -DUBSM_INCLUDE_DIR=/usr/local/ubs_mem/include \
+  -DUBSM_LIBRARY=/usr/local/ubs_mem/lib/libubsm_sdk.so
+
+cmake --build tests/ubs-mem-two-node/build-ubsm \
+  --target ubsm_local_one_sided_test \
+           ubsm_one_sided_owner \
+           ubsm_one_sided_remote \
+  -j
+```
+
+`UBSM_INCLUDE_DIR` 也可以指向源码仓中的：
+
+```text
+ubs-mem-master/src/app_lib/include
+```
+
+但 `UBSM_LIBRARY` 必须指向真实编译、安装好的 `libubsm_sdk.so`，不能用头文件代替。
+CMake 配置失败时会分别打印两个头文件和 SDK 库哪个缺失。
+头文件与动态库还必须来自兼容的同一版本；不要用本仓库最新头文件配合机器上的旧版
+`libubsm_sdk.so`，否则可能出现 ABI 或 flag 语义不一致。
+
+验证产物：
+
+```bash
+ls -l tests/ubs-mem-two-node/build-ubsm/ubsm_local_one_sided_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_owner \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_remote
+```
+
+## 6. 单机测试
+
+先在机器 A 单独运行。选择 `has_memory` 中存在、且与目标 UB Controller 同 socket
+的内存 NUMA 节点，例如节点 0：
+
+```bash
+numactl --cpunodebind=0 --membind=0 \
+  tests/ubs-mem-two-node/build-ubsm/ubsm_local_one_sided_test \
+    --name ubsm_local_a \
+    --region-mb 4 \
+    --test-bytes 4096 \
+    --iterations 100000
+```
+
+然后在机器 B 使用唯一名字独立运行一次，例如 `ubsm_local_b`。
+
+`--region-mb` 最小为 4，必须是 4 的整数倍。UBS Engine 还可能按照自己的
+`obmm.memory.block.size` 继续向上取整；如果该配置为 128 MiB，应直接传入
+`--region-mb 128`，避免请求大小与实际 block 大小造成误解。
+
+成功输出应包含：
+
+```text
+PASS local owner load/store correctness (4096 bytes)
+local_owner_load_avg_ns=...
+local_owner_fenced_store_avg_ns=...
+PASS local UBS Memory one-sided test and cleanup
+```
+
+程序正常退出时会依次执行 unmap、deallocate 和 finalize，无需手动清理。
+
+## 7. 双机测试
+
+确保两端使用完全相同的 `--name`、`--region-mb` 和 `--test-bytes`。测试程序不会
+自动修改 ubsmd 配置，也不会通过 TCP 传输这些参数。
+
+### 7.1 机器 A：启动 owner
+
+```bash
+numactl --cpunodebind=0 --membind=0 \
+  tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_owner \
+    --bind-ip 192.0.2.10 \
+    --provider-host host-a \
+    --provider-numa 0 \
+    --port 18525 \
+    --name ubsm_micro_ab \
+    --region-mb 4 \
+    --test-bytes 4096 \
+    --iterations 100000 \
+    --timeout-sec 60
+```
+
+owner 会先创建和映射共享内存，再输出：
+
+```text
+owner_local_load_avg_ns=...
+owner_local_fenced_store_avg_ns=...
+waiting for remote on 192.0.2.10:18525
+```
+
+`--provider-host` 应与 UBS Engine 拓扑中登记的 hostname 完全一致；省略时程序调用
+`gethostname()` 使用本机名字。`--provider-socket`、`--provider-numa` 和
+`--provider-port` 均可省略，此时传入 `UINT32_MAX` 由 UBS Engine 选择。如果明确指定
+NUMA，必须选择实际有内存、资源池可用且属于目标 owner socket 的节点。
+
+### 7.2 机器 B：启动 remote
+
+```bash
+tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_remote \
+  --owner-ip 192.0.2.10 \
+  --port 18525 \
+  --name ubsm_micro_ab \
+  --region-mb 4 \
+  --test-bytes 4096 \
+  --iterations 100000 \
+  --timeout-sec 60
+```
+
+remote 不调用 allocate。它通过全局名字 `ubsm_micro_ab` 请求 UBS Engine attach，
+随后映射 owner 已创建的同一对象。
+
+remote 成功输出应包含：
+
+```text
+PASS owner cacheable store -> remote NC load (4096 bytes)
+remote_nc_load_avg_ns=...
+remote_nc_fenced_store_avg_ns=...
+PASS two-node UBS Memory remote and cleanup
+```
+
+owner 成功输出应包含：
+
+```text
+PASS remote NC store -> owner cacheable load (4096 bytes)
+PASS two-node UBS Memory owner and cleanup
+```
+
+## 8. 结果解释
+
+- `local_owner_load_avg_ns`：owner cacheable 映射上的重复 8 字节 load；
+- `local_owner_fenced_store_avg_ns`：owner 8 字节 store 加顺序一致内存栅栏；
+- `remote_nc_load_avg_ns`：remote NC 映射上的重复 8 字节 load；
+- `remote_nc_fenced_store_avg_ns`：remote NC 8 字节 store 加顺序一致内存栅栏。
+
+这些数字用于微测试对比，不代表数据库事务延迟，也不是持久化延迟。TCP 同步不在
+上述计时循环中。
+
+双机逐字节 pattern 校验比单个 64 位标志更严格，可以发现部分 cache line、写入顺序
+或映射范围错误。但它仍是基础通路测试，不替代长时间压力测试、并发 writer 协议、
+跨 cache line 原子性测试和故障恢复测试。
+
+## 9. 清理与故障排查
+
+正常双机清理顺序是：
+
+```text
+remote unmap
+    -> 通知 owner
+    -> owner unmap
+    -> owner deallocate
+    -> 两端 finalize
+```
+
+不要在 remote 仍映射时手动 deallocate。程序被 `SIGKILL`、机器掉电或服务异常中止时，
+C++ 清理代码无法运行；此时由 ubsmd/UBS Engine 的引用记录和泄漏清理机制处理。
+
+失败后收集：
+
+```bash
+systemctl status ubse.service ubsmd --no-pager
+journalctl -u ubse.service -b --no-pager | tail -n 200
+journalctl -u ubsmd -b --no-pager | tail -n 200
+dmesg | grep -iE 'obmm|ubse|ubus|ummu|alloc|huge|snoop' | tail -n 200
+ls -l /dev/obmm /dev/obmm_shmdev* 2>/dev/null
+cat /sys/bus/ub/ub_feature 2>/dev/null
+```
+
+常见错误：
+
+- `ubsmem_initialize` 失败：优先检查 `ubsmd`、Unix socket 权限、
+  `libobmm.so.1` 和 `libubse-client.so.1`；
+- 返回 6025：检查 `/sys/bus/ub/ub_feature` Bit3 与 NC-CC 模式；
+- allocate 内存不足：检查实际内存 NUMA 节点、hugepage 和 OBMM mempool；
+- remote map 找不到名字：检查两端 ubsmd/UBS Engine 拓扑、RPC 地址、hostname、
+  防火墙以及两端是否使用同一个 `--name`；
+- remote map 权限失败：检查两端 UID/GID、`ubsmd` 用户组和共享对象的 `0660` 权限；
+- owner deallocate 返回 in-use：remote 可能尚未成功 unmap/detach，先检查 remote 日志，
+  不要反复强制删除。

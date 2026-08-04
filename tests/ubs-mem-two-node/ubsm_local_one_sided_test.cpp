@@ -1,0 +1,85 @@
+#include "ubsm_test_common.h"
+
+namespace {
+
+struct Options {
+    std::string name = "ubsm_micro_local";
+    uint64_t region_mb = 4;
+    uint64_t test_bytes = 4096;
+    uint64_t iterations = 1000;
+};
+
+void usage(const char *program)
+{
+    std::cerr << "Usage: " << program
+              << " [--name NAME] [--region-mb N] [--test-bytes N]"
+              << " [--iterations N]\n";
+}
+
+Options parse_options(int argc, char **argv)
+{
+    Options options;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg(argv[i]);
+        if (arg == "--help" || arg == "-h") {
+            usage(argv[0]);
+            std::exit(0);
+        }
+        if (i + 1 >= argc)
+            ubsm_test::fail("missing value for " + arg);
+        const std::string value(argv[++i]);
+        if (arg == "--name")
+            options.name = value;
+        else if (arg == "--region-mb")
+            options.region_mb = ubsm_test::parse_u64(value, arg);
+        else if (arg == "--test-bytes")
+            options.test_bytes = ubsm_test::parse_u64(value, arg);
+        else if (arg == "--iterations")
+            options.iterations = ubsm_test::parse_u64(value, arg);
+        else
+            ubsm_test::fail("unknown option: " + arg);
+    }
+    if (options.iterations == 0)
+        ubsm_test::fail("--iterations must be greater than zero");
+    ubsm_test::validate_name(options.name);
+    ubsm_test::validate_sizes(ubsm_test::region_bytes_from_mb(options.region_mb),
+                              options.test_bytes);
+    return options;
+}
+
+} // namespace
+
+int main(int argc, char **argv)
+{
+    try {
+        const Options options = parse_options(argc, argv);
+        const uint64_t region_bytes =
+            ubsm_test::region_bytes_from_mb(options.region_mb);
+        ubsm_test::SdkSession session;
+        ubsm_test::SharedMemory memory(options.name, region_bytes);
+        memory.allocate();
+        memory.map();
+
+        ubsm_test::write_pattern(memory.bytes(), options.test_bytes, 0x5a);
+        ubsm_test::verify_pattern(memory.bytes(), options.test_bytes, 0x5a,
+                                  "local owner pattern");
+        std::cout << "PASS local owner load/store correctness ("
+                  << options.test_bytes << " bytes)\n";
+
+        ubsm_test::print_latency(
+            "local_owner_load_avg_ns",
+            ubsm_test::benchmark_load(memory.word(), options.iterations));
+        ubsm_test::print_latency(
+            "local_owner_fenced_store_avg_ns",
+            ubsm_test::benchmark_fenced_store(memory.word(), options.iterations));
+
+        memory.unmap();
+        memory.deallocate();
+        session.finalize();
+        std::cout << "PASS local UBS Memory one-sided test and cleanup\n";
+        return 0;
+    } catch (const std::exception &error) {
+        std::cerr << "FAIL: " << error.what() << '\n';
+        return 1;
+    }
+}
