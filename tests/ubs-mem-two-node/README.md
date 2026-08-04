@@ -486,11 +486,16 @@ tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
 FOUND name=ubsm_micro_ab size=4194304 mem_num=... mem_unit_size=...
 ```
 
-对象不存在时返回码为 1，并输出：
+本机 import 视图中找不到对象时返回码为 1，并输出：
 
 ```text
-NOT_FOUND name=ubsm_micro_ab
+NOT_FOUND_IN_LOCAL_IMPORT_VIEW name=ubsm_micro_ab
 ```
+
+`ubsmem_shmem_lookup()` 查询的是本机 import 描述。owner 创建、但尚未被 remote import
+的对象可能在这里显示 not found，而 UBS Engine 中的 export 对象仍然存在；再次 create
+返回内部错误 601 就是这种情况。因此，查询 not found 不能单独证明 owner/export 对象
+不存在。
 
 确认 owner 和 remote 测试进程都已经退出后，按精确名称清理：
 
@@ -499,8 +504,10 @@ tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
   --remove ubsm_micro_ab
 ```
 
-成功时输出 `REMOVED name=ubsm_micro_ab`。再次执行 `--query` 应返回
-`NOT_FOUND`。`--remove` 对已经不存在的对象是幂等的，会输出 `NOT_FOUND` 并返回 0。
+如果查询不到本机 import 描述，工具仍会继续通过正式 API 尝试 owner-side deallocate。
+成功时输出 `REMOVED name=ubsm_micro_ab`。`--remove` 对已经不存在的对象是幂等的，
+会输出 `ALREADY_ABSENT` 并返回 0。删除是否解决底层同名 export 残留，最终以重新执行
+owner create 不再返回 601 为准。
 
 如果返回 `UBSM_ERR_IN_USING=6024`，说明仍有映射或引用，不能强制删除。先在两台机器上检查：
 

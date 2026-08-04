@@ -73,13 +73,21 @@ int main(int argc, char **argv)
         ubsmem_shmem_info_t info{};
         const int query_result = lookup(options.name, info);
         if (query_result == UBSM_ERR_NOT_FOUND) {
-            std::cout << "NOT_FOUND name=" << options.name << '\n';
-            session.finalize();
-            return options.operation == Operation::Query ? 1 : 0;
+            if (options.operation == Operation::Query) {
+                std::cout << "NOT_FOUND_IN_LOCAL_IMPORT_VIEW name="
+                          << options.name << '\n';
+                std::cout << "NOTE: an owner/export object can still exist in "
+                             "UBS Engine even when this query returns not found\n";
+                session.finalize();
+                return 1;
+            }
+            std::cout << "NOT_FOUND_IN_LOCAL_IMPORT_VIEW name=" << options.name
+                      << "; attempting owner-side deallocation\n";
+        } else {
+            ubsm_test::check_ubsm(query_result,
+                                  "ubsmem_shmem_lookup(" + options.name + ")");
+            print_info(info);
         }
-        ubsm_test::check_ubsm(query_result,
-                              "ubsmem_shmem_lookup(" + options.name + ")");
-        print_info(info);
 
         if (options.operation == Operation::Query) {
             session.finalize();
@@ -90,6 +98,11 @@ int main(int argc, char **argv)
         if (remove_result == UBSM_ERR_IN_USING) {
             ubsm_test::fail("cannot remove " + options.name +
                             ": it is still mapped or referenced (UBSM_ERR_IN_USING=6024)");
+        }
+        if (remove_result == UBSM_ERR_NOT_FOUND) {
+            std::cout << "ALREADY_ABSENT name=" << options.name << '\n';
+            session.finalize();
+            return 0;
         }
         ubsm_test::check_ubsm(remove_result,
                               "ubsmem_shmem_deallocate(" + options.name + ")");
