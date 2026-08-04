@@ -66,12 +66,16 @@ int main(int argc, char **argv)
         std::cout << "PASS local owner load/store correctness ("
                   << options.test_bytes << " bytes)\n";
 
+        constexpr uint64_t kLoadSequence = 0x123456789abcdef0ULL;
+        ubsm_test::write_cacheline(memory.word(), kLoadSequence);
         ubsm_test::print_latency(
-            "local_owner_load_avg_ns",
-            ubsm_test::benchmark_load(memory.word(), options.iterations));
+            "local_owner_checked_load_64b_avg_ns",
+            ubsm_test::benchmark_checked_cacheline_load(
+                memory.word(), options.iterations, kLoadSequence));
         ubsm_test::print_latency(
-            "local_owner_fenced_store_avg_ns",
-            ubsm_test::benchmark_fenced_store(memory.word(), options.iterations));
+            "local_owner_fenced_store_64b_avg_ns",
+            ubsm_test::benchmark_fenced_cacheline_store(
+                memory.word(), options.iterations));
 
         memory.unmap();
         memory.deallocate();

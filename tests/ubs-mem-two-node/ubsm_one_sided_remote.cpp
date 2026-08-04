@@ -80,12 +80,16 @@ int main(int argc, char **argv)
         std::cout << "PASS owner cacheable store -> remote NC load ("
                   << options.test_bytes << " bytes)\n";
 
+        constexpr uint64_t kLoadSequence = 0x123456789abcdef0ULL;
+        ubsm_test::write_cacheline(memory.word(), kLoadSequence);
         ubsm_test::print_latency(
-            "remote_nc_load_avg_ns",
-            ubsm_test::benchmark_load(memory.word(), options.iterations));
+            "remote_nc_checked_load_64b_avg_ns",
+            ubsm_test::benchmark_checked_cacheline_load(
+                memory.word(), options.iterations, kLoadSequence));
         ubsm_test::print_latency(
-            "remote_nc_fenced_store_avg_ns",
-            ubsm_test::benchmark_fenced_store(memory.word(), options.iterations));
+            "remote_nc_fenced_store_64b_avg_ns",
+            ubsm_test::benchmark_fenced_cacheline_store(
+                memory.word(), options.iterations));
 
         ubsm_test::write_pattern(memory.bytes(), options.test_bytes, 0xc7);
         ubsm_test::send_stage(connection, 'B');

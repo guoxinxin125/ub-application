@@ -28,6 +28,9 @@ namespace ubsm_test {
 
 constexpr uint64_t kMiB = 1024ULL * 1024ULL;
 constexpr uint64_t kAllocationAlignment = 4ULL * kMiB;
+constexpr uint64_t kCacheLineBytes = 64;
+constexpr uint64_t kCacheLineWords =
+    kCacheLineBytes / static_cast<uint64_t>(sizeof(uint64_t));
 constexpr uint64_t kOneSidedFlags =
     UBSM_FLAG_ONLY_IMPORT_NONCACHE | UBSM_FLAG_WR_DELAY_COMP;
 
@@ -280,27 +283,66 @@ inline void verify_pattern(volatile const uint8_t *address, uint64_t length,
     }
 }
 
-inline double benchmark_load(volatile uint64_t *word, uint64_t iterations)
+inline uint64_t cacheline_word_value(uint64_t sequence, uint64_t word_index)
 {
-    uint64_t sink = 0;
+    return sequence ^ (0x9e3779b97f4a7c15ULL * (word_index + 1));
+}
+
+inline void write_cacheline(volatile uint64_t *words, uint64_t sequence)
+{
+    for (uint64_t word = 0; word < kCacheLineWords; ++word)
+        words[word] = cacheline_word_value(sequence, word);
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+}
+
+inline void verify_cacheline(volatile const uint64_t *words, uint64_t sequence,
+                             const std::string &description)
+{
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+    for (uint64_t word = 0; word < kCacheLineWords; ++word) {
+        const uint64_t expected = cacheline_word_value(sequence, word);
+        const uint64_t actual = words[word];
+        if (actual != expected) {
+            fail(description + " mismatch at word " + std::to_string(word) +
+                 ": expected=" + std::to_string(expected) +
+                 ", actual=" + std::to_string(actual));
+        }
+    }
+}
+
+inline double benchmark_checked_cacheline_load(volatile uint64_t *words,
+                                                uint64_t iterations,
+                                                uint64_t sequence)
+{
+    verify_cacheline(words, sequence, "64-byte load before benchmark");
+    uint64_t sinks[kCacheLineWords]{};
     const auto start = std::chrono::steady_clock::now();
-    for (uint64_t i = 0; i < iterations; ++i)
-        sink ^= *word;
+    for (uint64_t i = 0; i < iterations; ++i) {
+        for (uint64_t word = 0; word < kCacheLineWords; ++word)
+            sinks[word] ^= words[word];
+    }
     const auto elapsed = std::chrono::steady_clock::now() - start;
+    verify_cacheline(words, sequence, "64-byte load after benchmark");
+    uint64_t sink = 0;
+    for (uint64_t word = 0; word < kCacheLineWords; ++word)
+        sink ^= sinks[word];
     if (sink == std::numeric_limits<uint64_t>::max())
         std::cerr << "unreachable sink=" << sink << '\n';
     return std::chrono::duration<double, std::nano>(elapsed).count() /
            static_cast<double>(iterations);
 }
 
-inline double benchmark_fenced_store(volatile uint64_t *word, uint64_t iterations)
+inline double benchmark_fenced_cacheline_store(volatile uint64_t *words,
+                                                uint64_t iterations)
 {
     const auto start = std::chrono::steady_clock::now();
     for (uint64_t i = 0; i < iterations; ++i) {
-        *word = i;
+        for (uint64_t word = 0; word < kCacheLineWords; ++word)
+            words[word] = cacheline_word_value(i, word);
         std::atomic_thread_fence(std::memory_order_seq_cst);
     }
     const auto elapsed = std::chrono::steady_clock::now() - start;
+    verify_cacheline(words, iterations - 1, "64-byte fenced store");
     return std::chrono::duration<double, std::nano>(elapsed).count() /
            static_cast<double>(iterations);
 }

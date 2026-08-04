@@ -206,7 +206,7 @@ getent hosts <另一台机器的hostname>
 ping -c 3 <另一台机器的管理IP>
 ```
 
-## 4. 首次部署和双机配置
+## 4. 服务配置要求
 
 如果完整软件栈尚未安装，应优先使用发行版对应的软件包：
 
@@ -217,13 +217,43 @@ sudo dnf install -y ubs-mem-shmem ubs-engine ubs-engine-client-libs
 若软件源不提供这些包，需要分别按当前机器版本构建和安装 UBS Engine、UBS Comm、
 OBMM 用户态库以及 ubs-mem；仅编译本仓库中的 `ubs-mem-master` 不能补齐运行依赖。
 
-配置文件通常是：
+### 4.1 本测试不要求修改 ubsmd RPC 配置
+
+本目录的三个测试只使用：
+
+```text
+应用 -> 本机 UBS Memory SDK -> 本机 ubsmd UDS -> 本机 UBS Engine
+```
+
+双机共享对象的 export/import 和按名称 attach 由 UBS Engine/OBMM 完成；测试程序
+自己的 `--owner-ip`/`--bind-ip` 只用于测试阶段同步。因此，只要现有
+`ubse.service` 和 `ubsmd` 正常、UBS Engine 已识别两机拓扑，就先保持公共服务配置
+不变，直接运行单机和双机测试。不要仅为本测试重启正在被其他用户使用的 `ubsmd`。
+
+本测试需要开放的额外端口只有：
+
+```text
+18525/tcp  测试阶段同步（可通过 --port 修改）
+```
+
+`18525` 只有 owner 测试程序启动后才会监听。
+
+### 4.2 哪些功能才依赖 ubsmd 节点间 RPC
+
+`ubsmd.conf` 通常位于：
 
 ```text
 /usr/local/ubs_mem/config/ubsmd.conf
 ```
 
-两台机器需要互相配置 RPC 地址。假设：
+其中的 `ubsm.server.rpc.local.ipseg` 和 `remote.ipseg` 用于 ubsmd 之间的 TCP
+RPC、ZenDiscovery、节点信息查询及相关分布式服务。如果后续需要这些功能，或运行
+日志明确显示因 RPC 节点配置缺失而失败，再由管理员统一配置。
+
+当前 `ubsmem_options_t` 是空结构，`ubsmem_initialize()` 没有提供从应用传入
+local/remote RPC 地址的接口，所以这些 daemon 级拓扑参数不能通过本测试程序覆盖。
+
+假设确实需要启用 ubsmd 双机 RPC：
 
 ```text
 机器 A：192.0.2.10
@@ -249,7 +279,7 @@ ubsm.server.rpc.remote.ipseg = 192.0.2.10:7301
 ubsm.lock.enable = off
 ```
 
-本测试不使用 UBS Memory 分布式锁，因此 `ubsm.lock.enable=off` 即可。
+本测试不使用 UBS Memory 分布式锁，不需要为了测试开启 `ubsm.lock.enable`。
 
 生产环境应按项目文档配置 TLS 和证书。只在隔离测试网络中临时验证时，才可以在
 明确接受风险后设置：
@@ -258,14 +288,15 @@ ubsm.lock.enable = off
 ubsm.server.tls.enable = off
 ```
 
-确保防火墙允许两机之间的 ubsmd RPC 端口和本测试 TCP 端口：
+此时还要确保防火墙允许两机之间的 ubsmd RPC 端口：
 
 ```text
 7301/tcp   ubsmd RPC（以实际配置为准）
-18525/tcp  本测试阶段同步（可通过 --port 修改）
 ```
 
-先启动 UBS Engine，再启动 ubsmd：
+`ubsmd` 不支持通过应用参数修改这些 daemon 配置，也没有文档化的配置热加载接口。
+修改后通常需要重启，因此必须先确认没有其他用户正在使用 UBS Memory，并在维护窗口
+内由管理员操作：
 
 ```bash
 sudo systemctl enable --now ubse.service
@@ -274,13 +305,11 @@ sudo systemctl restart ubsmd
 systemctl is-active ubse.service ubsmd
 ```
 
-配置完成后，在任意一台机器查询端口：
+配置完成后查询端口：
 
 ```bash
-ss -lntp | grep -E ':7301|:18525' || true
+ss -lntp | grep ':7301' || true
 ```
-
-`18525` 只有 owner 测试程序启动后才会监听。
 
 ## 5. 编译
 
@@ -342,8 +371,8 @@ numactl --cpunodebind=0 --membind=0 \
 
 ```text
 PASS local owner load/store correctness (4096 bytes)
-local_owner_load_avg_ns=...
-local_owner_fenced_store_avg_ns=...
+local_owner_checked_load_64b_avg_ns=...
+local_owner_fenced_store_64b_avg_ns=...
 PASS local UBS Memory one-sided test and cleanup
 ```
 
@@ -358,7 +387,7 @@ PASS local UBS Memory one-sided test and cleanup
 
 ```bash
 numactl --cpunodebind=0 --membind=0 \
-  tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_owner \
+  ./build-ubsm/ubsm_one_sided_owner \
     --bind-ip 192.0.2.10 \
     --provider-host host-a \
     --provider-numa 0 \
@@ -373,8 +402,8 @@ numactl --cpunodebind=0 --membind=0 \
 owner 会先创建和映射共享内存，再输出：
 
 ```text
-owner_local_load_avg_ns=...
-owner_local_fenced_store_avg_ns=...
+owner_local_checked_load_64b_avg_ns=...
+owner_local_fenced_store_64b_avg_ns=...
 waiting for remote on 192.0.2.10:18525
 ```
 
@@ -386,7 +415,7 @@ NUMA，必须选择实际有内存、资源池可用且属于目标 owner socket
 ### 7.2 机器 B：启动 remote
 
 ```bash
-tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_remote \
+./build-ubsm/ubsm_one_sided_remote \
   --owner-ip 192.0.2.10 \
   --port 18525 \
   --name ubsm_micro_ab \
@@ -403,8 +432,8 @@ remote 成功输出应包含：
 
 ```text
 PASS owner cacheable store -> remote NC load (4096 bytes)
-remote_nc_load_avg_ns=...
-remote_nc_fenced_store_avg_ns=...
+remote_nc_checked_load_64b_avg_ns=...
+remote_nc_fenced_store_64b_avg_ns=...
 PASS two-node UBS Memory remote and cleanup
 ```
 
@@ -417,10 +446,18 @@ PASS two-node UBS Memory owner and cleanup
 
 ## 8. 结果解释
 
-- `local_owner_load_avg_ns`：owner cacheable 映射上的重复 8 字节 load；
-- `local_owner_fenced_store_avg_ns`：owner 8 字节 store 加顺序一致内存栅栏；
-- `remote_nc_load_avg_ns`：remote NC 映射上的重复 8 字节 load；
-- `remote_nc_fenced_store_avg_ns`：remote NC 8 字节 store 加顺序一致内存栅栏。
+- `local_owner_checked_load_64b_avg_ns`：owner cacheable 映射上读取完整 64
+  字节缓存行，并在计时前后检查其中全部 8 个 `uint64_t`；
+- `local_owner_fenced_store_64b_avg_ns`：owner 写入完整 64 字节缓存行后执行
+  顺序一致内存栅栏，并在测试结束后检查全部 8 个 `uint64_t`；
+- `remote_nc_checked_load_64b_avg_ns`：remote NC 映射上读取完整 64 字节，
+  并在计时前后检查全部 8 个 `uint64_t`；
+- `remote_nc_fenced_store_64b_avg_ns`：remote NC 映射上写入完整 64 字节后
+  执行顺序一致内存栅栏，并检查最终写入的全部 8 个 `uint64_t`。
+
+这些延迟项反复访问同一条 64 字节缓存行，因此 owner 侧仍属于热缓存测试；
+它们用于确认完整缓存行访问和数据正确性，不代表 cache miss 或底层共享内存
+介质延迟。冷缓存和大工作集延迟需要使用独立的跨缓存行测试。
 
 这些数字用于微测试对比，不代表数据库事务延迟，也不是持久化延迟。TCP 同步不在
 上述计时循环中。

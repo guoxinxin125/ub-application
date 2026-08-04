@@ -97,12 +97,16 @@ int main(int argc, char **argv)
                                       options.provider_port);
         memory.map();
 
+        constexpr uint64_t kLoadSequence = 0x123456789abcdef0ULL;
+        ubsm_test::write_cacheline(memory.word(), kLoadSequence);
         ubsm_test::print_latency(
-            "owner_local_load_avg_ns",
-            ubsm_test::benchmark_load(memory.word(), options.iterations));
+            "owner_local_checked_load_64b_avg_ns",
+            ubsm_test::benchmark_checked_cacheline_load(
+                memory.word(), options.iterations, kLoadSequence));
         ubsm_test::print_latency(
-            "owner_local_fenced_store_avg_ns",
-            ubsm_test::benchmark_fenced_store(memory.word(), options.iterations));
+            "owner_local_fenced_store_64b_avg_ns",
+            ubsm_test::benchmark_fenced_cacheline_store(
+                memory.word(), options.iterations));
 
         connection = ubsm_test::accept_remote(options.bind_ip, options.port,
                                               options.timeout_sec);
