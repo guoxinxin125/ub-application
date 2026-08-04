@@ -66,8 +66,6 @@ int main(int argc, char **argv)
     try {
         const Options options = parse_options(argc, argv);
 
-        ubsm_test::check_ubsm(ubsmem_set_logger_level(3),
-                              "ubsmem_set_logger_level");
         ubsm_test::SdkSession session;
 
         ubsmem_shmem_info_t info{};

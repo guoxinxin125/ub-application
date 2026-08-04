@@ -10,6 +10,9 @@
 - `ubsm_one_sided_owner`：双机测试的物理 owner 端；
 - `ubsm_one_sided_remote`：双机测试的 remote/import 端。
 
+所有程序在初始化 SDK 前调用 `ubsmem_set_logger_level(3)`，默认只显示
+`ERROR` 和 `CRITICAL`，隐藏 SDK 的 `INFO` 和 `WARN` 日志。
+
 ## 1. 测试的缓存语义
 
 创建共享内存时固定使用：

@@ -31,6 +31,7 @@ constexpr uint64_t kAllocationAlignment = 4ULL * kMiB;
 constexpr uint64_t kCacheLineBytes = 64;
 constexpr uint64_t kCacheLineWords =
     kCacheLineBytes / static_cast<uint64_t>(sizeof(uint64_t));
+constexpr int kSdkLogLevel = 3; // ERROR: suppress SDK INFO and WARN logs.
 constexpr uint64_t kOneSidedFlags =
     UBSM_FLAG_ONLY_IMPORT_NONCACHE | UBSM_FLAG_WR_DELAY_COMP;
 
@@ -115,6 +116,8 @@ class SdkSession {
 public:
     SdkSession()
     {
+        check_ubsm(ubsmem_set_logger_level(kSdkLogLevel),
+                   "ubsmem_set_logger_level");
         ubsmem_options_t options{};
         check_ubsm(ubsmem_init_attributes(&options), "ubsmem_init_attributes");
         check_ubsm(ubsmem_initialize(&options), "ubsmem_initialize");
