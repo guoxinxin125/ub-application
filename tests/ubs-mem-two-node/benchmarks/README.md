@@ -8,7 +8,7 @@
 
 | 程序 | 默认名称 | 默认端口 | 测试点 |
 |---|---|---:|---|
-| `ubsm_local_latency_test` | `ubsm_local_latency` | 无 | 本地 load/store/fetch-add/CAS 延迟 |
+| `ubsm_local_latency_test` | `ubsm_local_latency` | 无 | 本地8B/64B load/store及8B fetch-add/CAS延迟 |
 | `ubsm_remote_rw_latency_test` | `ubsm_remote_rw_latency` | 18531 | remote NC load/store 延迟 |
 | `ubsm_remote_atomic_test` | `ubsm_remote_atomic` | 18532 | remote fetch-add、成功/失败 CAS 正确性 |
 | `ubsm_owner_to_remote_cc_test` | `ubsm_owner_to_remote_cc` | 18533 | owner 不 flush 写，remote NC 读 |
@@ -48,9 +48,30 @@ numactl --cpunodebind=0 --membind=0 \
     --iterations 100000
 ```
 
-输出包括 8 字节本地 load、store issue、store completed、fetch-add 和 CAS 的平均延迟。
-`store_issue` 的完成屏障位于计时区间之后；`store_completed` 每次 store 后执行完成屏障。
-AArch64 使用 `dsb sy`，其他架构使用顺序一致 C++ fence。
+该程序是本地性能的唯一入口，输出以下操作的平均延迟：
+
+- 8B load、store issue、store fenced、fetch-add和CAS；
+- 64B load，以及8次连续8B store后统一执行一次fence的完整缓存行store。
+
+`--iterations` 是每个测试点执行的总操作轮数。每个测试点只在完整循环前后读取一次
+时钟，再以总时间除以迭代次数，避免逐次计时开销淹没亚纳秒级热缓存访问。
+
+输出名称包括：
+
+```text
+local_load_8b_avg_ns
+local_store_issue_8b_avg_ns
+local_store_fenced_8b_avg_ns
+local_load_64b_avg_ns
+local_store_fenced_64b_avg_ns
+local_fetch_add_8b_avg_ns
+local_cas_8b_avg_ns
+```
+
+`store_issue` 的fence位于计时区间之后；`store_fenced` 每次8B store后执行一次
+`std::atomic_thread_fence(std::memory_order_seq_cst)`；64B store每轮先连续写入8个
+`uint64_t`，再执行一次相同fence。它们衡量的是同一条热缓存行上的访问，不能解释为
+冷内存或UB介质访问延迟。
 
 ## 4. 四个双机测试
 

@@ -7,7 +7,7 @@
 
 - `ubsm_shm_admin`：按精确名称查询或清理残留共享内存对象；
 - `ubsm_bidirectional_test`：两端各自创建 owner inbox，验证双向 remote store；
-- `ubsm_local_one_sided_test`：单机创建、映射、load/store 正确性与时延；
+- `ubsm_local_one_sided_test`：单机创建、映射和load/store正确性；
 - `ubsm_one_sided_owner`：双机测试的物理 owner 端；
 - `ubsm_one_sided_remote`：双机测试的 remote/import 端。
 
@@ -376,8 +376,7 @@ numactl --cpunodebind=0 --membind=0 \
     --provider-numa 0 \
     --name ubsm_local_a \
     --region-mb 4 \
-    --test-bytes 4096 \
-    --iterations 100000
+    --test-bytes 4096
 ```
 
 然后在机器 B 使用唯一名字独立运行一次，例如 `ubsm_local_b`。
@@ -395,8 +394,6 @@ provider。`--provider-host` 应为当前机器的 hostname；`--provider-numa` 
 
 ```text
 PASS local owner load/store correctness (4096 bytes)
-local_owner_checked_load_64b_avg_ns=...
-local_owner_fenced_store_64b_avg_ns=...
 PASS local UBS Memory one-sided test and cleanup
 ```
 
@@ -540,11 +537,6 @@ UB共享内存读写。异常退出可能留下 `<prefix>_a_inbox` 或 `<prefix>
 [`benchmarks/`](benchmarks/README.md)。构建产物仍在 `build-ubsm/`，原有运行路径不变。
 
 ## 8. 结果解释
-
-- `local_owner_checked_load_64b_avg_ns`：owner cacheable 映射上读取完整 64
-  字节缓存行，并在计时前后检查其中全部 8 个 `uint64_t`；
-- `local_owner_fenced_store_64b_avg_ns`：owner 写入完整 64 字节缓存行后执行
-  顺序一致内存栅栏，并在测试结束后检查全部 8 个 `uint64_t`；
 - `remote_nc_checked_load_64b_avg_ns`：remote NC 映射上读取完整 64 字节，
   并在计时前后检查全部 8 个 `uint64_t`；
 - `remote_nc_fenced_store_64b_avg_ns`：remote NC 映射上写入完整 64 字节后

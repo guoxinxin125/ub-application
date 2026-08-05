@@ -7,7 +7,6 @@ struct Options {
     std::string provider_host;
     uint64_t region_mb = 4;
     uint64_t test_bytes = 4096;
-    uint64_t iterations = 1000;
     uint32_t provider_socket = UINT32_MAX;
     uint32_t provider_numa = UINT32_MAX;
     uint32_t provider_port = UINT32_MAX;
@@ -18,8 +17,7 @@ void usage(const char *program)
     std::cerr << "Usage: " << program
               << " [--name NAME] [--provider-host HOST]"
               << " [--provider-socket N] [--provider-numa N]"
-              << " [--provider-port N] [--region-mb N] [--test-bytes N]"
-              << " [--iterations N]\n";
+              << " [--provider-port N] [--region-mb N] [--test-bytes N]\n";
 }
 
 Options parse_options(int argc, char **argv)
@@ -48,13 +46,9 @@ Options parse_options(int argc, char **argv)
             options.region_mb = ubsm_test::parse_u64(value, arg);
         else if (arg == "--test-bytes")
             options.test_bytes = ubsm_test::parse_u64(value, arg);
-        else if (arg == "--iterations")
-            options.iterations = ubsm_test::parse_u64(value, arg);
         else
             ubsm_test::fail("unknown option: " + arg);
     }
-    if (options.iterations == 0)
-        ubsm_test::fail("--iterations must be greater than zero");
     if (options.provider_host.empty()) {
         char hostname[MAX_HOST_NAME_DESC_LENGTH]{};
         if (gethostname(hostname, sizeof(hostname)) != 0)
@@ -90,17 +84,6 @@ int main(int argc, char **argv)
                                   "local owner pattern");
         std::cout << "PASS local owner load/store correctness ("
                   << options.test_bytes << " bytes)\n";
-
-        constexpr uint64_t kLoadSequence = 0x123456789abcdef0ULL;
-        ubsm_test::write_cacheline(memory.word(), kLoadSequence);
-        ubsm_test::print_latency(
-            "local_owner_checked_load_64b_avg_ns",
-            ubsm_test::benchmark_checked_cacheline_load(
-                memory.word(), options.iterations, kLoadSequence));
-        ubsm_test::print_latency(
-            "local_owner_fenced_store_64b_avg_ns",
-            ubsm_test::benchmark_fenced_cacheline_store(
-                memory.word(), options.iterations));
 
         memory.unmap();
         memory.deallocate();

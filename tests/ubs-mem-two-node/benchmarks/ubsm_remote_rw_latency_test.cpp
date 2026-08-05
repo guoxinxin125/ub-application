@@ -41,8 +41,8 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
       "remote_nc_store_issue_8b_avg_ns",
       ubsm_bench::benchmark_store_issue_8b(word, options.iterations));
   ubsm_test::print_latency(
-      "remote_nc_store_completed_8b_avg_ns",
-      ubsm_bench::benchmark_store_completed_8b(word, options.iterations));
+      "remote_nc_store_fenced_8b_avg_ns",
+      ubsm_bench::benchmark_store_fenced_8b(word, options.iterations));
   ubsm_test::send_stage(connection, 'D');
   ubsm_test::expect_stage(connection, 'V');
   ubsm_bench::remote_cleanup(memory, connection);

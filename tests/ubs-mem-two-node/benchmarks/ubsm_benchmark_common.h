@@ -23,14 +23,6 @@ inline uint64_t *atomic_word(ubsm_test::SharedMemory &memory) {
   return const_cast<uint64_t *>(word_at(memory, kAtomicOffset));
 }
 
-inline void write_completion_fence() {
-#if defined(__aarch64__)
-  asm volatile("dsb sy" ::: "memory");
-#else
-  std::atomic_thread_fence(std::memory_order_seq_cst);
-#endif
-}
-
 inline double benchmark_load_8b(volatile uint64_t *word, uint64_t iterations) {
   uint64_t sink = 0;
   const auto start = std::chrono::steady_clock::now();
@@ -49,17 +41,17 @@ inline double benchmark_store_issue_8b(volatile uint64_t *word,
   for (uint64_t i = 0; i < iterations; ++i)
     *word = i;
   const auto elapsed = std::chrono::steady_clock::now() - start;
-  write_completion_fence();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
   return std::chrono::duration<double, std::nano>(elapsed).count() /
          static_cast<double>(iterations);
 }
 
-inline double benchmark_store_completed_8b(volatile uint64_t *word,
-                                           uint64_t iterations) {
+inline double benchmark_store_fenced_8b(volatile uint64_t *word,
+                                        uint64_t iterations) {
   const auto start = std::chrono::steady_clock::now();
   for (uint64_t i = 0; i < iterations; ++i) {
     *word = i;
-    write_completion_fence();
+    std::atomic_thread_fence(std::memory_order_seq_cst);
   }
   const auto elapsed = std::chrono::steady_clock::now() - start;
   return std::chrono::duration<double, std::nano>(elapsed).count() /
@@ -121,7 +113,7 @@ inline void run_atomic_validation(ubsm_test::SharedMemory &memory,
   }
   if (expected != magic)
     ubsm_test::fail("failed CAS did not return the current value");
-  write_completion_fence();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
 struct TwoNodeOptions {

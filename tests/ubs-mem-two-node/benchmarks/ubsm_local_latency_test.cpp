@@ -2,6 +2,8 @@
 
 namespace {
 
+constexpr uint64_t kCachelineSequence = 0x123456789abcdef0ULL;
+
 struct Options {
   std::string name = "ubsm_local_latency";
   std::string provider_host;
@@ -77,7 +79,7 @@ int main(int argc, char **argv) {
     volatile uint64_t *latency =
         ubsm_bench::word_at(memory, ubsm_bench::kLatencyOffset);
     *latency = ubsm_bench::kInitialLatencyValue;
-    ubsm_bench::write_completion_fence();
+    std::atomic_thread_fence(std::memory_order_seq_cst);
     ubsm_test::print_latency(
         "local_load_8b_avg_ns",
         ubsm_bench::benchmark_load_8b(latency, options.iterations));
@@ -85,16 +87,26 @@ int main(int argc, char **argv) {
         "local_store_issue_8b_avg_ns",
         ubsm_bench::benchmark_store_issue_8b(latency, options.iterations));
     ubsm_test::print_latency(
-        "local_store_completed_8b_avg_ns",
-        ubsm_bench::benchmark_store_completed_8b(latency, options.iterations));
+        "local_store_fenced_8b_avg_ns",
+        ubsm_bench::benchmark_store_fenced_8b(latency, options.iterations));
+
+    ubsm_test::write_cacheline(latency, kCachelineSequence);
+    ubsm_test::print_latency(
+        "local_load_64b_avg_ns",
+        ubsm_test::benchmark_checked_cacheline_load(
+            latency, options.iterations, kCachelineSequence));
+    ubsm_test::print_latency(
+        "local_store_fenced_64b_avg_ns",
+        ubsm_test::benchmark_fenced_cacheline_store(latency,
+                                                    options.iterations));
+
+    uint64_t *atomic = ubsm_bench::atomic_word(memory);
     ubsm_test::print_latency(
         "local_fetch_add_8b_avg_ns",
-        ubsm_bench::benchmark_fetch_add_8b(ubsm_bench::atomic_word(memory),
-                                           options.iterations));
+        ubsm_bench::benchmark_fetch_add_8b(atomic, options.iterations));
     ubsm_test::print_latency(
         "local_cas_8b_avg_ns",
-        ubsm_bench::benchmark_cas_8b(ubsm_bench::atomic_word(memory),
-                                     options.iterations));
+        ubsm_bench::benchmark_cas_8b(atomic, options.iterations));
 
     memory.unmap();
     memory.deallocate();
