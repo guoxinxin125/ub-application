@@ -90,14 +90,16 @@ int main(int argc, char **argv) {
         "local_store_fenced_8b_avg_ns",
         ubsm_bench::benchmark_store_fenced_8b(latency, options.iterations));
 
-    ubsm_test::write_cacheline(latency, kCachelineSequence);
+    volatile uint64_t *cacheline =
+        ubsm_bench::word_at(memory, ubsm_bench::kCachelineLatencyOffset);
+    ubsm_test::write_cacheline(cacheline, kCachelineSequence);
     ubsm_test::print_latency(
         "local_load_64b_avg_ns",
         ubsm_test::benchmark_checked_cacheline_load(
-            latency, options.iterations, kCachelineSequence));
+            cacheline, options.iterations, kCachelineSequence));
     ubsm_test::print_latency(
         "local_store_fenced_64b_avg_ns",
-        ubsm_test::benchmark_fenced_cacheline_store(latency,
+        ubsm_test::benchmark_fenced_cacheline_store(cacheline,
                                                     options.iterations));
 
     uint64_t *atomic = ubsm_bench::atomic_word(memory);

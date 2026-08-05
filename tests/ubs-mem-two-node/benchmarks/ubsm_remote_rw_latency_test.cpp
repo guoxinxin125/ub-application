@@ -6,8 +6,11 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
                ubsm_test::SharedMemory &memory, int connection) {
   volatile uint64_t *word =
       ubsm_bench::word_at(memory, ubsm_bench::kLatencyOffset);
+  volatile uint64_t *cacheline =
+      ubsm_bench::word_at(memory, ubsm_bench::kCachelineLatencyOffset);
   *word = ubsm_bench::kInitialLatencyValue;
-  std::atomic_thread_fence(std::memory_order_seq_cst);
+  constexpr uint64_t kCachelineSequence = 0x123456789abcdef0ULL;
+  ubsm_test::write_cacheline(cacheline, kCachelineSequence);
 
   ubsm_test::expect_stage(connection, 'H');
   ubsm_test::send_stage(connection, 'R');
@@ -15,11 +18,14 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
   const uint64_t actual = *word;
   const uint64_t expected = options.iterations - 1;
   if (actual != expected) {
-    ubsm_test::fail("remote store final value mismatch: expected=" +
+    ubsm_test::fail("remote 8-byte store final value mismatch: expected=" +
                     std::to_string(expected) +
                     ", actual=" + std::to_string(actual));
   }
-  std::cout << "PASS remote store observed by owner without invalidate\n";
+  ubsm_test::verify_cacheline(cacheline, options.iterations - 1,
+                              "remote 64-byte store observed by owner");
+  std::cout << "PASS remote 8-byte and 64-byte stores observed by owner "
+               "without invalidate\n";
   ubsm_test::send_stage(connection, 'V');
   ubsm_bench::owner_cleanup(memory, connection);
 }
@@ -31,6 +37,8 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
   ubsm_test::expect_stage(connection, 'R');
   volatile uint64_t *word =
       ubsm_bench::word_at(memory, ubsm_bench::kLatencyOffset);
+  volatile uint64_t *cacheline =
+      ubsm_bench::word_at(memory, ubsm_bench::kCachelineLatencyOffset);
   if (*word != ubsm_bench::kInitialLatencyValue)
     ubsm_test::fail("remote load did not observe owner's initial value");
 
@@ -43,6 +51,16 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
   ubsm_test::print_latency(
       "remote_nc_store_fenced_8b_avg_ns",
       ubsm_bench::benchmark_store_fenced_8b(word, options.iterations));
+
+  constexpr uint64_t kCachelineSequence = 0x123456789abcdef0ULL;
+  ubsm_test::print_latency(
+      "remote_nc_load_64b_avg_ns",
+      ubsm_test::benchmark_checked_cacheline_load(
+          cacheline, options.iterations, kCachelineSequence));
+  ubsm_test::print_latency(
+      "remote_nc_store_fenced_64b_avg_ns",
+      ubsm_test::benchmark_fenced_cacheline_store(cacheline,
+                                                  options.iterations));
   ubsm_test::send_stage(connection, 'D');
   ubsm_test::expect_stage(connection, 'V');
   ubsm_bench::remote_cleanup(memory, connection);

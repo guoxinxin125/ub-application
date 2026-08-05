@@ -7,6 +7,7 @@ namespace ubsm_bench {
 
 constexpr uint64_t kAtomicOffset = 0;
 constexpr uint64_t kLatencyOffset = 64;
+constexpr uint64_t kCachelineLatencyOffset = 128;
 constexpr uint64_t kPatternOffset = 4096;
 constexpr uint64_t kInitialLatencyValue = 0x1020304050607080ULL;
 

@@ -9,7 +9,7 @@
 | 程序 | 默认名称 | 默认端口 | 测试点 |
 |---|---|---:|---|
 | `ubsm_local_latency_test` | `ubsm_local_latency` | 无 | 本地8B/64B load/store及8B fetch-add/CAS延迟 |
-| `ubsm_remote_rw_latency_test` | `ubsm_remote_rw_latency` | 18531 | remote NC load/store 延迟 |
+| `ubsm_remote_rw_latency_test` | `ubsm_remote_rw_latency` | 18531 | remote NC 8B/64B load/store延迟 |
 | `ubsm_remote_atomic_test` | `ubsm_remote_atomic` | 18532 | remote fetch-add、成功/失败 CAS 正确性 |
 | `ubsm_owner_to_remote_cc_test` | `ubsm_owner_to_remote_cc` | 18533 | owner 不 flush 写，remote NC 读 |
 | `ubsm_remote_to_owner_cc_test` | `ubsm_remote_to_owner_cc` | 18534 | remote NC 写，owner 不 invalidate 直接读 |
@@ -111,6 +111,21 @@ numactl --cpunodebind=1 --membind=1 \
 
 将 `<TEST>/<NAME>/<PORT>` 替换为第 1 节表中的对应值。当前测量方向是机器 B 访问
 机器 A 的内存；反向测量时交换 owner/remote 角色，并使用新的共享内存名称。
+
+`ubsm_remote_rw_latency_test` 输出：
+
+```text
+remote_nc_load_8b_avg_ns
+remote_nc_store_issue_8b_avg_ns
+remote_nc_store_fenced_8b_avg_ns
+remote_nc_load_64b_avg_ns
+remote_nc_store_fenced_64b_avg_ns
+```
+
+8B标量和64B缓存行分别使用独立且按64字节对齐的区域。64B load每轮读取8个
+`uint64_t`；64B store每轮连续写入8个 `uint64_t` 后执行一次
+`std::atomic_thread_fence(std::memory_order_seq_cst)`。remote完成测试后，owner会分别
+校验8B最终值和完整64B缓存行，确认remote写入可被owner直接观察。
 
 remote 使用 NC 映射，因此不执行软件 invalidate 或 writeback。两个 CC 测试分别验证：
 
