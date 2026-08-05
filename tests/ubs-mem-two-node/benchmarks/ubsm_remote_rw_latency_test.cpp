@@ -8,23 +8,20 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
       ubsm_bench::word_at(memory, ubsm_bench::kLatencyOffset);
   volatile uint64_t *cacheline =
       ubsm_bench::word_at(memory, ubsm_bench::kCachelineLatencyOffset);
-  *word = ubsm_bench::kInitialLatencyValue;
   constexpr uint64_t kCachelineSequence = 0x123456789abcdef0ULL;
-  ubsm_test::write_cacheline(cacheline, kCachelineSequence);
+  ubsm_bench::write_word_block<1>(word, ubsm_bench::kInitialLatencyValue);
+  ubsm_bench::write_word_block<8>(cacheline, kCachelineSequence);
 
   ubsm_test::expect_stage(connection, 'H');
   ubsm_test::send_stage(connection, 'R');
   ubsm_test::expect_stage(connection, 'D');
-  const uint64_t actual = *word;
-  const uint64_t expected = options.iterations - 1;
-  if (actual != expected) {
-    ubsm_test::fail("remote 8-byte store final value mismatch: expected=" +
-                    std::to_string(expected) +
-                    ", actual=" + std::to_string(actual));
-  }
-  ubsm_test::verify_cacheline(cacheline, options.iterations - 1,
-                              "remote 64-byte store observed by owner");
-  std::cout << "PASS remote 8-byte and 64-byte stores observed by owner "
+  ubsm_bench::verify_word_block<1>(
+      word, options.iterations - 1,
+      "remote 8-byte fenced store observed by owner");
+  ubsm_bench::verify_word_block<8>(
+      cacheline, options.iterations - 1,
+      "remote 64-byte fenced store observed by owner");
+  std::cout << "PASS remote final 8-byte and 64-byte stores observed by owner "
                "without invalidate\n";
   ubsm_test::send_stage(connection, 'V');
   ubsm_bench::owner_cleanup(memory, connection);
@@ -39,28 +36,57 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
       ubsm_bench::word_at(memory, ubsm_bench::kLatencyOffset);
   volatile uint64_t *cacheline =
       ubsm_bench::word_at(memory, ubsm_bench::kCachelineLatencyOffset);
-  if (*word != ubsm_bench::kInitialLatencyValue)
-    ubsm_test::fail("remote load did not observe owner's initial value");
-
-  ubsm_test::print_latency(
-      "remote_nc_load_8b_avg_ns",
-      ubsm_bench::benchmark_load_8b(word, options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_issue_8b_avg_ns",
-      ubsm_bench::benchmark_store_issue_8b(word, options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_fenced_8b_avg_ns",
-      ubsm_bench::benchmark_store_fenced_8b(word, options.iterations));
-
   constexpr uint64_t kCachelineSequence = 0x123456789abcdef0ULL;
   ubsm_test::print_latency(
-      "remote_nc_load_64b_avg_ns",
-      ubsm_test::benchmark_checked_cacheline_load(
+      "remote_nc_load_8b_avg_ns",
+      ubsm_bench::benchmark_word_block_load<1>(
+          word, options.iterations, ubsm_bench::kInitialLatencyValue));
+  ubsm_test::print_latency(
+      "remote_nc_load_16b_avg_ns",
+      ubsm_bench::benchmark_word_block_load<2>(
           cacheline, options.iterations, kCachelineSequence));
   ubsm_test::print_latency(
+      "remote_nc_load_32b_avg_ns",
+      ubsm_bench::benchmark_word_block_load<4>(
+          cacheline, options.iterations, kCachelineSequence));
+  ubsm_test::print_latency(
+      "remote_nc_load_64b_avg_ns",
+      ubsm_bench::benchmark_word_block_load<8>(
+          cacheline, options.iterations, kCachelineSequence));
+
+  ubsm_test::print_latency(
+      "remote_nc_store_issue_8b_avg_ns",
+      ubsm_bench::benchmark_word_block_store_issue<1>(word,
+                                                       options.iterations));
+  ubsm_test::print_latency(
+      "remote_nc_store_issue_16b_avg_ns",
+      ubsm_bench::benchmark_word_block_store_issue<2>(cacheline,
+                                                       options.iterations));
+  ubsm_test::print_latency(
+      "remote_nc_store_issue_32b_avg_ns",
+      ubsm_bench::benchmark_word_block_store_issue<4>(cacheline,
+                                                       options.iterations));
+  ubsm_test::print_latency(
+      "remote_nc_store_issue_64b_avg_ns",
+      ubsm_bench::benchmark_word_block_store_issue<8>(cacheline,
+                                                       options.iterations));
+
+  ubsm_test::print_latency(
+      "remote_nc_store_fenced_8b_avg_ns",
+      ubsm_bench::benchmark_word_block_store_fenced<1>(word,
+                                                        options.iterations));
+  ubsm_test::print_latency(
+      "remote_nc_store_fenced_16b_avg_ns",
+      ubsm_bench::benchmark_word_block_store_fenced<2>(cacheline,
+                                                        options.iterations));
+  ubsm_test::print_latency(
+      "remote_nc_store_fenced_32b_avg_ns",
+      ubsm_bench::benchmark_word_block_store_fenced<4>(cacheline,
+                                                        options.iterations));
+  ubsm_test::print_latency(
       "remote_nc_store_fenced_64b_avg_ns",
-      ubsm_test::benchmark_fenced_cacheline_store(cacheline,
-                                                  options.iterations));
+      ubsm_bench::benchmark_word_block_store_fenced<8>(cacheline,
+                                                        options.iterations));
   ubsm_test::send_stage(connection, 'D');
   ubsm_test::expect_stage(connection, 'V');
   ubsm_bench::remote_cleanup(memory, connection);

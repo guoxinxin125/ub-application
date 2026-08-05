@@ -66,6 +66,94 @@ inline double benchmark_store_fenced_8b(volatile uint64_t *word,
          static_cast<double>(iterations);
 }
 
+inline uint64_t word_block_value(uint64_t sequence, uint64_t word_index) {
+  return sequence ^ (0x9e3779b97f4a7c15ULL * word_index);
+}
+
+template <uint64_t WordCount>
+inline void write_word_block(volatile uint64_t *words, uint64_t sequence) {
+  static_assert(WordCount > 0 && WordCount <= ubsm_test::kCacheLineWords,
+                "word block must contain between one and eight words");
+  for (uint64_t word = 0; word < WordCount; ++word)
+    words[word] = word_block_value(sequence, word);
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+}
+
+template <uint64_t WordCount>
+inline void verify_word_block(volatile const uint64_t *words,
+                              uint64_t sequence,
+                              const std::string &description) {
+  static_assert(WordCount > 0 && WordCount <= ubsm_test::kCacheLineWords,
+                "word block must contain between one and eight words");
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+  for (uint64_t word = 0; word < WordCount; ++word) {
+    const uint64_t expected = word_block_value(sequence, word);
+    const uint64_t actual = words[word];
+    if (actual != expected) {
+      ubsm_test::fail(description + " mismatch at word " +
+                      std::to_string(word) + ": expected=" +
+                      std::to_string(expected) + ", actual=" +
+                      std::to_string(actual));
+    }
+  }
+}
+
+template <uint64_t WordCount>
+inline double benchmark_word_block_load(volatile uint64_t *words,
+                                        uint64_t iterations,
+                                        uint64_t sequence) {
+  verify_word_block<WordCount>(words, sequence,
+                               "word-block load before benchmark");
+  uint64_t sinks[WordCount]{};
+  const auto start = std::chrono::steady_clock::now();
+  for (uint64_t i = 0; i < iterations; ++i) {
+    for (uint64_t word = 0; word < WordCount; ++word)
+      sinks[word] ^= words[word];
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  verify_word_block<WordCount>(words, sequence,
+                               "word-block load after benchmark");
+  uint64_t sink = 0;
+  for (uint64_t word = 0; word < WordCount; ++word)
+    sink ^= sinks[word];
+  if (sink == std::numeric_limits<uint64_t>::max())
+    std::cerr << "unreachable sink=" << sink << '\n';
+  return std::chrono::duration<double, std::nano>(elapsed).count() /
+         static_cast<double>(iterations);
+}
+
+template <uint64_t WordCount>
+inline double benchmark_word_block_store_issue(volatile uint64_t *words,
+                                               uint64_t iterations) {
+  const auto start = std::chrono::steady_clock::now();
+  for (uint64_t i = 0; i < iterations; ++i) {
+    for (uint64_t word = 0; word < WordCount; ++word)
+      words[word] = word_block_value(i, word);
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+  verify_word_block<WordCount>(words, iterations - 1,
+                               "word-block store-issue benchmark");
+  return std::chrono::duration<double, std::nano>(elapsed).count() /
+         static_cast<double>(iterations);
+}
+
+template <uint64_t WordCount>
+inline double benchmark_word_block_store_fenced(volatile uint64_t *words,
+                                                uint64_t iterations) {
+  const auto start = std::chrono::steady_clock::now();
+  for (uint64_t i = 0; i < iterations; ++i) {
+    for (uint64_t word = 0; word < WordCount; ++word)
+      words[word] = word_block_value(i, word);
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  verify_word_block<WordCount>(words, iterations - 1,
+                               "word-block fenced-store benchmark");
+  return std::chrono::duration<double, std::nano>(elapsed).count() /
+         static_cast<double>(iterations);
+}
+
 inline double benchmark_fetch_add_8b(uint64_t *word, uint64_t iterations) {
   __atomic_store_n(word, 0, __ATOMIC_SEQ_CST);
   const auto start = std::chrono::steady_clock::now();

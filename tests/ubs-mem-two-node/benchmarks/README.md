@@ -116,16 +116,27 @@ numactl --cpunodebind=1 --membind=1 \
 
 ```text
 remote_nc_load_8b_avg_ns
-remote_nc_store_issue_8b_avg_ns
-remote_nc_store_fenced_8b_avg_ns
+remote_nc_load_16b_avg_ns
+remote_nc_load_32b_avg_ns
 remote_nc_load_64b_avg_ns
+remote_nc_store_issue_8b_avg_ns
+remote_nc_store_issue_16b_avg_ns
+remote_nc_store_issue_32b_avg_ns
+remote_nc_store_issue_64b_avg_ns
+remote_nc_store_fenced_8b_avg_ns
+remote_nc_store_fenced_16b_avg_ns
+remote_nc_store_fenced_32b_avg_ns
 remote_nc_store_fenced_64b_avg_ns
 ```
 
-8B标量和64B缓存行分别使用独立且按64字节对齐的区域。64B load每轮读取8个
-`uint64_t`；64B store每轮连续写入8个 `uint64_t` 后执行一次
-`std::atomic_thread_fence(std::memory_order_seq_cst)`。remote完成测试后，owner会分别
-校验8B最终值和完整64B缓存行，确认remote写入可被owner直接观察。
+四种宽度使用完全相同的标量模板，每轮分别访问1、2、4、8个连续 `uint64_t`，用于
+观察NC访问随标量操作数量的扩展关系；这里不是NEON/vector测试。8B区域和16/32/64B
+区域相互独立并按64字节对齐。
+
+`store_issue` 在完整循环结束后才执行一次fence，因此输出反映连续store的发出吞吐；
+`store_fenced` 每轮写完对应数量的 `uint64_t` 后执行一次
+`std::atomic_thread_fence(std::memory_order_seq_cst)`。remote完成全部测试后，owner会
+校验8B和完整64B的最终值，确认remote写入可被owner直接观察。
 
 remote 使用 NC 映射，因此不执行软件 invalidate 或 writeback。两个 CC 测试分别验证：
 
