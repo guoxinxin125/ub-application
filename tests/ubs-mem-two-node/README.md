@@ -67,9 +67,9 @@ mem_id 管理和异常资源清理。映射成功后的 load/store 仍然直接�
 因此，请先跑通直接 OBMM 测试，再运行本目录测试。这样若失败，可以区分是底层
 OBMM/UB 通路问题，还是 UBS Engine/ubsmd 控制面问题。
 
-双机 owner 程序通过 `ubsmem_shmem_allocate_with_provider()` 显式指定本机 hostname
-作为物理 provider，避免共享内存被调度到另一台主机。socket、NUMA 和 UB port 默认
-传入 `UINT32_MAX` 让 UBS Engine 选择，也可以通过命令行进一步限定。
+单机测试和双机 owner 程序都通过 `ubsmem_shmem_allocate_with_provider()` 显式指定
+本机 hostname 作为物理 provider，避免共享内存被调度到另一台主机。socket、NUMA 和
+UB port 默认传入 `UINT32_MAX` 让 UBS Engine 选择，也可以通过命令行进一步限定。
 
 ## 3. 两台机器都要执行的环境检查
 
@@ -372,6 +372,8 @@ ls -l tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
 ```bash
 numactl --cpunodebind=0 --membind=0 \
   ./build-ubsm/ubsm_local_one_sided_test \
+    --provider-host "$(hostname)" \
+    --provider-numa 0 \
     --name ubsm_local_a \
     --region-mb 4 \
     --test-bytes 4096 \
@@ -379,6 +381,11 @@ numactl --cpunodebind=0 --membind=0 \
 ```
 
 然后在机器 B 使用唯一名字独立运行一次，例如 `ubsm_local_b`。
+
+本测试使用 `ubsmem_shmem_allocate_with_provider()`，不再从 `default` 内存域自动选择
+provider。`--provider-host` 应为当前机器的 hostname；`--provider-numa` 应与
+`numactl` 绑定的有内存 NUMA 节点一致。`--provider-socket` 和 `--provider-port`
+未指定时由 SDK 在该主机内自动选择。
 
 `--region-mb` 最小为 4，必须是 4 的整数倍。UBS Engine 还可能按照自己的
 `obmm.memory.block.size` 继续向上取整；如果该配置为 128 MiB，应直接传入
