@@ -7,7 +7,7 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
   volatile uint64_t *word =
       ubsm_bench::word_at(memory, ubsm_bench::kLatencyOffset);
   *word = ubsm_bench::kInitialLatencyValue;
-  ubsm_bench::write_completion_fence();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 
   ubsm_test::expect_stage(connection, 'H');
   ubsm_test::send_stage(connection, 'R');

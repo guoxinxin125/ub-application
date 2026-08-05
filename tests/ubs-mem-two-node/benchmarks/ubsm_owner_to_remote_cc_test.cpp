@@ -16,7 +16,7 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
   // No cache writeback/CLWB: owner coherence must make dirty data visible.
   ubsm_test::write_pattern(ubsm_bench::pattern_at(memory), options.test_bytes,
                            kNewSeed);
-  ubsm_bench::write_completion_fence();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
   ubsm_test::send_stage(connection, 'D');
   ubsm_test::expect_stage(connection, 'V');
   std::cout << "PASS owner cacheable store -> remote NC load\n";

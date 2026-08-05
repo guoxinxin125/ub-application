@@ -11,7 +11,7 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
   __atomic_store_n(word, kAtomicBase, __ATOMIC_SEQ_CST);
   if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != kAtomicBase)
     ubsm_test::fail("failed to initialize and cache owner atomic word");
-  ubsm_bench::write_completion_fence();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
 
   ubsm_test::expect_stage(connection, 'H');
   ubsm_test::send_stage(connection, 'R');

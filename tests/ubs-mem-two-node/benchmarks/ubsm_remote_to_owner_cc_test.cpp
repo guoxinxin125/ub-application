@@ -32,7 +32,7 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
   // NC mapping has no cache to write back. DSB waits for store completion.
   ubsm_test::write_pattern(ubsm_bench::pattern_at(memory), options.test_bytes,
                            kNewSeed);
-  ubsm_bench::write_completion_fence();
+  std::atomic_thread_fence(std::memory_order_seq_cst);
   ubsm_test::send_stage(connection, 'D');
   ubsm_test::expect_stage(connection, 'V');
   std::cout << "PASS remote NC write and completion fence\n";
