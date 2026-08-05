@@ -71,17 +71,36 @@ endif()
 get_filename_component(UBSM_LIBRARY_DIR "${UBSM_LIBRARY}" DIRECTORY)
 set(UBSM_TEST_TARGETS
     ubsm_shm_admin
+    ubsm_bidirectional_test
     ubsm_local_one_sided_test
     ubsm_one_sided_owner
     ubsm_one_sided_remote)
 
-foreach(UBSM_TEST_TARGET IN LISTS UBSM_TEST_TARGETS)
-    add_executable(${UBSM_TEST_TARGET} ${UBSM_TEST_TARGET}.cpp)
-    target_include_directories(${UBSM_TEST_TARGET} PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR} ${UBSM_INCLUDE_DIR})
-    target_link_libraries(${UBSM_TEST_TARGET} PRIVATE ${UBSM_LIBRARY})
-    target_compile_options(${UBSM_TEST_TARGET} PRIVATE
+set(UBSM_BENCHMARK_TARGETS
+    ubsm_local_latency_test
+    ubsm_remote_rw_latency_test
+    ubsm_remote_atomic_test
+    ubsm_owner_to_remote_cc_test
+    ubsm_remote_to_owner_cc_test)
+
+function(add_ubsm_executable UBSM_TARGET UBSM_SOURCE)
+    add_executable(${UBSM_TARGET} ${UBSM_SOURCE})
+    target_include_directories(${UBSM_TARGET} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/benchmarks
+        ${UBSM_INCLUDE_DIR})
+    target_link_libraries(${UBSM_TARGET} PRIVATE ${UBSM_LIBRARY})
+    target_compile_options(${UBSM_TARGET} PRIVATE
         -O2 -Wall -Wextra -Wpedantic)
-    set_target_properties(${UBSM_TEST_TARGET} PROPERTIES
+    set_target_properties(${UBSM_TARGET} PROPERTIES
         BUILD_RPATH "${UBSM_LIBRARY_DIR}")
+endfunction()
+
+foreach(UBSM_TEST_TARGET IN LISTS UBSM_TEST_TARGETS)
+    add_ubsm_executable(${UBSM_TEST_TARGET} "${UBSM_TEST_TARGET}.cpp")
+endforeach()
+
+foreach(UBSM_BENCHMARK_TARGET IN LISTS UBSM_BENCHMARK_TARGETS)
+    add_ubsm_executable(${UBSM_BENCHMARK_TARGET}
+        "benchmarks/${UBSM_BENCHMARK_TARGET}.cpp")
 endforeach()

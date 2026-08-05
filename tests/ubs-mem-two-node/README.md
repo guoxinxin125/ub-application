@@ -3,12 +3,16 @@
 本目录使用 `ubs-mem` 的公开 SDK 测试单边 CC 共享内存。它与
 `tests/ub-two-node` 中直接调用 OBMM 的测试相互独立，不共享构建目录或运行状态。
 
-包含四个可执行程序：
+上一级目录保留五个基础测试和工具：
 
 - `ubsm_shm_admin`：按精确名称查询或清理残留共享内存对象；
+- `ubsm_bidirectional_test`：两端各自创建 owner inbox，验证双向 remote store；
 - `ubsm_local_one_sided_test`：单机创建、映射、load/store 正确性与时延；
 - `ubsm_one_sided_owner`：双机测试的物理 owner 端；
 - `ubsm_one_sided_remote`：双机测试的 remote/import 端。
+
+五个性能与单边 CC 验证程序已集中到 [`benchmarks/`](benchmarks/README.md)，
+不再与基础通路测试混放。所有目标仍由本目录的 `CMakeLists.txt` 统一构建。
 
 所有程序在初始化 SDK 前调用 `ubsmem_set_logger_level(3)`，默认只显示
 `ERROR` 和 `CRITICAL`，隐藏 SDK 的 `INFO` 和 `WARN` 日志。
@@ -320,13 +324,14 @@ ss -lntp | grep ':7301' || true
 推荐使用安装后的 SDK：
 
 ```bash
-cmake -S tests/ubs-mem-two-node \
-      -B tests/ubs-mem-two-node/build-ubsm \
+cmake -S . \
+      -B ./build-ubsm \
   -DUBSM_INCLUDE_DIR=/usr/local/ubs_mem/include \
   -DUBSM_LIBRARY=/usr/local/ubs_mem/lib/libubsm_sdk.so
 
-cmake --build tests/ubs-mem-two-node/build-ubsm \
+cmake --build ./build-ubsm \
   --target ubsm_shm_admin \
+           ubsm_bidirectional_test \
            ubsm_local_one_sided_test \
            ubsm_one_sided_owner \
            ubsm_one_sided_remote \
@@ -348,6 +353,12 @@ CMake 配置失败时会分别打印两个头文件和 SDK 库哪个缺失。
 
 ```bash
 ls -l tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_bidirectional_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_local_latency_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_remote_rw_latency_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_remote_atomic_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_owner_to_remote_cc_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_remote_to_owner_cc_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_local_one_sided_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_owner \
       tests/ubs-mem-two-node/build-ubsm/ubsm_one_sided_remote
@@ -360,7 +371,7 @@ ls -l tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
 
 ```bash
 numactl --cpunodebind=0 --membind=0 \
-  tests/ubs-mem-two-node/build-ubsm/ubsm_local_one_sided_test \
+  ./build-ubsm/ubsm_local_one_sided_test \
     --name ubsm_local_a \
     --region-mb 4 \
     --test-bytes 4096 \
@@ -450,6 +461,77 @@ PASS remote NC store -> owner cacheable load (4096 bytes)
 PASS two-node UBS Memory owner and cleanup
 ```
 
+### 7.3 双向 owner/inbox 测试
+
+该测试与上面的单 owner 测试独立，默认使用 TCP 端口 `18526`。两台机器分别创建：
+
+```text
+<prefix>_a_inbox：物理 owner 为机器 A，A cacheable，B remote NC
+<prefix>_b_inbox：物理 owner 为机器 B，B cacheable，A remote NC
+```
+
+两端必须使用相同的 `--name-prefix`、`--port`、`--region-mb` 和
+`--test-bytes`。先在机器 A（内存节点为 NUMA 0）运行：
+
+```bash
+numactl --cpunodebind=0 --membind=0 \
+  ./build-ubsm/ubsm_bidirectional_test \
+    --role a \
+    --bind-ip 192.0.2.10 \
+    --provider-numa 0 \
+    --port 18526 \
+    --name-prefix ubsm_bidir_ab \
+    --region-mb 4 \
+    --test-bytes 4096 \
+    --timeout-sec 60
+```
+
+再在机器 B 上运行。以下示例使用机器 B 的 NUMA 1；也可以根据实际 UB 设备亲和性
+改成 NUMA 3：
+
+```bash
+numactl --cpunodebind=1 --membind=1 \
+  ./build-ubsm/ubsm_bidirectional_test \
+    --role b \
+    --peer-ip 192.0.2.10 \
+    --provider-numa 1 \
+    --port 18526 \
+    --name-prefix ubsm_bidir_ab \
+    --region-mb 4 \
+    --test-bytes 4096 \
+    --timeout-sec 60
+```
+
+`--provider-host` 省略时，两端分别自动使用自己的 `gethostname()`。测试的数据路径是：
+
+```text
+A remote NC store B_inbox -> B owner cacheable load
+B remote NC store A_inbox -> A owner cacheable load
+```
+
+机器 B 应输出：
+
+```text
+PASS A remote NC store -> B owner cacheable load (4096 bytes)
+PASS bidirectional node b test and cleanup
+```
+
+机器 A 应输出：
+
+```text
+PASS B remote NC store -> A owner cacheable load (4096 bytes)
+PASS bidirectional node a test and cleanup
+```
+
+两端都返回 0 才算完整通过。TCP 仍然只传递阶段字符，4096 字节 pattern 全部通过
+UB共享内存读写。异常退出可能留下 `<prefix>_a_inbox` 或 `<prefix>_b_inbox`；分别在
+对应物理 owner 机器上使用 `ubsm_shm_admin --remove` 清理。
+
+### 7.4 Benchmark 测试
+
+本地延迟、远端读写、远端原子以及两个单边 CC 方向的测试源码和独立运行说明位于
+[`benchmarks/`](benchmarks/README.md)。构建产物仍在 `build-ubsm/`，原有运行路径不变。
+
 ## 8. 结果解释
 
 - `local_owner_checked_load_64b_avg_ns`：owner cacheable 映射上读取完整 64
@@ -479,7 +561,7 @@ PASS two-node UBS Memory owner and cleanup
 必须在对象的 owner 机器上运行管理工具。按精确名称查询：
 
 ```bash
-tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
+./build-ubsm/ubsm_shm_admin \
   --query ubsm_micro_ab
 ```
 
@@ -503,7 +585,7 @@ NOT_FOUND_IN_LOCAL_IMPORT_VIEW name=ubsm_micro_ab
 确认 owner 和 remote 测试进程都已经退出后，按精确名称清理：
 
 ```bash
-tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
+./build-ubsm/ubsm_shm_admin \
   --remove ubsm_micro_ab
 ```
 
