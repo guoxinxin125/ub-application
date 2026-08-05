@@ -8,6 +8,8 @@ namespace ubsm_bench {
 constexpr uint64_t kAtomicOffset = 0;
 constexpr uint64_t kLatencyOffset = 64;
 constexpr uint64_t kCachelineLatencyOffset = 128;
+constexpr uint64_t kRemoteFetchAddOffset = 192;
+constexpr uint64_t kRemoteCasOffset = 256;
 constexpr uint64_t kPatternOffset = 4096;
 constexpr uint64_t kInitialLatencyValue = 0x1020304050607080ULL;
 
@@ -22,6 +24,11 @@ inline volatile uint8_t *pattern_at(ubsm_test::SharedMemory &memory) {
 
 inline uint64_t *atomic_word(ubsm_test::SharedMemory &memory) {
   return const_cast<uint64_t *>(word_at(memory, kAtomicOffset));
+}
+
+inline uint64_t *atomic_word_at(ubsm_test::SharedMemory &memory,
+                                uint64_t offset) {
+  return const_cast<uint64_t *>(word_at(memory, offset));
 }
 
 inline double benchmark_load_8b(volatile uint64_t *word, uint64_t iterations) {

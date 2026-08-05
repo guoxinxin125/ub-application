@@ -10,7 +10,7 @@
 |---|---|---:|---|
 | `ubsm_local_latency_test` | `ubsm_local_latency` | 无 | 本地8B/64B load/store及8B fetch-add/CAS延迟 |
 | `ubsm_remote_rw_latency_test` | `ubsm_remote_rw_latency` | 18531 | remote NC 8B/64B load/store延迟 |
-| `ubsm_remote_atomic_test` | `ubsm_remote_atomic` | 18532 | remote fetch-add、成功/失败 CAS 正确性 |
+| `ubsm_remote_atomic_test` | `ubsm_remote_atomic` | 18532 | remote 8B fetch-add/CAS平均延迟及正确性 |
 | `ubsm_owner_to_remote_cc_test` | `ubsm_owner_to_remote_cc` | 18533 | owner 不 flush 写，remote NC 读 |
 | `ubsm_remote_to_owner_cc_test` | `ubsm_remote_to_owner_cc` | 18534 | remote NC 写，owner 不 invalidate 直接读 |
 
@@ -135,6 +135,17 @@ remote 使用 NC 映射，因此不执行软件 invalidate 或 writeback。两�
 remote 原子测试直接使用 GCC `__atomic_fetch_add` 和
 `__atomic_compare_exchange_n`。若发生异常或最终值校验失败，应判定远端原子操作在
 当前硬件或映射模式上不受支持，不能只依据延迟输出判断通过。
+
+`ubsm_remote_atomic_test` 使用 `--atomic-iterations` 作为两个计时循环的迭代次数，输出：
+
+```text
+remote_nc_fetch_add_8b_avg_ns
+remote_nc_cas_8b_avg_ns
+```
+
+正确性验证word、fetch-add计时word和CAS计时word分别位于不同的64字节缓存行。
+计时结束后owner会检查fetch-add和CAS的最终值都等于 `atomic-iterations`，并继续检查
+原有的fetch-add返回值、成功CAS、失败CAS以及最终magic值，只有两端全部通过才输出PASS。
 
 ## 5. 清理
 
