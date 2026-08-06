@@ -1,0 +1,106 @@
+  ### 先确认是否换过内核
+
+  uname -r
+
+  sudo journalctl -k -b -1 --no-pager |
+    grep -m1 'Linux version'
+
+  如果上一轮启动的内核与 uname -r 不同，应先让重启人员确认本次是否启动到了错误内核。
+
+  ### 检查为什么没有自动加载
+
+  systemctl status systemd-modules-load.service --no-pager
+
+  sudo journalctl -u systemd-modules-load.service \
+    -b --no-pager
+
+  查看系统是否配置了自动加载：
+
+  sudo grep -R -nE \
+    '^(obmm|ubus|ubcore|hisi_ummu|hisi_soc)([[:space:]]|$)' \
+    /etc/modules-load.d \
+    /usr/lib/modules-load.d \
+    /run/modules-load.d 2>/dev/null
+
+  检查 OBMM 加载参数：
+
+  sudo grep -R -n 'options[[:space:]]\+obmm' \
+    /etc/modprobe.d \
+    /usr/lib/modprobe.d \
+    /run/modprobe.d 2>/dev/null
+
+  modprobe -c | grep '^options obmm'
+
+  这一点很重要：OBMM 的内存分配器、粒度等参数在模块加载时确定。不能在不知道原有参数的情况下直接用默认配置加载。
+
+  ### 只读查看实际加载方案
+
+  以下命令不会加载模块：
+
+  for module in ubus ubcore obmm; do
+      echo "===== ${module} ====="
+      modinfo -F filename "$module"
+      modinfo -F depends "$module"
+      modprobe -n -v "$module"
+  done
+
+  把这部分输出发给昨天重启机器的人，尤其询问：
+
+  > 机器重启前 UB 驱动是通过哪个服务或初始化脚本加载的？本次是否遗漏了 UB/OBMM 驱动初始化？OBMM 原来的 modprobe 参数是什
+  > 么？
+
+  ### 不建议立即直接执行 modprobe obmm
+
+  因为当前不仅缺少 obmm，连 ubus 和 ubcore 都没有加载。这不是单个设备节点丢失，而是整个 UB 内核驱动栈没有启动。
+
+  正确恢复方式应优先使用机器原有的初始化脚本或服务。可以查找：
+
+  systemctl list-unit-files |
+    grep -iE 'obmm|ubus|ubcore|ubse|urma'
+
+  sudo grep -R -nE \
+    'modprobe.*(obmm|ubus|ubcore)|insmod.*(obmm|ubus|ubcore)' \
+    /etc/systemd/system \
+    /usr/lib/systemd/system \
+    /usr/local 2>/dev/null |
+    head -n 200
+
+  ### 协调后的恢复顺序
+
+  确认没有影响其他用户，并取得原有加载参数后，应按机器既有方式恢复：
+
+  加载 UB 内核驱动栈
+          ↓
+  确认 /dev/obmm 出现
+          ↓
+  确认 urma_admin show 中设备 link ACTIVE
+          ↓
+  恢复或重启 ubse.service
+          ↓
+  等待 ubsmd 输出 UBS Engine is ready
+          ↓
+  运行 IPC probe
+
+  加载成功后的检查：
+
+  lsmod |
+    grep -E '^(obmm|ubus|ubcore|hisi_ummu|hisi_soc)'
+
+  ls -l /dev/obmm
+  cat /sys/class/misc/obmm/dev
+
+  urma_admin show
+
+  UBSE 恢复后，ubsmd 本身有重试循环，可能自动恢复。观察：
+
+  sudo tail -f /var/log/ubsm/ubsmd.log
+
+  期望看到：
+
+  pUbseTopLinkList success
+  UBS Engine is ready
+  ubsmd began to start services
+
+  然后再执行：
+
+  ./build-ubsm/ubsm_shm_admin --query __ubsm_ipc_probe__
