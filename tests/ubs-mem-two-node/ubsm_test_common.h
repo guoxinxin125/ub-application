@@ -316,9 +316,8 @@ inline void verify_cacheline(volatile const uint64_t *words, uint64_t sequence,
     }
 }
 
-inline double benchmark_checked_cacheline_load(volatile uint64_t *words,
-                                                uint64_t iterations,
-                                                uint64_t sequence)
+inline double benchmark_checked_fenced_cacheline_load(
+    volatile uint64_t *words, uint64_t iterations, uint64_t sequence)
 {
     verify_cacheline(words, sequence, "64-byte load before benchmark");
     uint64_t sinks[kCacheLineWords]{};
@@ -326,6 +325,7 @@ inline double benchmark_checked_cacheline_load(volatile uint64_t *words,
     for (uint64_t i = 0; i < iterations; ++i) {
         for (uint64_t word = 0; word < kCacheLineWords; ++word)
             sinks[word] ^= words[word];
+        std::atomic_thread_fence(std::memory_order_seq_cst);
     }
     const auto elapsed = std::chrono::steady_clock::now() - start;
     verify_cacheline(words, sequence, "64-byte load after benchmark");

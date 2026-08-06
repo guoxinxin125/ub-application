@@ -31,25 +31,17 @@ inline uint64_t *atomic_word_at(ubsm_test::SharedMemory &memory,
   return const_cast<uint64_t *>(word_at(memory, offset));
 }
 
-inline double benchmark_load_8b(volatile uint64_t *word, uint64_t iterations) {
+inline double benchmark_load_fenced_8b(volatile uint64_t *word,
+                                       uint64_t iterations) {
   uint64_t sink = 0;
   const auto start = std::chrono::steady_clock::now();
-  for (uint64_t i = 0; i < iterations; ++i)
+  for (uint64_t i = 0; i < iterations; ++i) {
     sink ^= *word;
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+  }
   const auto elapsed = std::chrono::steady_clock::now() - start;
   if (sink == std::numeric_limits<uint64_t>::max())
     std::cerr << "unreachable sink=" << sink << '\n';
-  return std::chrono::duration<double, std::nano>(elapsed).count() /
-         static_cast<double>(iterations);
-}
-
-inline double benchmark_store_issue_8b(volatile uint64_t *word,
-                                       uint64_t iterations) {
-  const auto start = std::chrono::steady_clock::now();
-  for (uint64_t i = 0; i < iterations; ++i)
-    *word = i;
-  const auto elapsed = std::chrono::steady_clock::now() - start;
-  std::atomic_thread_fence(std::memory_order_seq_cst);
   return std::chrono::duration<double, std::nano>(elapsed).count() /
          static_cast<double>(iterations);
 }
@@ -99,9 +91,9 @@ inline void verify_word_block(volatile const uint64_t *words,
 }
 
 template <uint64_t WordCount>
-inline double benchmark_word_block_load(volatile uint64_t *words,
-                                        uint64_t iterations,
-                                        uint64_t sequence) {
+inline double benchmark_word_block_load_fenced(volatile uint64_t *words,
+                                               uint64_t iterations,
+                                               uint64_t sequence) {
   verify_word_block<WordCount>(words, sequence,
                                "word-block load before benchmark");
   uint64_t sinks[WordCount]{};
@@ -109,6 +101,7 @@ inline double benchmark_word_block_load(volatile uint64_t *words,
   for (uint64_t i = 0; i < iterations; ++i) {
     for (uint64_t word = 0; word < WordCount; ++word)
       sinks[word] ^= words[word];
+    std::atomic_thread_fence(std::memory_order_seq_cst);
   }
   const auto elapsed = std::chrono::steady_clock::now() - start;
   verify_word_block<WordCount>(words, sequence,
@@ -118,22 +111,6 @@ inline double benchmark_word_block_load(volatile uint64_t *words,
     sink ^= sinks[word];
   if (sink == std::numeric_limits<uint64_t>::max())
     std::cerr << "unreachable sink=" << sink << '\n';
-  return std::chrono::duration<double, std::nano>(elapsed).count() /
-         static_cast<double>(iterations);
-}
-
-template <uint64_t WordCount>
-inline double benchmark_word_block_store_issue(volatile uint64_t *words,
-                                               uint64_t iterations) {
-  const auto start = std::chrono::steady_clock::now();
-  for (uint64_t i = 0; i < iterations; ++i) {
-    for (uint64_t word = 0; word < WordCount; ++word)
-      words[word] = word_block_value(i, word);
-  }
-  const auto elapsed = std::chrono::steady_clock::now() - start;
-  std::atomic_thread_fence(std::memory_order_seq_cst);
-  verify_word_block<WordCount>(words, iterations - 1,
-                               "word-block store-issue benchmark");
   return std::chrono::duration<double, std::nano>(elapsed).count() /
          static_cast<double>(iterations);
 }

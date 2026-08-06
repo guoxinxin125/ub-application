@@ -423,7 +423,7 @@ numactl --cpunodebind=0 --membind=0 \
 owner 会先创建和映射共享内存，再输出：
 
 ```text
-owner_local_checked_load_64b_avg_ns=...
+owner_local_checked_fenced_load_64b_avg_ns=...
 owner_local_fenced_store_64b_avg_ns=...
 waiting for remote on 192.0.2.10:18525
 ```
@@ -453,7 +453,7 @@ remote 成功输出应包含：
 
 ```text
 PASS owner cacheable store -> remote NC load (4096 bytes)
-remote_nc_checked_load_64b_avg_ns=...
+remote_nc_checked_fenced_load_64b_avg_ns=...
 remote_nc_fenced_store_64b_avg_ns=...
 PASS two-node UBS Memory remote and cleanup
 ```
@@ -537,7 +537,7 @@ UB共享内存读写。异常退出可能留下 `<prefix>_a_inbox` 或 `<prefix>
 [`benchmarks/`](benchmarks/README.md)。构建产物仍在 `build-ubsm/`，原有运行路径不变。
 
 ## 8. 结果解释
-- `remote_nc_checked_load_64b_avg_ns`：remote NC 映射上读取完整 64 字节，
+- `remote_nc_checked_fenced_load_64b_avg_ns`：remote NC 映射上读取完整 64 字节，
   并在计时前后检查全部 8 个 `uint64_t`；
 - `remote_nc_fenced_store_64b_avg_ns`：remote NC 映射上写入完整 64 字节后
   执行顺序一致内存栅栏，并检查最终写入的全部 8 个 `uint64_t`。

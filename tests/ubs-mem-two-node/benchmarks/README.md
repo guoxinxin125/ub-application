@@ -59,18 +59,17 @@ numactl --cpunodebind=0 --membind=0 \
 输出名称包括：
 
 ```text
-local_load_8b_avg_ns
-local_store_issue_8b_avg_ns
+local_load_fenced_8b_avg_ns
 local_store_fenced_8b_avg_ns
-local_load_64b_avg_ns
+local_load_fenced_64b_avg_ns
 local_store_fenced_64b_avg_ns
 local_fetch_add_8b_avg_ns
 local_cas_8b_avg_ns
 ```
 
-`store_issue` 的fence位于计时区间之后；`store_fenced` 每次8B store后执行一次
-`std::atomic_thread_fence(std::memory_order_seq_cst)`；64B store每轮先连续写入8个
-`uint64_t`，再执行一次相同fence。它们衡量的是同一条热缓存行上的访问，不能解释为
+load和store都在每轮完整尺寸访问后执行一次
+`std::atomic_thread_fence(std::memory_order_seq_cst)`。64B操作每轮先连续访问8个
+`uint64_t`，再执行一次fence。它们衡量的是同一条热缓存行上的访问，不能解释为
 冷内存或UB介质访问延迟。
 
 ## 4. 四个双机测试
@@ -115,26 +114,14 @@ numactl --cpunodebind=1 --membind=1 \
 `ubsm_remote_rw_latency_test` 输出：
 
 ```text
-remote_nc_load_8b_avg_ns
-remote_nc_load_16b_avg_ns
-remote_nc_load_32b_avg_ns
-remote_nc_load_64b_avg_ns
-remote_nc_store_issue_8b_avg_ns
-remote_nc_store_issue_16b_avg_ns
-remote_nc_store_issue_32b_avg_ns
-remote_nc_store_issue_64b_avg_ns
+remote_nc_load_fenced_8b_avg_ns
+remote_nc_load_fenced_64b_avg_ns
 remote_nc_store_fenced_8b_avg_ns
-remote_nc_store_fenced_16b_avg_ns
-remote_nc_store_fenced_32b_avg_ns
 remote_nc_store_fenced_64b_avg_ns
 ```
 
-四种宽度使用完全相同的标量模板，每轮分别访问1、2、4、8个连续 `uint64_t`，用于
-观察NC访问随标量操作数量的扩展关系；这里不是NEON/vector测试。8B区域和16/32/64B
-区域相互独立并按64字节对齐。
-
-`store_issue` 在完整循环结束后才执行一次fence，因此输出反映连续store的发出吞吐；
-`store_fenced` 每轮写完对应数量的 `uint64_t` 后执行一次
+8B和64B使用相同的标量模板，每轮分别访问1个和8个连续 `uint64_t`；这里不是
+NEON/vector测试。load和store都在每轮完成对应尺寸的访问后执行一次
 `std::atomic_thread_fence(std::memory_order_seq_cst)`。remote完成全部测试后，owner会
 校验8B和完整64B的最终值，确认remote写入可被owner直接观察。
 

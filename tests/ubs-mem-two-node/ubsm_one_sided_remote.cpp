@@ -83,8 +83,8 @@ int main(int argc, char **argv)
         constexpr uint64_t kLoadSequence = 0x123456789abcdef0ULL;
         ubsm_test::write_cacheline(memory.word(), kLoadSequence);
         ubsm_test::print_latency(
-            "remote_nc_checked_load_64b_avg_ns",
-            ubsm_test::benchmark_checked_cacheline_load(
+            "remote_nc_checked_fenced_load_64b_avg_ns",
+            ubsm_test::benchmark_checked_fenced_cacheline_load(
                 memory.word(), options.iterations, kLoadSequence));
         ubsm_test::print_latency(
             "remote_nc_fenced_store_64b_avg_ns",

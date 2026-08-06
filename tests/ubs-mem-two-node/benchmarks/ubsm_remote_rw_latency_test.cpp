@@ -38,50 +38,17 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
       ubsm_bench::word_at(memory, ubsm_bench::kCachelineLatencyOffset);
   constexpr uint64_t kCachelineSequence = 0x123456789abcdef0ULL;
   ubsm_test::print_latency(
-      "remote_nc_load_8b_avg_ns",
-      ubsm_bench::benchmark_word_block_load<1>(
+      "remote_nc_load_fenced_8b_avg_ns",
+      ubsm_bench::benchmark_word_block_load_fenced<1>(
           word, options.iterations, ubsm_bench::kInitialLatencyValue));
   ubsm_test::print_latency(
-      "remote_nc_load_16b_avg_ns",
-      ubsm_bench::benchmark_word_block_load<2>(
+      "remote_nc_load_fenced_64b_avg_ns",
+      ubsm_bench::benchmark_word_block_load_fenced<8>(
           cacheline, options.iterations, kCachelineSequence));
-  ubsm_test::print_latency(
-      "remote_nc_load_32b_avg_ns",
-      ubsm_bench::benchmark_word_block_load<4>(
-          cacheline, options.iterations, kCachelineSequence));
-  ubsm_test::print_latency(
-      "remote_nc_load_64b_avg_ns",
-      ubsm_bench::benchmark_word_block_load<8>(
-          cacheline, options.iterations, kCachelineSequence));
-
-  ubsm_test::print_latency(
-      "remote_nc_store_issue_8b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_issue<1>(word,
-                                                       options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_issue_16b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_issue<2>(cacheline,
-                                                       options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_issue_32b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_issue<4>(cacheline,
-                                                       options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_issue_64b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_issue<8>(cacheline,
-                                                       options.iterations));
 
   ubsm_test::print_latency(
       "remote_nc_store_fenced_8b_avg_ns",
       ubsm_bench::benchmark_word_block_store_fenced<1>(word,
-                                                        options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_fenced_16b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_fenced<2>(cacheline,
-                                                        options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_fenced_32b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_fenced<4>(cacheline,
                                                         options.iterations));
   ubsm_test::print_latency(
       "remote_nc_store_fenced_64b_avg_ns",
