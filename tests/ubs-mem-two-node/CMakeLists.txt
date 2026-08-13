@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(ubs_mem_micro_tests LANGUAGES CXX)
 
+find_package(Threads REQUIRED)
+
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -80,6 +82,9 @@ set(UBSM_BENCHMARK_TARGETS
     ubsm_local_latency_test
     ubsm_remote_rw_latency_test
     ubsm_remote_atomic_test
+    ubsm_remote_atomic_multiprocess_test
+    ubsm_owner_remote_atomic_contention_test
+    ubsm_remote_multithread_load_test
     ubsm_owner_to_remote_cc_test
     ubsm_remote_to_owner_cc_test)
 
@@ -104,3 +109,5 @@ foreach(UBSM_BENCHMARK_TARGET IN LISTS UBSM_BENCHMARK_TARGETS)
     add_ubsm_executable(${UBSM_BENCHMARK_TARGET}
         "benchmarks/${UBSM_BENCHMARK_TARGET}.cpp")
 endforeach()
+
+target_link_libraries(ubsm_remote_multithread_load_test PRIVATE Threads::Threads)

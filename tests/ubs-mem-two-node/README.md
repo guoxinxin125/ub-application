@@ -357,6 +357,9 @@ ls -l tests/ubs-mem-two-node/build-ubsm/ubsm_shm_admin \
       tests/ubs-mem-two-node/build-ubsm/ubsm_local_latency_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_remote_rw_latency_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_remote_atomic_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_remote_atomic_multiprocess_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_owner_remote_atomic_contention_test \
+      tests/ubs-mem-two-node/build-ubsm/ubsm_remote_multithread_load_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_owner_to_remote_cc_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_remote_to_owner_cc_test \
       tests/ubs-mem-two-node/build-ubsm/ubsm_local_one_sided_test \
