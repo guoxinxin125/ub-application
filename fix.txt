@@ -1,0 +1,111 @@
+ 好的，**sudo 也失败**，且 **SELinux 是 disabled**，说明不是 SELinux 问题，也不是普通用户权限问题。
+
+`-EPERM` 在 netlink 上下文中，更可能是 **内核层面的权限检查失败**，比如：
+- **Netlink 协议/组权限**
+- **Capabilities 缺失**（不是文件 capabilities，而是进程的 capabilities）
+- **内核模块内部的权限校验**
+
+---
+
+## 立即排查
+
+### 1. 检查进程的 capabilities
+
+```bash
+# 故障机器：查看当前 shell 和 urma_admin 的 capabilities
+capsh --print 2>/dev/null || cat /proc/self/status | grep Cap
+sudo capsh --print 2>/dev/null || sudo cat /proc/self/status | grep Cap
+
+# 对比正常机器
+```
+
+### 2. 检查 netlink 的协议类型和组
+
+```bash
+# 从 strace 输出中查看 socket 创建参数
+grep "socket(AF_NETLINK" /tmp/urma_netlink_fault.txt
+grep "bind" /tmp/urma_netlink_fault.txt
+
+# 正常机器同样查看
+grep "socket(AF_NETLINK" /tmp/urma_netlink_normal.txt
+grep "bind" /tmp/urma_netlink_normal.txt
+```
+
+### 3. 检查内核日志中是否有权限拒绝
+
+```bash
+# 故障机器
+dmesg | grep -i "urma\|uburma\|netlink\|denied\|permission" | tail -n 30
+
+# 查看 audit 日志（即使 SELinux 关闭，audit 可能仍在记录）
+sudo ausearch -m NETFILTER_CFG -ts recent 2>/dev/null
+sudo auditctl -l 2>/dev/null | grep -i urma
+```
+
+### 4. 检查是否有 seccomp 或 BPF 限制
+
+```bash
+# 检查 seccomp 状态
+grep Seccomp /proc/self/status
+grep Seccomp /proc/1/status
+
+# 检查是否有 BPF 程序附加
+sudo bpftool prog list 2>/dev/null | head
+sudo bpftool net list 2>/dev/null | head
+```
+
+### 5. 对比 strace 的完整差异
+
+```bash
+# 查看 sendmsg 和 recvmsg 的详细差异
+echo "=== 正常机器 ==="
+grep -A5 -B5 "recvmsg" /tmp/urma_netlink_normal.txt | tail -n 20
+
+echo ""
+echo "=== 故障机器 ==="
+grep -A5 -B5 "recvmsg" /tmp/urma_netlink_fault.txt | tail -n 20
+```
+
+---
+
+## 关键问题
+
+1. **strace 中 `socket(AF_NETLINK, ...)` 的参数是否相同？** 特别是第二个和第三个参数（type 和 protocol）
+2. **`bind` 时绑定的地址和组是否相同？**
+3. **`sendmsg` 发送的内容长度是否相同？**
+
+请把 strace 中 `socket`、`bind`、`sendmsg`、`recvmsg` 这几行的完整输出贴出来（正常和故障机器），这能精确定位 `-EPERM` 的来源。
+
+---
+
+## 另一个思路：内核模块版本差异
+
+```bash
+# 故障机器
+modinfo uburma | grep -E "version:|vermagic:|author:"
+modinfo urma | grep -E "version:|vermagic:"
+uname -r
+
+# 正常机器同样执行
+```
+
+如果内核模块版本不同，可能是 **故障机器的内核模块增加了新的权限检查**，而用户态工具 `urma_admin` 没有对应更新。
+
+---
+
+## 快速验证
+
+```bash
+# 尝试从正常机器复制 urma_admin 和 liburma.so 到故障机器运行
+# 正常机器
+scp $(which urma_admin) fault_machine:/tmp/urma_admin_normal
+scp /usr/lib64/liburma.so* fault_machine:/tmp/ 2>/dev/null || scp /usr/lib/liburma.so* fault_machine:/tmp/ 2>/dev/null
+
+# 故障机器
+LD_LIBRARY_PATH=/tmp /tmp/urma_admin_normal show topo
+```
+
+如果正常机器的 `urma_admin` 在故障机器上能成功，说明是**用户态工具版本不匹配**。
+如果也失败，说明是**内核模块或系统环境的问题**。
+
+请先执行这个交叉验证。
