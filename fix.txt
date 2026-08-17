@@ -1,160 +1,144 @@
- 关键信息：**内核模块版本相同、用户态工具相同、系统环境相同，但内核日志显示 `primary dev not exist, node 1 dev 1 die 0`**。
+ 关键发现：**故障机器的 dmesg 中没有 `bonding_dev_0 register success`**，而正常机器有。
 
-这说明 **`-EPERM` 是内核模块内部返回的**，不是系统权限问题，而是 **urma/uburma 内核模块在初始化时因为 `primary dev` 找不到，导致后续 netlink 通信时拒绝服务**。
+这说明 **`bonding_dev_0` 在故障机器上根本没有成功注册到 uburma 驱动中**！
 
 ---
 
-## 核心问题：`primary dev` 为什么是 `node 1 dev 1 die 0` 而不是 `bonding_dev_0`？
+## 核心问题
 
 | 正常机器 | 故障机器 |
 |---|---|
-| `primary dev` = `bonding_dev_0` (DEV 0) | `primary dev` 指向 `node 1 dev 1 die 0` (DEV 1) |
-| topo 只有 1 个 DEV | topo 有 36 个 DEV (0-35) |
+| `ubcore device: bonding_dev_0 register success` | **无此日志** |
+| `primary dev` = `bonding_dev_0` | `primary dev` 指向 `node 1 dev 1 die 0` |
+| topo 只有 DEV 0 | topo 有 DEV 0-35 |
 
-**故障机器的 `primary dev` 被错误地指向了 DEV 1（那个多余的 GID 设备），而不是 DEV 0 的 `bonding_dev_0`。**
+**`bonding_dev_0` 注册失败，导致驱动无法找到合法的 primary dev，于是错误地指向了第一个可用的 DEV（即那个异常的 GID 设备）。**
 
 ---
 
-## 立即排查
+## 立即排查 bonding_dev_0 注册失败的原因
 
-### 1. 查看 `bonding_dev_0` 的状态
+### 1. 查看 uburma/ub 模块加载时的完整日志
 
 ```bash
 # 故障机器
-ls -la /sys/class/uburma/bonding_dev_0/
+dmesg | grep -i "uburma\|ubcore\|bond\|register\|fail\|error" | head -n 50
 
-# 查看 bonding_dev_0 是否有异常标记
-cat /sys/class/uburma/bonding_dev_0/uevent 2>/dev/null
-cat /sys/class/uburma/bonding_dev_0/state 2>/dev/null
-cat /sys/class/uburma/bonding_dev_0/operstate 2>/dev/null
-
-# 查看是否有 "primary" 相关文件
-find /sys/class/uburma/bonding_dev_0/ -type f | xargs -I{} sh -c 'echo "{}: $(cat {} 2>/dev/null)"'
+# 或更宽泛的搜索
+dmesg | grep -i "ub" | head -n 100
 ```
 
-### 2. 查看 urma 模块的 `primary` 相关参数或 sysfs
+### 2. 检查 bonding_dev_0 依赖的底层设备
 
 ```bash
-# 查找是否有 primary 配置
-find /sys/module/uburma/parameters/ -type f 2>/dev/null | xargs -I{} sh -c 'echo "{}: $(cat {} 2>/dev/null)"'
-find /sys/module/urma/parameters/ -type f 2>/dev/null | xargs -I{} sh -c 'echo "{}: $(cat {} 2>/dev/null)"'
+# 查看 bonding_dev_0 对应的 PCI 设备
+readlink -f /sys/class/uburma/bonding_dev_0/device 2>/dev/null
+lspci -s $(basename $(readlink -f /sys/class/uburma/bonding_dev_0/device 2>/dev/null)) 2>/dev/null
 
-# 查看是否有 primary_dev 相关文件
-find /sys/class/uburma/ -name "*primary*" 2>/dev/null
+# 查看该 PCI 设备的状态
+cat /sys/class/uburma/bonding_dev_0/device/enable 2>/dev/null
+cat /sys/class/uburma/bonding_dev_0/device/vendor 2>/dev/null
+cat /sys/class/uburma/bonding_dev_0/device/device 2>/dev/null
 ```
 
-### 3. 检查 dmesg 中 urma 初始化的完整流程
+### 3. 检查 urma2-7 是否能正常注册
 
 ```bash
-# 故障机器：查看 urma 初始化的完整日志
-dmesg | grep -i "urma\|uburma\|bond\|primary\|dev 0\|dev 1" | head -n 100
+# 查看 urma2 的注册日志
+dmesg | grep -i "urma2\|urma.*register" | head -n 20
 
-# 重点看 bonding_dev_0 注册和 primary 选择的过程
-dmesg | grep -B2 -A2 "bonding_dev_0\|primary dev\|node 1 dev 1"
+# 对比 bonding_dev_0 和 urma2 的注册差异
 ```
 
-### 4. 检查是否有持久化的 primary 配置
+### 4. 检查是否有资源冲突
 
 ```bash
-# 查找可能的持久化配置
-find /var/lib -name "*urma*" 2>/dev/null
-find /etc -name "*urma*" 2>/dev/null
-find /run -name "*urma*" 2>/dev/null
+# 查看内存资源分配
+cat /proc/iomem | grep -i "urma\|ub"
+cat /proc/ioports | grep -i "urma\|ub"
 
-# 查看是否有 modprobe 配置
-cat /etc/modprobe.d/*urma* 2>/dev/null
-cat /etc/modprobe.d/*ub* 2>/dev/null
+# 查看中断
+cat /proc/interrupts | grep -i "urma\|ub"
+```
+
+### 5. 检查模块加载顺序
+
+```bash
+# 查看模块加载顺序和时间
+dmesg | grep -i "urma\|ub" | grep -i "load\|probe\|init"
+
+# 手动按正确顺序重新加载
+sudo modprobe -r urma uburma ub
+sleep 2
+sudo modprobe ub
+sleep 1
+sudo modprobe uburma
+sleep 1
+sudo modprobe urma
+
+# 查看新的 dmesg
+dmesg | tail -n 50
 ```
 
 ---
 
 ## 关键对比
 
-请在**正常机器**和**故障机器**上分别执行：
+请在**故障机器**上执行：
 
 ```bash
-echo "=== 1. bonding_dev_0 的 uevent ==="
-cat /sys/class/uburma/bonding_dev_0/uevent 2>/dev/null
+echo "=== 1. dmesg 中所有 ub/urma 相关日志 ==="
+dmesg | grep -i "ub\|urma" | head -n 100
 
 echo ""
-echo "=== 2. urma2 的 uevent ==="
-cat /sys/class/uburma/urma2/uevent 2>/dev/null
+echo "=== 2. bonding_dev_0 的 PCI 信息 ==="
+readlink -f /sys/class/uburma/bonding_dev_0/device 2>/dev/null
+pci=$(readlink -f /sys/class/uburma/bonding_dev_0/device 2>/dev/null)
+[ -n "$pci" ] && lspci -s $(basename $pci) -vvv 2>/dev/null | head -n 30
 
 echo ""
-echo "=== 3. dmesg 中的 primary 相关日志 ==="
-dmesg | grep -i "primary\|bonding_dev_0" | head -n 20
+echo "=== 3. PCI 设备状态 ==="
+[ -n "$pci" ] && cat $pci/enable 2>/dev/null
+[ -n "$pci" ] && cat $pci/resource 2>/dev/null
 
 echo ""
-echo "=== 4. 模块参数 ==="
-cat /sys/module/uburma/parameters/* 2>/dev/null
-cat /sys/module/urma/parameters/* 2>/dev/null
+echo "=== 4. 模块加载状态 ==="
+lsmod | grep -E "urma|ub"
 ```
 
 ---
 
 ## 推测
 
-最可能的情况：
+`bonding_dev_0` 注册失败的可能原因：
 
 | 场景 | 说明 |
 |---|---|
-| qemu 验证时通过 `ioctl` 向 `/dev/uburma` 写入了 `primary_dev` 配置 | 配置持久化在驱动内部或固件中 |
-| `bonding_dev_0` 的某些属性被修改 | 导致驱动不再将其识别为 primary |
-| 驱动内部有一个 `primary_dev` 的索引/指针 | 被错误地指向了 DEV 1 |
+| **PCI 设备未正确初始化** | qemu 验证时修改了 PCI 配置空间 |
+| **内存资源冲突** | bonding_dev_0 需要的 BAR 空间被占用 |
+| **中断分配失败** | MSI-X 中断数量不足或配置错误 |
+| **固件/BIOS 设置变化** | SR-IOV、ACS 等设置影响设备初始化 |
+| **模块加载顺序错误** | ub 模块未正确初始化就加载了 uburma |
 
 ---
 
-## 可能的解决方案
-
-### 方案一：查找并重置 primary dev 配置
+## 快速验证
 
 ```bash
-# 查看是否有 sysfs 接口可以设置 primary
-find /sys/class/uburma/ -name "*primary*" -o -name "*master*" 2>/dev/null
+# 1. 检查 bonding_dev_0 的 PCI 设备是否在 dmesg 中有错误
+dmesg | grep -i "$(basename $(readlink -f /sys/class/uburma/bonding_dev_0/device 2>/dev/null))" | head -n 20
 
-# 尝试通过 sysfs 重置
-echo "bonding_dev_0" | sudo tee /sys/class/uburma/primary_dev 2>/dev/null
-# 或类似接口
-```
+# 2. 尝试重新扫描 PCI 设备
+echo 1 | sudo tee /sys/bus/pci/rescan
 
-### 方案二：彻底清理并重新初始化 urma
-
-```bash
-# 1. 卸载所有 urma 相关模块
-sudo modprobe -r urma
-sudo modprobe -r uburma
-sudo modprobe -r ub
-
-# 2. 检查是否有持久化数据需要清理
-sudo rm -f /var/lib/urma/* 2>/dev/null
-sudo rm -f /run/urma/* 2>/dev/null
-
-# 3. 重新加载（按正确顺序）
+# 3. 重新加载模块
+sudo modprobe -r urma uburma ub
 sudo modprobe ub
 sudo modprobe uburma
 sudo modprobe urma
 
-# 4. 验证
-urma_admin show topo
+# 4. 查看是否有 bonding_dev_0 注册成功
+dmesg | grep -i "bonding_dev_0"
 ```
 
-### 方案三：如果模块内部有缓存，可能需要重启
-
-```bash
-# 检查是否有内核缓存需要清理
-sync
-echo 3 | sudo tee /proc/sys/vm/drop_caches  # 仅清理页缓存，不影响驱动
-
-# 或尝试
-sudo reboot
-```
-
----
-
-## 关键问题
-
-1. **正常机器的 `bonding_dev_0` 的 uevent 和故障机器是否相同？**
-2. **dmesg 中 `bonding_dev_0` 注册时的日志是否相同？**
-3. **是否有 `/sys/class/uburma/primary_dev` 或类似的 sysfs 文件？**
-
-请先执行对比命令，特别是 `cat /sys/class/uburma/bonding_dev_0/uevent` 和 `dmesg | grep -i "primary"`。
+请先执行 `dmesg | grep -i "ub\|urma" | head -n 100`，看 bonding_dev_0 注册失败的具体错误信息。
