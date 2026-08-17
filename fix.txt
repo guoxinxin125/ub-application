@@ -1,111 +1,160 @@
- 好的，**sudo 也失败**，且 **SELinux 是 disabled**，说明不是 SELinux 问题，也不是普通用户权限问题。
+ 关键信息：**内核模块版本相同、用户态工具相同、系统环境相同，但内核日志显示 `primary dev not exist, node 1 dev 1 die 0`**。
 
-`-EPERM` 在 netlink 上下文中，更可能是 **内核层面的权限检查失败**，比如：
-- **Netlink 协议/组权限**
-- **Capabilities 缺失**（不是文件 capabilities，而是进程的 capabilities）
-- **内核模块内部的权限校验**
+这说明 **`-EPERM` 是内核模块内部返回的**，不是系统权限问题，而是 **urma/uburma 内核模块在初始化时因为 `primary dev` 找不到，导致后续 netlink 通信时拒绝服务**。
+
+---
+
+## 核心问题：`primary dev` 为什么是 `node 1 dev 1 die 0` 而不是 `bonding_dev_0`？
+
+| 正常机器 | 故障机器 |
+|---|---|
+| `primary dev` = `bonding_dev_0` (DEV 0) | `primary dev` 指向 `node 1 dev 1 die 0` (DEV 1) |
+| topo 只有 1 个 DEV | topo 有 36 个 DEV (0-35) |
+
+**故障机器的 `primary dev` 被错误地指向了 DEV 1（那个多余的 GID 设备），而不是 DEV 0 的 `bonding_dev_0`。**
 
 ---
 
 ## 立即排查
 
-### 1. 检查进程的 capabilities
-
-```bash
-# 故障机器：查看当前 shell 和 urma_admin 的 capabilities
-capsh --print 2>/dev/null || cat /proc/self/status | grep Cap
-sudo capsh --print 2>/dev/null || sudo cat /proc/self/status | grep Cap
-
-# 对比正常机器
-```
-
-### 2. 检查 netlink 的协议类型和组
-
-```bash
-# 从 strace 输出中查看 socket 创建参数
-grep "socket(AF_NETLINK" /tmp/urma_netlink_fault.txt
-grep "bind" /tmp/urma_netlink_fault.txt
-
-# 正常机器同样查看
-grep "socket(AF_NETLINK" /tmp/urma_netlink_normal.txt
-grep "bind" /tmp/urma_netlink_normal.txt
-```
-
-### 3. 检查内核日志中是否有权限拒绝
+### 1. 查看 `bonding_dev_0` 的状态
 
 ```bash
 # 故障机器
-dmesg | grep -i "urma\|uburma\|netlink\|denied\|permission" | tail -n 30
+ls -la /sys/class/uburma/bonding_dev_0/
 
-# 查看 audit 日志（即使 SELinux 关闭，audit 可能仍在记录）
-sudo ausearch -m NETFILTER_CFG -ts recent 2>/dev/null
-sudo auditctl -l 2>/dev/null | grep -i urma
+# 查看 bonding_dev_0 是否有异常标记
+cat /sys/class/uburma/bonding_dev_0/uevent 2>/dev/null
+cat /sys/class/uburma/bonding_dev_0/state 2>/dev/null
+cat /sys/class/uburma/bonding_dev_0/operstate 2>/dev/null
+
+# 查看是否有 "primary" 相关文件
+find /sys/class/uburma/bonding_dev_0/ -type f | xargs -I{} sh -c 'echo "{}: $(cat {} 2>/dev/null)"'
 ```
 
-### 4. 检查是否有 seccomp 或 BPF 限制
+### 2. 查看 urma 模块的 `primary` 相关参数或 sysfs
 
 ```bash
-# 检查 seccomp 状态
-grep Seccomp /proc/self/status
-grep Seccomp /proc/1/status
+# 查找是否有 primary 配置
+find /sys/module/uburma/parameters/ -type f 2>/dev/null | xargs -I{} sh -c 'echo "{}: $(cat {} 2>/dev/null)"'
+find /sys/module/urma/parameters/ -type f 2>/dev/null | xargs -I{} sh -c 'echo "{}: $(cat {} 2>/dev/null)"'
 
-# 检查是否有 BPF 程序附加
-sudo bpftool prog list 2>/dev/null | head
-sudo bpftool net list 2>/dev/null | head
+# 查看是否有 primary_dev 相关文件
+find /sys/class/uburma/ -name "*primary*" 2>/dev/null
 ```
 
-### 5. 对比 strace 的完整差异
+### 3. 检查 dmesg 中 urma 初始化的完整流程
 
 ```bash
-# 查看 sendmsg 和 recvmsg 的详细差异
-echo "=== 正常机器 ==="
-grep -A5 -B5 "recvmsg" /tmp/urma_netlink_normal.txt | tail -n 20
+# 故障机器：查看 urma 初始化的完整日志
+dmesg | grep -i "urma\|uburma\|bond\|primary\|dev 0\|dev 1" | head -n 100
+
+# 重点看 bonding_dev_0 注册和 primary 选择的过程
+dmesg | grep -B2 -A2 "bonding_dev_0\|primary dev\|node 1 dev 1"
+```
+
+### 4. 检查是否有持久化的 primary 配置
+
+```bash
+# 查找可能的持久化配置
+find /var/lib -name "*urma*" 2>/dev/null
+find /etc -name "*urma*" 2>/dev/null
+find /run -name "*urma*" 2>/dev/null
+
+# 查看是否有 modprobe 配置
+cat /etc/modprobe.d/*urma* 2>/dev/null
+cat /etc/modprobe.d/*ub* 2>/dev/null
+```
+
+---
+
+## 关键对比
+
+请在**正常机器**和**故障机器**上分别执行：
+
+```bash
+echo "=== 1. bonding_dev_0 的 uevent ==="
+cat /sys/class/uburma/bonding_dev_0/uevent 2>/dev/null
 
 echo ""
-echo "=== 故障机器 ==="
-grep -A5 -B5 "recvmsg" /tmp/urma_netlink_fault.txt | tail -n 20
+echo "=== 2. urma2 的 uevent ==="
+cat /sys/class/uburma/urma2/uevent 2>/dev/null
+
+echo ""
+echo "=== 3. dmesg 中的 primary 相关日志 ==="
+dmesg | grep -i "primary\|bonding_dev_0" | head -n 20
+
+echo ""
+echo "=== 4. 模块参数 ==="
+cat /sys/module/uburma/parameters/* 2>/dev/null
+cat /sys/module/urma/parameters/* 2>/dev/null
+```
+
+---
+
+## 推测
+
+最可能的情况：
+
+| 场景 | 说明 |
+|---|---|
+| qemu 验证时通过 `ioctl` 向 `/dev/uburma` 写入了 `primary_dev` 配置 | 配置持久化在驱动内部或固件中 |
+| `bonding_dev_0` 的某些属性被修改 | 导致驱动不再将其识别为 primary |
+| 驱动内部有一个 `primary_dev` 的索引/指针 | 被错误地指向了 DEV 1 |
+
+---
+
+## 可能的解决方案
+
+### 方案一：查找并重置 primary dev 配置
+
+```bash
+# 查看是否有 sysfs 接口可以设置 primary
+find /sys/class/uburma/ -name "*primary*" -o -name "*master*" 2>/dev/null
+
+# 尝试通过 sysfs 重置
+echo "bonding_dev_0" | sudo tee /sys/class/uburma/primary_dev 2>/dev/null
+# 或类似接口
+```
+
+### 方案二：彻底清理并重新初始化 urma
+
+```bash
+# 1. 卸载所有 urma 相关模块
+sudo modprobe -r urma
+sudo modprobe -r uburma
+sudo modprobe -r ub
+
+# 2. 检查是否有持久化数据需要清理
+sudo rm -f /var/lib/urma/* 2>/dev/null
+sudo rm -f /run/urma/* 2>/dev/null
+
+# 3. 重新加载（按正确顺序）
+sudo modprobe ub
+sudo modprobe uburma
+sudo modprobe urma
+
+# 4. 验证
+urma_admin show topo
+```
+
+### 方案三：如果模块内部有缓存，可能需要重启
+
+```bash
+# 检查是否有内核缓存需要清理
+sync
+echo 3 | sudo tee /proc/sys/vm/drop_caches  # 仅清理页缓存，不影响驱动
+
+# 或尝试
+sudo reboot
 ```
 
 ---
 
 ## 关键问题
 
-1. **strace 中 `socket(AF_NETLINK, ...)` 的参数是否相同？** 特别是第二个和第三个参数（type 和 protocol）
-2. **`bind` 时绑定的地址和组是否相同？**
-3. **`sendmsg` 发送的内容长度是否相同？**
+1. **正常机器的 `bonding_dev_0` 的 uevent 和故障机器是否相同？**
+2. **dmesg 中 `bonding_dev_0` 注册时的日志是否相同？**
+3. **是否有 `/sys/class/uburma/primary_dev` 或类似的 sysfs 文件？**
 
-请把 strace 中 `socket`、`bind`、`sendmsg`、`recvmsg` 这几行的完整输出贴出来（正常和故障机器），这能精确定位 `-EPERM` 的来源。
-
----
-
-## 另一个思路：内核模块版本差异
-
-```bash
-# 故障机器
-modinfo uburma | grep -E "version:|vermagic:|author:"
-modinfo urma | grep -E "version:|vermagic:"
-uname -r
-
-# 正常机器同样执行
-```
-
-如果内核模块版本不同，可能是 **故障机器的内核模块增加了新的权限检查**，而用户态工具 `urma_admin` 没有对应更新。
-
----
-
-## 快速验证
-
-```bash
-# 尝试从正常机器复制 urma_admin 和 liburma.so 到故障机器运行
-# 正常机器
-scp $(which urma_admin) fault_machine:/tmp/urma_admin_normal
-scp /usr/lib64/liburma.so* fault_machine:/tmp/ 2>/dev/null || scp /usr/lib/liburma.so* fault_machine:/tmp/ 2>/dev/null
-
-# 故障机器
-LD_LIBRARY_PATH=/tmp /tmp/urma_admin_normal show topo
-```
-
-如果正常机器的 `urma_admin` 在故障机器上能成功，说明是**用户态工具版本不匹配**。
-如果也失败，说明是**内核模块或系统环境的问题**。
-
-请先执行这个交叉验证。
+请先执行对比命令，特别是 `cat /sys/class/uburma/bonding_dev_0/uevent` 和 `dmesg | grep -i "primary"`。
