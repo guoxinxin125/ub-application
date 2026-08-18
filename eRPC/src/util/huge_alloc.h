@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <malloc.h>
+
 #include <stdexcept>
 #include <vector>
 
@@ -152,7 +153,7 @@ class HugeAlloc {
    */
   inline size_t get_class(size_t size) {
 #ifdef _WIN32
-    // XXX: There's to be an issue with asm(bsrl) used for fast get_class()
+    // Preserve the existing reference implementation on Windows.
     return get_class_slow(size);
 #else
     assert(size >= 1 && size <= k_max_class_size);

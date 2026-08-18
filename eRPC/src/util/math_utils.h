@@ -3,10 +3,12 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
+
 #include <cmath>
 #include <limits>
 #include <numeric>
 #include <vector>
+
 #include "common.h"
 
 namespace erpc {
@@ -33,10 +35,15 @@ static inline size_t lsb_index(int x) {
 /// Return the index of the most significant bit of x. The index of the 2^0
 /// bit is 1. (x = 0 returns 0, x = 1 returns 1.)
 static inline size_t msb_index(int x) {
+  assert(x >= 0);
   assert(x < INT32_MAX / 2);
-  int index;
-  asm("bsrl %1, %0" : "=r"(index) : "r"(x << 1));
-  return static_cast<size_t>(index);
+  if (x == 0) return 0;
+
+  // __builtin_clz maps to the native bit-count instruction on both x86 and
+  // AArch64. Its argument must be nonzero.
+  constexpr size_t kBitsPerUnsigned = sizeof(unsigned int) * 8;
+  return kBitsPerUnsigned -
+         static_cast<size_t>(__builtin_clz(static_cast<unsigned int>(x)));
 }
 
 /// C++11 constexpr ceil
