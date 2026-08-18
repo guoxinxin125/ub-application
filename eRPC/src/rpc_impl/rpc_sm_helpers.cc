@@ -42,16 +42,6 @@ template <class TTr>
 void Rpc<TTr>::bury_session_st(Session *session) {
   assert(in_dispatch());
 
-#ifdef ERPC_UB
-  if (std::is_same<TTr, CTransport>::value) {
-    CTransport *ub_transport = static_cast<CTransport *>(transport_);
-    const uint8_t remote_rpc_id = session->is_client()
-                                      ? session->server_.rpc_id_
-                                      : session->client_.rpc_id_;
-    ub_transport->unregister_rx_peer(remote_rpc_id);
-  }
-#endif
-
   // Free session resources
   //
   // XXX: Which other MsgBuffers do we need to free? Which MsgBuffers are
@@ -69,6 +59,16 @@ void Rpc<TTr>::bury_session_st(Session *session) {
       sslot.pre_resp_msgbuf_ = MsgBuffer();
     }
   }
+
+#ifdef ERPC_UB
+  if (std::is_same<TTr, CTransport>::value) {
+    CTransport *ub_transport = static_cast<CTransport *>(transport_);
+    const uint8_t remote_rpc_id = session->is_client()
+                                      ? session->server_.rpc_id_
+                                      : session->client_.rpc_id_;
+    ub_transport->unregister_rx_peer(remote_rpc_id);
+  }
+#endif
 
   session_vec_.at(session->local_session_num_) = nullptr;
   delete session;  // This does nothing except free the session memory

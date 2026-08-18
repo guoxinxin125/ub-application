@@ -47,21 +47,29 @@ inline const char *ub_hello_env_or(const char *name,
   return value == nullptr || value[0] == '\0' ? default_value : value;
 }
 
+inline size_t ub_hello_numa_node() {
+  return static_cast<size_t>(ub_hello_parse_u64(
+      ub_hello_env_or("ERPC_UB_NUMA_NODE", "0"), "ERPC_UB_NUMA_NODE"));
+}
+
 inline void ub_hello_print_config(const char *role, const std::string &uri,
                                   uint8_t rpc_id) {
   std::printf(
       "UB hello %s: uri=%s rpc_id=%u process_mode=%s memory_mode=%s "
-      "machine_id=%s region_mb=%s arena_mb=%s\n",
+      "machine_id=%s numa_node=%s provider_numa=%s region_mb=%s "
+      "arena_mb=%s\n",
       role, uri.c_str(), static_cast<unsigned>(rpc_id),
       ub_hello_env_or("ERPC_UB_PROCESS_MODE", "single"),
       ub_hello_env_or("ERPC_UB_MEMORY_MODE", "one-sided"),
       ub_hello_env_or("ERPC_UB_MACHINE_ID", "hostname-hash"),
+      ub_hello_env_or("ERPC_UB_NUMA_NODE", "0"),
+      ub_hello_env_or("ERPC_UB_PROVIDER_NUMA", "same-as-numa-node"),
       ub_hello_env_or("ERPC_UB_REGION_MB", "256"),
       ub_hello_env_or("ERPC_UB_ARENA_MB", "16"));
 }
 
 inline uint64_t ub_hello_expected_checksum(size_t requests) {
-  return requests == 0 ? 0 :
-      static_cast<uint64_t>(requests) * static_cast<uint64_t>(requests - 1) / 2;
+  return requests == 0 ? 0
+                       : static_cast<uint64_t>(requests) *
+                             static_cast<uint64_t>(requests - 1) / 2;
 }
-

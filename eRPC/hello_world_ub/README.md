@@ -34,6 +34,8 @@ cmake --build eRPC/build-ub -j \
 ## 双机单进程模式
 
 两台机器必须设置不同的 `ERPC_UB_MACHINE_ID`。其他 UB 内存配置必须一致。
+`ERPC_UB_NUMA_NODE` 选择 Nexus、线程绑核和 eRPC 本地分配所在节点；
+`ERPC_UB_PROVIDER_NUMA` 选择 UBSM provider 节点。`ERPC_PROVIDER_NUMA` 不是有效变量。
 
 机器 82（示例控制面 IP 为 `192.0.2.82`，使用 NUMA0）：
 
@@ -41,6 +43,7 @@ cmake --build eRPC/build-ub -j \
 export ERPC_UB_PROCESS_MODE=single
 export ERPC_UB_MEMORY_MODE=one-sided
 export ERPC_UB_MACHINE_ID=82
+export ERPC_UB_NUMA_NODE=0
 export ERPC_UB_PROVIDER_NUMA=0
 export ERPC_UB_REGION_MB=256
 export ERPC_UB_ARENA_MB=16
@@ -55,6 +58,7 @@ numactl --cpunodebind=0 --membind=0 \
 export ERPC_UB_PROCESS_MODE=single
 export ERPC_UB_MEMORY_MODE=one-sided
 export ERPC_UB_MACHINE_ID=81
+export ERPC_UB_NUMA_NODE=1
 export ERPC_UB_PROVIDER_NUMA=1
 export ERPC_UB_REGION_MB=256
 export ERPC_UB_ARENA_MB=16
@@ -66,6 +70,8 @@ numactl --cpunodebind=1 --membind=1 \
 
 server 的 `10100` 等于 client 的 100 次 warmup 加 10000 次正式请求，因此测试完成后
 server 会自动退出。也可以省略该参数，让 server 一直运行直到收到 SIGINT/SIGTERM。
+client 完成请求后会先执行 session disconnect；双方释放远端 machine-region 映射后，
+再删除各自拥有的 UBSM region，避免退出时得到 `SHM_IN_USING`。
 
 ### 使用运行脚本
 

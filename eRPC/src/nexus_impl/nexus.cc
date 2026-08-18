@@ -1,5 +1,7 @@
 #include "nexus.h"
+
 #include <algorithm>
+
 #include "common.h"
 #include "rpc.h"
 #include "transport_impl/eth_common.h"
@@ -60,10 +62,14 @@ Nexus::Nexus(std::string local_uri, size_t numa_node, size_t num_bg_threads)
   sm_thread_ctx.reg_hooks_arr_ = const_cast<volatile Hook **>(reg_hooks_arr_);
   sm_thread_ctx.reg_hooks_lock_ = &reg_hooks_lock_;
 
-  // Bind the session management thread to the last lcore on numa_node
-  size_t sm_thread_lcore_index = num_lcores_per_numa_node() - 1;
+  // NUMA nodes can contain different numbers of online CPUs. Select the last
+  // CPU from the requested node instead of deriving an index from the
+  // machine-wide average.
+  const std::vector<size_t> numa_lcores = get_lcores_for_numa_node(numa_node);
+  rt_assert(!numa_lcores.empty(), "Requested NUMA node has no online cores");
+  const size_t sm_thread_lcore_index = numa_lcores.size() - 1;
   ERPC_INFO("eRPC Nexus: Launching session management thread on core %zu.\n",
-            get_lcores_for_numa_node(numa_node).at(sm_thread_lcore_index));
+            numa_lcores.at(sm_thread_lcore_index));
   sm_thread_ = std::thread(sm_thread_func, sm_thread_ctx);
   bind_to_core(sm_thread_, numa_node, sm_thread_lcore_index);
 

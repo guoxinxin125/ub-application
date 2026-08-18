@@ -60,6 +60,7 @@ class UBTransport : public Transport {
   size_t rx_burst();
   void post_recvs(size_t num_recvs);
   void register_rx_peer(uint8_t peer_rpc_id);
+  void prepare_disconnect(uint8_t peer_rpc_id);
   void unregister_rx_peer(uint8_t peer_rpc_id);
 
   Buffer alloc_shared_buffer(size_t size) {
@@ -96,6 +97,7 @@ class UBTransport : public Transport {
   void discard_descriptor_noexcept(
       const UBMessageDescriptor &descriptor) noexcept;
   void release_pending_noexcept(RemoteEndpoint &remote) noexcept;
+  void release_remote_endpoint_noexcept(uint8_t peer_rpc_id) noexcept;
   void cleanup_noexcept() noexcept;
 
   uint8_t **rx_ring_;

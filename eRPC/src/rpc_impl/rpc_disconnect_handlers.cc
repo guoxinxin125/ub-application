@@ -51,6 +51,16 @@ void Rpc<TTr>::handle_disconnect_req_st(const SmPkt &sm_pkt) {
   free_ring_entries();
 
   ERPC_INFO("%s. None. Sending response.\n", issue_msg);
+#ifdef ERPC_UB
+  if (std::is_same<TTr, CTransport>::value) {
+    // The response is sent over UDP and does not need the UB mapping. Release
+    // the client's machine region first so receipt of this response is also a
+    // guarantee that the client can safely delete its owner region.
+    bury_session_st(session);
+    sm_pkt_udp_tx_st(sm_construct_resp(sm_pkt, SmErrType::kNoError));
+    return;
+  }
+#endif
   sm_pkt_udp_tx_st(sm_construct_resp(sm_pkt, SmErrType::kNoError));
 
   bury_session_st(session);

@@ -46,13 +46,17 @@ size class 和 `ERPC_UB_ARENA_MB` 限制。默认 endpoint arena 为 16 MiB，�
 
 ## 构建
 
+UB transport 支持 x86-64 和 AArch64 Linux。x86-64 使用 TSC；AArch64 使用
+`CNTVCT_EL0` 通用计数器和 `CNTFRQ_EL0` 频率寄存器，因此内核必须允许 EL0 读取
+ARM generic timer。两种架构都通过同一组 eRPC 时间换算和超时逻辑使用该计数器。
+
 ```bash
 cd eRPC
 cmake -S . -B build-ub \
   -DTRANSPORT=ub \
   -DUBSM_INCLUDE_DIR=/usr/local/ubs_mem/include \
   -DUBSM_LIBRARY=/usr/local/ubs_mem/lib/libubsm_sdk.so
-cmake --build build-ub -j --target erpc_ub_manager hello_server hello_client
+cmake --build build-ub -j --target erpc_ub_manager hello_ub_server hello_ub_client
 ```
 
 ## 单进程模式
@@ -65,6 +69,7 @@ export ERPC_UB_MEMORY_MODE=one-sided
 export ERPC_UB_REGION_MB=256
 export ERPC_UB_ARENA_MB=16
 export ERPC_UB_MACHINE_ID=1   # 另一台设为 2
+export ERPC_UB_NUMA_NODE=0
 ```
 
 服务端和客户端沿用 hello_world 自身的 URI 参数。两台机器必须使用不同 machine ID，
@@ -81,6 +86,7 @@ export ERPC_UB_MEMORY_MODE=one-sided
 export ERPC_UB_REGION_MB=256
 export ERPC_UB_ARENA_MB=16
 export ERPC_UB_MACHINE_ID=1
+export ERPC_UB_NUMA_NODE=0
 
 numactl --cpunodebind=0 --membind=0 ./build-ub/erpc_ub_manager
 ```

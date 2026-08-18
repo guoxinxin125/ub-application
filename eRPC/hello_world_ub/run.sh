@@ -99,6 +99,7 @@ case "${role}" in
     [[ -x "${binary}" ]] || die "server binary not found: ${binary}; run make first"
 
     export ERPC_UB_MACHINE_ID=${machine_id}
+    export ERPC_UB_NUMA_NODE=${numa_node}
     export ERPC_UB_PROVIDER_NUMA=${numa_node}
     exec numactl --cpunodebind="${numa_node}" --membind="${numa_node}" \
       "${binary}" "${bind_ip}" "${server_port}" "${max_requests}"
@@ -135,6 +136,7 @@ case "${role}" in
     [[ -x "${binary}" ]] || die "client binary not found: ${binary}; run make first"
 
     export ERPC_UB_MACHINE_ID=${machine_id}
+    export ERPC_UB_NUMA_NODE=${numa_node}
     export ERPC_UB_PROVIDER_NUMA=${numa_node}
     exec numactl --cpunodebind="${numa_node}" --membind="${numa_node}" \
       "${binary}" "${server_ip}" "${client_ip}" "${concurrency}" \

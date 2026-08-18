@@ -62,6 +62,7 @@ class UBMachineContext {
   size_t region_bytes() const { return region_bytes_; }
 
   void *map_remote_machine(uint64_t machine_id);
+  void unmap_remote_machines() noexcept;
   bool validate_endpoint(void *machine_base, uint64_t machine_id,
                          const UBEndpointHandle &endpoint) const;
 

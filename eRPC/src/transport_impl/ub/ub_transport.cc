@@ -221,6 +221,13 @@ void UBTransport::release_pending_noexcept(RemoteEndpoint &remote) noexcept {
   }
 }
 
+void UBTransport::release_remote_endpoint_noexcept(
+    uint8_t peer_rpc_id) noexcept {
+  RemoteEndpoint &remote = remote_endpoints_[peer_rpc_id];
+  release_pending_noexcept(remote);
+  remote = RemoteEndpoint{};
+}
+
 bool UBTransport::resolve_remote_routing_info(
     routing_info_t *routing_info) const {
   if (routing_info == nullptr) return false;
@@ -237,6 +244,22 @@ void UBTransport::register_rx_peer(uint8_t peer_rpc_id) {
   rt_assert(active_rx_source_count_ < ub_config::kMaxRpcEndpoints,
             "UB active RX source set is full");
   active_rx_sources_[active_rx_source_count_++] = peer_rpc_id;
+}
+
+void UBTransport::prepare_disconnect(uint8_t peer_rpc_id) {
+  rt_assert(peer_rpc_id < ub_config::kMaxRpcEndpoints,
+            "UB disconnect peer rpc_id exceeds SPSC queue matrix");
+  rt_assert(rx_peer_refcounts_[peer_rpc_id] > 0,
+            "UB disconnect peer is not registered");
+
+  // The disconnect control packet uses UDP. Once the last session for this
+  // peer has no in-flight RPCs, its UB mapping can be dropped before sending
+  // the disconnect request, allowing the peer to delete its owner region.
+  if (rx_peer_refcounts_[peer_rpc_id] != 1) return;
+  release_remote_endpoint_noexcept(peer_rpc_id);
+  if (active_rx_source_count_ == 1) {
+    machine_context_->unmap_remote_machines();
+  }
 }
 
 void UBTransport::unregister_rx_peer(uint8_t peer_rpc_id) {
@@ -262,6 +285,10 @@ void UBTransport::unregister_rx_peer(uint8_t peer_rpc_id) {
       active_rx_source_count_ == 0
           ? 0
           : next_poll_active_index_ % active_rx_source_count_;
+  release_remote_endpoint_noexcept(peer_rpc_id);
+  if (active_rx_source_count_ == 0) {
+    machine_context_->unmap_remote_machines();
+  }
 }
 
 size_t UBTransport::get_bandwidth() const {

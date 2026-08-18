@@ -1,14 +1,15 @@
-#include "common.h"
-
 #include <chrono>
 #include <exception>
 #include <thread>
 #include <vector>
 
+#include "common.h"
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
 erpc::Rpc<erpc::CTransport> *g_rpc = nullptr;
+bool g_disconnected = false;
 
 struct RequestState {
   erpc::MsgBuffer request;
@@ -23,12 +24,16 @@ void continuation(void *, void *tag) {
   static_cast<RequestState *>(tag)->done = true;
 }
 
-void sm_handler(int session_num, erpc::SmEventType event,
-                erpc::SmErrType error, void *) {
+void sm_handler(int session_num, erpc::SmEventType event, erpc::SmErrType error,
+                void *) {
+  if (event == erpc::SmEventType::kDisconnected &&
+      error == erpc::SmErrType::kNoError) {
+    g_disconnected = true;
+    return;
+  }
   if (event != erpc::SmEventType::kConnected ||
       error != erpc::SmErrType::kNoError) {
-    std::fprintf(stderr,
-                 "UB hello client: session=%d event=%s error=%s\n",
+    std::fprintf(stderr, "UB hello client: session=%d event=%s error=%s\n",
                  session_num, erpc::sm_event_type_str(event).c_str(),
                  erpc::sm_err_type_str(error).c_str());
   }
@@ -89,8 +94,10 @@ RunResult run_requests(int session_num, std::vector<RequestState> &slots,
 
       if (measure_latency) {
         result.total_latency_us +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                Clock::now() - slot.start).count() / 1000.0;
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
+                                                                 slot.start)
+                .count() /
+            1000.0;
       }
       g_rpc->free_msg_buffer(slot.request);
       if (slot.response.buf_ != nullptr) g_rpc->free_msg_buffer(slot.response);
@@ -116,29 +123,32 @@ int main(int argc, char **argv) {
 
   const std::string server_ip = argv[1];
   const std::string client_ip = argv[2];
-  const size_t concurrency = argc >= 4
-      ? static_cast<size_t>(ub_hello_parse_u64(argv[3], "concurrency")) : 1;
-  size_t msg_size = argc >= 5
-      ? static_cast<size_t>(ub_hello_parse_u64(argv[4], "msg-size"))
-      : kUBHelloDefaultMsgSize;
-  const size_t requests = argc >= 6
-      ? static_cast<size_t>(ub_hello_parse_u64(argv[5], "requests"))
-      : kUBHelloDefaultRequests;
+  const size_t concurrency =
+      argc >= 4
+          ? static_cast<size_t>(ub_hello_parse_u64(argv[3], "concurrency"))
+          : 1;
+  size_t msg_size =
+      argc >= 5 ? static_cast<size_t>(ub_hello_parse_u64(argv[4], "msg-size"))
+                : kUBHelloDefaultMsgSize;
+  const size_t requests =
+      argc >= 6 ? static_cast<size_t>(ub_hello_parse_u64(argv[5], "requests"))
+                : kUBHelloDefaultRequests;
   const uint16_t server_port = argc >= 7
-      ? ub_hello_parse_port(argv[6], "server-port") : kDefaultServerPort;
+                                   ? ub_hello_parse_port(argv[6], "server-port")
+                                   : kDefaultServerPort;
   const uint16_t client_port = argc >= 8
-      ? ub_hello_parse_port(argv[7], "client-port") : kDefaultClientPort;
+                                   ? ub_hello_parse_port(argv[7], "client-port")
+                                   : kDefaultClientPort;
 
   if (concurrency == 0 || requests == 0) {
-    std::fprintf(stderr, "concurrency and requests must be greater than zero\n");
+    std::fprintf(stderr,
+                 "concurrency and requests must be greater than zero\n");
     return 2;
   }
   if (msg_size < sizeof(uint64_t)) msg_size = sizeof(uint64_t);
 
-  const std::string client_uri =
-      client_ip + ":" + std::to_string(client_port);
-  const std::string server_uri =
-      server_ip + ":" + std::to_string(server_port);
+  const std::string client_uri = client_ip + ":" + std::to_string(client_port);
+  const std::string server_uri = server_ip + ":" + std::to_string(server_port);
   ub_hello_print_config("client", client_uri, 1);
   std::printf(
       "UB hello client: server=%s concurrency=%zu msg_size=%zu requests=%zu "
@@ -147,7 +157,7 @@ int main(int argc, char **argv) {
       kUBHelloWarmupRequests);
 
   try {
-    erpc::Nexus nexus(client_uri);
+    erpc::Nexus nexus(client_uri, ub_hello_numa_node());
     g_rpc = new erpc::Rpc<erpc::CTransport>(&nexus, nullptr, 1, sm_handler, 0);
     const int session_num = g_rpc->create_session(server_uri, 0);
     if (session_num < 0) {
@@ -174,12 +184,26 @@ int main(int argc, char **argv) {
         session_num, slots, kUBHelloWarmupRequests, msg_size, false);
     const RunResult measured =
         run_requests(session_num, slots, requests, msg_size, true);
+
+    const int disconnect_result = g_rpc->destroy_session(session_num);
+    if (disconnect_result == 0) {
+      for (size_t attempt = 0; !g_disconnected && attempt < 2000; ++attempt) {
+        g_rpc->run_event_loop_once();
+        if (attempt % 10 == 0)
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    if (disconnect_result != 0 || !g_disconnected) {
+      std::fprintf(stderr,
+                   "UB hello client: graceful session disconnect failed\n");
+    }
+
     delete g_rpc;
     g_rpc = nullptr;
 
     const uint64_t expected = ub_hello_expected_checksum(requests);
     const bool passed = warmup.errors == 0 && measured.errors == 0 &&
-                        measured.checksum == expected;
+                        measured.checksum == expected && g_disconnected;
     std::printf(
         "UB hello client: %s checksum=%llu expected=%llu errors=%zu "
         "average_latency=%.3f us\n",
@@ -194,4 +218,3 @@ int main(int argc, char **argv) {
     return 1;
   }
 }
-

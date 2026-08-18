@@ -511,6 +511,16 @@ void *UBMachineContext::map_remote_machine(uint64_t machine_id) {
   return mapping;
 }
 
+void UBMachineContext::unmap_remote_machines() noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (const RemoteMapping &remote : remote_mappings_) {
+    if (remote.base != nullptr && remote.base != local_base_) {
+      (void)ubsmem_shmem_unmap(remote.base, region_bytes_);
+    }
+  }
+  remote_mappings_.clear();
+}
+
 bool UBMachineContext::validate_endpoint(
     void *machine_base, uint64_t machine_id,
     const UBEndpointHandle &endpoint) const {

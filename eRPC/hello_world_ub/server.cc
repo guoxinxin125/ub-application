@@ -1,7 +1,7 @@
-#include "common.h"
-
 #include <csignal>
 #include <exception>
+
+#include "common.h"
 
 namespace {
 
@@ -31,28 +31,24 @@ void request_handler(erpc::ReqHandle *req_handle, void *) {
   response = g_rpc->alloc_msg_buffer_or_die(request->get_data_size());
   *reinterpret_cast<uint64_t *>(response.buf_) = request_id;
   g_rpc->enqueue_response(req_handle, &response);
-
-  if (g_max_requests != 0 && g_request_count >= g_max_requests) g_stop = 1;
 }
 
 }  // namespace
 
 int main(int argc, char **argv) {
   if (argc < 2 || argc > 4) {
-    std::fprintf(stderr,
-                 "Usage: %s <bind-ip> [server-port] [max-requests]\n",
+    std::fprintf(stderr, "Usage: %s <bind-ip> [server-port] [max-requests]\n",
                  argv[0]);
     return 2;
   }
 
   const std::string bind_ip = argv[1];
-  const uint16_t port =
-      argc >= 3 ? ub_hello_parse_port(argv[2], "server-port")
-                : kDefaultServerPort;
-  g_max_requests = argc >= 4
-                       ? static_cast<size_t>(
-                             ub_hello_parse_u64(argv[3], "max-requests"))
-                       : 0;
+  const uint16_t port = argc >= 3 ? ub_hello_parse_port(argv[2], "server-port")
+                                  : kDefaultServerPort;
+  g_max_requests =
+      argc >= 4
+          ? static_cast<size_t>(ub_hello_parse_u64(argv[3], "max-requests"))
+          : 0;
   const std::string server_uri = bind_ip + ":" + std::to_string(port);
 
   std::signal(SIGINT, signal_handler);
@@ -60,10 +56,16 @@ int main(int argc, char **argv) {
   ub_hello_print_config("server", server_uri, 0);
 
   try {
-    erpc::Nexus nexus(server_uri);
+    erpc::Nexus nexus(server_uri, ub_hello_numa_node());
     nexus.register_req_func(kUBHelloReqType, request_handler);
     g_rpc = new erpc::Rpc<erpc::CTransport>(&nexus, nullptr, 0, nullptr, 0);
-    while (g_stop == 0) g_rpc->run_event_loop(100);
+    while (g_stop == 0) {
+      g_rpc->run_event_loop(100);
+      if (g_max_requests != 0 && g_request_count >= g_max_requests &&
+          g_rpc->num_active_sessions() == 0) {
+        break;
+      }
+    }
     delete g_rpc;
     g_rpc = nullptr;
   } catch (const std::exception &error) {
@@ -72,9 +74,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  std::printf("UB hello server: requests=%zu checksum=%llu\n",
-              g_request_count,
+  std::printf("UB hello server: requests=%zu checksum=%llu\n", g_request_count,
               static_cast<unsigned long long>(g_request_checksum));
   return 0;
 }
-

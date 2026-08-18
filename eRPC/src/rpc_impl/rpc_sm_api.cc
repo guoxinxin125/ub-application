@@ -4,9 +4,9 @@
  */
 #include <algorithm>
 #include <type_traits>
-#include "util/autorun_helpers.h"
 
 #include "rpc.h"
+#include "util/autorun_helpers.h"
 #ifdef ERPC_CXL
 #include "transport_impl/cxl/cxl_transport.h"
 #elif defined(ERPC_UB)
@@ -142,6 +142,13 @@ int Rpc<TTr>::destroy_session_st(int session_num) {
       ERPC_INFO("Rpc %u, lsn %u: Sending disconnect request to [%s, %u].\n",
                 rpc_id_, session->local_session_num_,
                 session->server_.hostname_, session->server_.rpc_id_);
+
+#ifdef ERPC_UB
+      if (std::is_same<TTr, CTransport>::value) {
+        CTransport *ub_transport = static_cast<CTransport *>(transport_);
+        ub_transport->prepare_disconnect(session->server_.rpc_id_);
+      }
+#endif
 
       session->state_ = SessionState::kDisconnectInProgress;
       send_sm_req_st(session);
