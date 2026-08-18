@@ -7,9 +7,6 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(Protobuf REQUIRED)
-include_directories(${PROTOBUF_INCLUDE_DIRS})
-
 # 添加编译选项：禁用未使用函数的警告
 add_compile_options(-Wno-unused-function)
 add_compile_options(-Wno-unused-parameter)
@@ -395,6 +392,9 @@ elseif(APP STREQUAL "social_network_cxl")
   # Social Network CXL App - 编译所有服务模块
   message(STATUS "Building social_network_cxl application with CXL transport")
 
+  find_package(Protobuf REQUIRED)
+  include_directories(${PROTOBUF_INCLUDE_DIRS})
+
   # 设置源文件目录
   set(SN_CXL_DIR ${CMAKE_SOURCE_DIR}/apps/social_network_cxl)
 
@@ -618,20 +618,6 @@ if(PERF)
   target_compile_options(${APP} PRIVATE "-flto")
 endif()
 target_link_libraries(${APP} ${LIBRARIES})
-
-# Compile hello_world apps
-add_executable(hello_server hello_world/server.cc)
-target_link_libraries(hello_server erpc ${LIBRARIES})
-add_executable(hello_client hello_world/client.cc)
-target_link_libraries(hello_client erpc ${LIBRARIES})
-add_executable(hello_pair_server hello_world/pair_server.cc)
-target_link_libraries(hello_pair_server erpc ${LIBRARIES})
-add_executable(hello_pair_client hello_world/pair_client.cc)
-target_link_libraries(hello_pair_client erpc ${LIBRARIES})
-add_executable(hello_mc_server hello_world/multi_client_server.cc)
-target_link_libraries(hello_mc_server erpc ${LIBRARIES})
-add_executable(hello_mc_client hello_world/multi_client_client.cc)
-target_link_libraries(hello_mc_client erpc ${LIBRARIES})
 
 # Compile the tests
 if(TESTING)
