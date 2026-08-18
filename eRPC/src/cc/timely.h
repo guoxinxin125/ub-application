@@ -8,6 +8,7 @@
 #pragma once
 
 #include <iomanip>
+
 #include "cc/timely_sweep_params.h"
 #include "common.h"
 #include "util/latency.h"
@@ -94,7 +95,10 @@ class Timely {
    * @param sample_rtt_tsc The RTT sample in RDTSC cycles
    */
   void update_rate(size_t _rdtsc, size_t sample_rtt_tsc) {
-    assert(_rdtsc >= 1000000000 && _rdtsc >= last_update_tsc_);  // Sanity check
+    // The absolute counter value is architecture-dependent. For example, the
+    // AArch64 generic timer can run much slower than an x86 TSC, so only its
+    // monotonicity is a valid sanity check here.
+    assert(_rdtsc >= last_update_tsc_);
 
     if (kCcOptTimelyBypass &&
         (rate_ == link_bandwidth_ && sample_rtt_tsc <= t_low_tsc_)) {

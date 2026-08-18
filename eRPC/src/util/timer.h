@@ -5,19 +5,35 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <stdlib.h>
 #include <chrono>
+#include <cstdint>
+#include <cstdlib>
+
 #include "common.h"
 
 namespace erpc {
 
-/// Return the TSC
+/// Return the platform's monotonic hardware timestamp counter.
 static inline size_t rdtsc() {
+#if defined(__x86_64__) || defined(__i386__)
   uint64_t rax;
   uint64_t rdx;
   asm volatile("rdtsc" : "=a"(rax), "=d"(rdx));
   return static_cast<size_t>((rdx << 32) | rax);
+#elif defined(__aarch64__)
+  uint64_t counter;
+  // ISB prevents later instructions from being observed before the timestamp.
+  // CNTVCT_EL0 is the Linux userspace virtual generic timer counter.
+  asm volatile(
+      "isb\n\t"
+      "mrs %0, cntvct_el0"
+      : "=r"(counter)
+      :
+      : "memory");
+  return static_cast<size_t>(counter);
+#else
+#error "rdtsc() is unsupported on this architecture"
+#endif
 }
 
 /// An alias for rdtsc() to distinguish calls on the critical path
@@ -58,6 +74,14 @@ class ChronoTimer {
 };
 
 static double measure_rdtsc_freq() {
+#if defined(__aarch64__)
+  uint64_t counter_frequency_hz;
+  asm volatile("mrs %0, cntfrq_el0" : "=r"(counter_frequency_hz));
+  rt_assert(counter_frequency_hz != 0,
+            "Invalid AArch64 generic timer frequency");
+  // Existing conversion helpers expect timestamp-counter ticks per nanosecond.
+  return static_cast<double>(counter_frequency_hz) / 1e9;
+#else
   ChronoTimer chrono_timer;
   const uint64_t rdtsc_start = rdtsc();
 
@@ -74,6 +98,7 @@ static double measure_rdtsc_freq() {
   rt_assert(freq_ghz >= 0.5 && freq_ghz <= 5.0, "Invalid RDTSC frequency");
 
   return freq_ghz;
+#endif
 }
 
 /// Convert cycles measured by rdtsc with frequence \p freq_ghz to seconds
