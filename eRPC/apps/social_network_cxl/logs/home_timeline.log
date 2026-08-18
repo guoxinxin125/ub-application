@@ -1,0 +1,11 @@
+83:811963 WARNG: eRPC Nexus: Testing enabled. Perf will be low.
+[home_timeline] mongodb init finished! Total init 9424 posts
+[MemoryManager] Creating memkind pool: base=0x100d8940000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Successfully created memkind pool at 0x100d8940000
+[MemoryManager::malloc] Allocated 1048576 bytes at 0x100d8940240 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100d8a41000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100d8a41800 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100d8a42000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100d8a42800 (in pool range)
+[MemoryManager] Creating memkind pool: base=0x10038e40000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Successfully created memkind pool at 0x10038e40000

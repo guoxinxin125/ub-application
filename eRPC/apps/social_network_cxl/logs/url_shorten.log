@@ -1,0 +1,11 @@
+83:813140 WARNG: eRPC Nexus: Testing enabled. Perf will be low.
+[MemoryManager] Creating memkind pool: base=0x100c0a00000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Successfully created memkind pool at 0x100c0a00000
+[MemoryManager::malloc] Allocated 1048576 bytes at 0x100c0a009c0 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100c0b01000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100c0b01800 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100c0b02000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100c0b02800 (in pool range)
+[MemoryManager] Creating memkind pool: base=0x10020f00000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Successfully created memkind pool at 0x10020f00000
+Rpc 4: Created Server session_num = 0 for client [H: 127.0.0.1:31855, R: 25, S: 2] from 127.0.0.1 (rpc 25)

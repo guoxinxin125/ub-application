@@ -1,0 +1,16 @@
+83:815621 WARNG: eRPC Nexus: Testing enabled. Perf will be low.
+[MemoryManager] Creating memkind pool: base=0x100a8ac0000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Successfully created memkind pool at 0x100a8ac0000
+[MemoryManager::malloc] Allocated 1048576 bytes at 0x100a8ac0880 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100a8bc1000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100a8bc1800 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100a8bc2000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x100a8bc2800 (in pool range)
+[MemoryManager] Creating memkind pool: base=0x10008fc0000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Successfully created memkind pool at 0x10008fc0000
+Rpc 1: Created Server session_num = 0 for client [H: 127.0.0.1:31850, R: 20, S: 1] from 127.0.0.1 (rpc 20)
+Rpc 1: Created Server session_num = 1 for client [H: 127.0.0.1:31859, R: 29, S: 0] from 127.0.0.1 (rpc 29)
+99:287473 WARNG: Rpc 1, lsn 1 (127.0.0.1): Received out-of-order request for session. Req num: 4592 (pkt), 4592 (sslot). Action: Re-sending response.
+writing latency file ./latency1-write, count=1500
+writing latency file ./latency1-user, count=0
+writing latency file ./latency1-home, count=3500

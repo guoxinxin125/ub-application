@@ -1,0 +1,15 @@
+83:702223 WARNG: eRPC Nexus: Testing enabled. Perf will be low.
+[MemoryManager] Creating memkind pool: base=0x10048dc0000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Creating memkind pool: base=0x100e88c0000, size=133955584, requested_base=0x10000000000
+[MemoryManager] Successfully created memkind pool at 0x10048dc0000
+[MemoryManager::malloc] Allocated 1048576 bytes at 0x10048dc0940 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x10048ec1000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x10048ec1800 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x10048ec2000 (in pool range)
+[MemoryManager::malloc] Allocated 2048 bytes at 0x10048ec2800 (in pool range)
+[MemoryManager] Successfully created memkind pool at 0x100e88c0000
+Rpc 9: Created Server session_num = 0 for client [H: 127.0.0.1:31857, R: 27, S: 2] from 127.0.0.1 (rpc 27)
+Rpc 9: Created Server session_num = 1 for client [H: 127.0.0.1:31856, R: 26, S: 2] from 127.0.0.1 (rpc 26)
+Rpc 9: Created Server session_num = 2 for client [H: 127.0.0.1:31855, R: 25, S: 7] from 127.0.0.1 (rpc 25)
+Rpc 9: Created Server session_num = 3 for client [H: 127.0.0.1:31851, R: 21, S: 1] from 127.0.0.1 (rpc 21)
+post_storage mongodb init finished. loaded 9424 posts

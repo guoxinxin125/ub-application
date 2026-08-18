@@ -1,0 +1,108 @@
+{
+  "common": {
+    "test_loop": 10,
+    "concurrency": 1,
+    "client_num": 1,
+    "server_num": 1,
+    "numa_client_node": 0,
+    "numa_server_node": 0,
+    "bind_core_offset": 0,
+    "timeout_second": 18446744073709551615,
+    "latency_file": "./latency",
+    "bandwidth_file": "./bandwidth"
+  },
+  "cxl": {
+    "device_path": "/dev/dax0.0",
+    "shared_memory_key": "social_network_shm",
+    "memory_size_gb": 8,
+    "enable_numa_effects": true
+  },
+  "load_balance": {
+    "server_addr": "127.0.0.1:31850",
+    "rpc_id": 0,
+    "bind_core_offset": 0
+  },
+  "client": {
+    "server_addr": "127.0.0.1:31851",
+    "rpc_id": 1,
+    "generate_num": 5000,
+    "user_num": 0, 
+    "home_num": 7,
+    "write_num": 3,
+    "bind_core_offset": 4
+  },
+  "nginx": {
+    "server_addr": "127.0.0.1:31852",
+    "rpc_id": 2,
+    "bind_core_offset": 8
+  },
+  "unique_id": {
+    "server_addr": "127.0.0.1:31853",
+    "rpc_id": 3,
+    "bind_core_offset": 12
+  },
+  "url_shorten": {
+    "server_addr": "127.0.0.1:31854",
+    "rpc_id": 4,
+    "bind_core_offset": 16
+  },
+  "compose_post": {
+    "server_addr": "127.0.0.1:31855",
+    "rpc_id": 5,
+    "bind_core_offset": 20
+  },
+  "user_timeline": {
+    "server_addr": "127.0.0.1:31856",
+    "rpc_id": 6,
+    "bind_core_offset": 24
+  },
+  "home_timeline": {
+    "server_addr": "127.0.0.1:31857",
+    "rpc_id": 7,
+    "data_file_path": "./home_timeline.data",
+    "per_read_posts": 3,
+    "bind_core_offset": 28
+  },
+  "user_mention": {
+    "server_addr": "127.0.0.1:31858",
+    "rpc_id": 8,
+    "bind_core_offset": 32
+  },
+  "post_storage": {
+    "server_addr": "127.0.0.1:31859",
+    "rpc_id": 9,
+    "read_total_size": 4,
+    "write_total_size": 4,
+    "write_to_mongodb": false,
+    "bind_core_offset": 36
+  },
+  "user_service": {
+    "server_addr": "127.0.0.1:31860",
+    "rpc_id": 10,
+    "bind_core_offset": 40
+  },
+  "user_timeline_mongodb": {
+    "connections": 100,
+    "addr": "127.0.0.1",
+    "port": "20012",
+    "database": "user-timeline"
+  },
+  "user_mongodb": {
+    "connections": 100,
+    "addr": "127.0.0.1",
+    "port": "20011",
+    "database": "user"
+  },
+  "social_graph_mongodb": {
+    "connections": 100,
+    "addr": "127.0.0.1",
+    "port": "20013",
+    "database": "social-network"
+  },
+  "post_storage_mongodb": {
+    "connections": 100,
+    "addr": "127.0.0.1",
+    "port": "20014",
+    "database": "post-storage"
+  }
+}
