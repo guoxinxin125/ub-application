@@ -1,0 +1,2 @@
+/usr/bin/ar qc /home/gxx/pccshm-sdk/eRPC/build/libraft.a CMakeFiles/raft.dir/src/raft_log.c.o CMakeFiles/raft.dir/src/raft_node.c.o CMakeFiles/raft.dir/src/raft_server.c.o CMakeFiles/raft.dir/src/raft_server_properties.c.o
+/usr/bin/ranlib /home/gxx/pccshm-sdk/eRPC/build/libraft.a

@@ -40,10 +40,8 @@ tags
 # CMake
 build
 CMakeCache.txt
-CMakeFiles
 CMakeScripts
 Testing
-*.cmake
 .ninja_deps
 .ninja_log
 build.ninja
