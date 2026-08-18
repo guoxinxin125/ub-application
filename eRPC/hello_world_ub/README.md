@@ -34,8 +34,9 @@ cmake --build eRPC/build-ub -j \
 ## 双机单进程模式
 
 两台机器必须设置不同的 `ERPC_UB_MACHINE_ID`。其他 UB 内存配置必须一致。
-`ERPC_UB_NUMA_NODE` 选择 Nexus、线程绑核和 eRPC 本地分配所在节点；
-`ERPC_UB_PROVIDER_NUMA` 选择 UBSM provider 节点。`ERPC_PROVIDER_NUMA` 不是有效变量。
+`ERPC_UB_NUMA_NODE` 选择 Nexus、线程绑核和 eRPC 本地分配所在节点；未设置时继承
+`ERPC_UB_PROVIDER_NUMA`。后者选择 UBSM provider 节点。只有两者需要不同时才必须
+同时设置；`ERPC_PROVIDER_NUMA` 不是有效变量。
 
 机器 82（示例控制面 IP 为 `192.0.2.82`，使用 NUMA0）：
 

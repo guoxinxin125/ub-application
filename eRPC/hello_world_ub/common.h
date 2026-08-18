@@ -48,8 +48,12 @@ inline const char *ub_hello_env_or(const char *name,
 }
 
 inline size_t ub_hello_numa_node() {
-  return static_cast<size_t>(ub_hello_parse_u64(
-      ub_hello_env_or("ERPC_UB_NUMA_NODE", "0"), "ERPC_UB_NUMA_NODE"));
+  const char *numa_node = std::getenv("ERPC_UB_NUMA_NODE");
+  if (numa_node == nullptr || numa_node[0] == '\0') {
+    numa_node = ub_hello_env_or("ERPC_UB_PROVIDER_NUMA", "0");
+  }
+  return static_cast<size_t>(
+      ub_hello_parse_u64(numa_node, "ERPC_UB_NUMA_NODE"));
 }
 
 inline void ub_hello_print_config(const char *role, const std::string &uri,
@@ -62,7 +66,8 @@ inline void ub_hello_print_config(const char *role, const std::string &uri,
       ub_hello_env_or("ERPC_UB_PROCESS_MODE", "single"),
       ub_hello_env_or("ERPC_UB_MEMORY_MODE", "one-sided"),
       ub_hello_env_or("ERPC_UB_MACHINE_ID", "hostname-hash"),
-      ub_hello_env_or("ERPC_UB_NUMA_NODE", "0"),
+      ub_hello_env_or("ERPC_UB_NUMA_NODE",
+                      ub_hello_env_or("ERPC_UB_PROVIDER_NUMA", "0")),
       ub_hello_env_or("ERPC_UB_PROVIDER_NUMA", "same-as-numa-node"),
       ub_hello_env_or("ERPC_UB_REGION_MB", "256"),
       ub_hello_env_or("ERPC_UB_ARENA_MB", "16"));
