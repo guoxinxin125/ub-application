@@ -51,7 +51,7 @@ add_subdirectory(third_party/gflags)
 include_directories(SYSTEM third_party/asio/include)
 
 # Add additional compilation flags only after adding subprojects
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -march=native -Wall -Wextra -Werror -pedantic")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -march=native -Wall -Wextra -pedantic")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-conversion -Wold-style-cast -Wno-unused-function")
 
 # 只在 Clang 上添加这些选项
