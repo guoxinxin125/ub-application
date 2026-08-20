@@ -121,8 +121,9 @@ Set `ERPC_UB_PROFILE=1` on both the client and server to collect aggregated
 transport-stage timings. Each process prints `UB_PROFILE` lines when its
 `Rpc` is destroyed. The reported stages include shared-buffer allocation and
 free, endpoint lookup, TX reference acquisition, queue publish/poll, remote
-payload resolution, and total TX/RX burst time. `adjusted_avg_ns` subtracts
-the measured timestamp-read overhead.
+payload resolution, and total TX/RX burst time. Payload resolution is further
+split into bounds, state, metadata-load, and final-check stages.
+`adjusted_avg_ns` subtracts the measured timestamp-read overhead.
 
 Remote machine mappings are acquired and reference-counted when a session
 route is resolved. The RX data path uses the `machine_base` cached in the

@@ -135,6 +135,10 @@ void UBTransport::print_profile() const {
   print_counter("tx_burst", profile_stats_.tx_burst);
   print_counter("rx_queue_empty", profile_stats_.rx_queue_empty);
   print_counter("rx_queue_hit", profile_stats_.rx_queue_hit);
+  print_counter("rx_resolve_bounds", profile_stats_.rx_resolve_bounds);
+  print_counter("rx_resolve_state", profile_stats_.rx_resolve_state);
+  print_counter("rx_resolve_metadata", profile_stats_.rx_resolve_metadata);
+  print_counter("rx_resolve_checks", profile_stats_.rx_resolve_checks);
   print_counter("rx_resolve", profile_stats_.rx_resolve);
   print_counter("rx_burst", profile_stats_.rx_burst);
 }
@@ -527,11 +531,20 @@ size_t UBTransport::rx_burst() {
       uint8_t *payload = nullptr;
       if (descriptor.payload_length > 0) {
         const size_t resolve_start = profile_start();
+        UBResolveProfileSample resolve_profile;
         payload = shared_allocator_->resolve_payload(
             remote.machine_base, descriptor.machine_id, descriptor.block_offset,
             descriptor.payload_offset, descriptor.block_generation,
-            descriptor.payload_length);
+            descriptor.payload_length,
+            profile_enabled_ ? &resolve_profile : nullptr);
         profile_record(profile_stats_.rx_resolve, resolve_start);
+        if (profile_enabled_) {
+          profile_stats_.rx_resolve_bounds.record(resolve_profile.bounds_ticks);
+          profile_stats_.rx_resolve_state.record(resolve_profile.state_ticks);
+          profile_stats_.rx_resolve_metadata.record(
+              resolve_profile.metadata_ticks);
+          profile_stats_.rx_resolve_checks.record(resolve_profile.checks_ticks);
+        }
         rt_assert(payload != nullptr,
                   "UB descriptor references an invalid block");
       }

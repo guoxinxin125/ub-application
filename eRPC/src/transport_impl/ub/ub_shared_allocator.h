@@ -52,6 +52,13 @@ static_assert(sizeof(UBBlockMetadata) == 64,
 void ub_initialize_arena(void *machine_base, uint64_t machine_id,
                          uint64_t arena_offset, uint64_t arena_size);
 
+struct UBResolveProfileSample {
+  size_t bounds_ticks = 0;
+  size_t state_ticks = 0;
+  size_t metadata_ticks = 0;
+  size_t checks_ticks = 0;
+};
+
 class UBSharedAllocator {
  public:
   UBSharedAllocator(UBMachineContext *context,
@@ -64,7 +71,8 @@ class UBSharedAllocator {
   uint32_t generation_of(const void *ptr) const;
   uint8_t *resolve_payload(void *machine_base, uint64_t machine_id,
                            uint64_t block_offset, uint64_t payload_offset,
-                           uint32_t generation, size_t length);
+                           uint32_t generation, size_t length,
+                           UBResolveProfileSample *profile = nullptr);
 
  private:
   static size_t class_capacity(size_t index);

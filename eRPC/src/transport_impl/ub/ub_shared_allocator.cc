@@ -5,6 +5,8 @@
 #include <cstring>
 #include <stdexcept>
 
+#include "util/timer.h"
+
 namespace erpc {
 namespace {
 static constexpr size_t kMinClassCapacity = 64;
@@ -206,28 +208,67 @@ uint32_t UBSharedAllocator::generation_of(const void *ptr) const {
   return (reinterpret_cast<const UBBlockMetadata *>(ptr) - 1)->generation;
 }
 
-uint8_t *UBSharedAllocator::resolve_payload(
-    void *machine_base, uint64_t machine_id, uint64_t block_offset,
-    uint64_t payload_offset, uint32_t generation, size_t length) {
+uint8_t *UBSharedAllocator::resolve_payload(void *machine_base,
+                                            uint64_t machine_id,
+                                            uint64_t block_offset,
+                                            uint64_t payload_offset,
+                                            uint32_t generation, size_t length,
+                                            UBResolveProfileSample *profile) {
+  size_t stage_start = profile == nullptr ? 0 : rdtsc();
+  if (profile != nullptr) ub_atomic::compiler_fence();
   const size_t region_size = context_->region_bytes();
-  if (machine_base == nullptr ||
+  const bool invalid_bounds =
+      machine_base == nullptr ||
       block_offset > region_size - sizeof(UBBlockMetadata) ||
-      payload_offset > region_size || length > region_size - payload_offset)
-    return nullptr;
+      payload_offset > region_size || length > region_size - payload_offset;
+  if (profile != nullptr) {
+    ub_atomic::compiler_fence();
+    profile->bounds_ticks = rdtsc() - stage_start;
+  }
+  if (invalid_bounds) return nullptr;
+
   auto *metadata = reinterpret_cast<UBBlockMetadata *>(
       static_cast<uint8_t *>(machine_base) + block_offset);
+
+  stage_start = profile == nullptr ? 0 : rdtsc();
+  if (profile != nullptr) ub_atomic::compiler_fence();
   const uint32_t state =
       ub_atomic::load(&metadata->state, ub_atomic::MemoryOrder::kAcquire);
-  if (state != static_cast<uint32_t>(UBBlockState::kAllocated) ||
-      metadata->magic != kUBBlockMagic || metadata->generation != generation ||
-      metadata->machine_id != machine_id ||
-      payload_offset < block_offset + sizeof(UBBlockMetadata))
-    return nullptr;
-  const uint64_t inside =
-      payload_offset - block_offset - sizeof(UBBlockMetadata);
-  if (inside > metadata->payload_capacity ||
-      length > metadata->payload_capacity - inside)
-    return nullptr;
+  if (profile != nullptr) {
+    ub_atomic::compiler_fence();
+    profile->state_ticks = rdtsc() - stage_start;
+  }
+  if (state != static_cast<uint32_t>(UBBlockState::kAllocated)) return nullptr;
+
+  stage_start = profile == nullptr ? 0 : rdtsc();
+  if (profile != nullptr) ub_atomic::compiler_fence();
+  const uint32_t magic = metadata->magic;
+  const uint32_t metadata_generation = metadata->generation;
+  const uint64_t metadata_machine_id = metadata->machine_id;
+  const uint64_t payload_capacity = metadata->payload_capacity;
+  if (profile != nullptr) {
+    ub_atomic::compiler_fence();
+    profile->metadata_ticks = rdtsc() - stage_start;
+  }
+
+  stage_start = profile == nullptr ? 0 : rdtsc();
+  if (profile != nullptr) ub_atomic::compiler_fence();
+  const bool invalid_identity =
+      magic != kUBBlockMagic || metadata_generation != generation ||
+      metadata_machine_id != machine_id ||
+      payload_offset < block_offset + sizeof(UBBlockMetadata);
+  uint64_t inside = 0;
+  bool invalid_capacity = true;
+  if (!invalid_identity) {
+    inside = payload_offset - block_offset - sizeof(UBBlockMetadata);
+    invalid_capacity =
+        inside > payload_capacity || length > payload_capacity - inside;
+  }
+  if (profile != nullptr) {
+    ub_atomic::compiler_fence();
+    profile->checks_ticks = rdtsc() - stage_start;
+  }
+  if (invalid_identity || invalid_capacity) return nullptr;
   return static_cast<uint8_t *>(machine_base) + payload_offset;
 }
 

@@ -92,6 +92,10 @@ class UBTransport : public Transport {
     ProfileCounter tx_burst;
     ProfileCounter rx_queue_empty;
     ProfileCounter rx_queue_hit;
+    ProfileCounter rx_resolve_bounds;
+    ProfileCounter rx_resolve_state;
+    ProfileCounter rx_resolve_metadata;
+    ProfileCounter rx_resolve_checks;
     ProfileCounter rx_resolve;
     ProfileCounter rx_burst;
   };
