@@ -54,8 +54,6 @@ void ub_initialize_arena(void *machine_base, uint64_t machine_id,
 
 struct UBResolveProfileSample {
   size_t bounds_ticks = 0;
-  size_t state_ticks = 0;
-  size_t metadata_ticks = 0;
   size_t checks_ticks = 0;
 };
 
@@ -69,9 +67,8 @@ class UBSharedAllocator {
   bool is_shared_ptr(const void *ptr) const;
   uint64_t offset_of(const void *ptr) const;
   uint32_t generation_of(const void *ptr) const;
-  uint8_t *resolve_payload(void *machine_base, uint64_t machine_id,
-                           uint64_t block_offset, uint64_t payload_offset,
-                           uint32_t generation, size_t length,
+  uint8_t *resolve_payload(void *machine_base, uint64_t block_offset,
+                           uint64_t payload_offset, size_t length,
                            UBResolveProfileSample *profile = nullptr);
 
  private:

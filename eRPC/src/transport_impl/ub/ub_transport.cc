@@ -136,8 +136,6 @@ void UBTransport::print_profile() const {
   print_counter("rx_queue_empty", profile_stats_.rx_queue_empty);
   print_counter("rx_queue_hit", profile_stats_.rx_queue_hit);
   print_counter("rx_resolve_bounds", profile_stats_.rx_resolve_bounds);
-  print_counter("rx_resolve_state", profile_stats_.rx_resolve_state);
-  print_counter("rx_resolve_metadata", profile_stats_.rx_resolve_metadata);
   print_counter("rx_resolve_checks", profile_stats_.rx_resolve_checks);
   print_counter("rx_resolve", profile_stats_.rx_resolve);
   print_counter("rx_burst", profile_stats_.rx_burst);
@@ -303,8 +301,7 @@ void UBTransport::discard_descriptor_noexcept(
 
   try {
     uint8_t *payload = shared_allocator_->resolve_payload(
-        machine_base, descriptor.machine_id, descriptor.block_offset,
-        descriptor.payload_offset, descriptor.block_generation, 0);
+        machine_base, descriptor.block_offset, descriptor.payload_offset, 0);
     if (payload != nullptr) {
       shared_allocator_->free(
           Buffer(payload - sizeof(pkthdr_t), sizeof(pkthdr_t), 0));
@@ -515,9 +512,14 @@ size_t UBTransport::rx_burst() {
       const bool zero_length_coordinates = descriptor.block_offset == 0 &&
                                            descriptor.payload_offset == 0 &&
                                            descriptor.block_generation == 0;
+      const bool invalid_payload_coordinates =
+          descriptor.payload_length > 0 &&
+          (descriptor.payload_offset < descriptor.block_offset ||
+           descriptor.payload_offset - descriptor.block_offset !=
+               sizeof(UBBlockMetadata) + sizeof(pkthdr_t));
       if (descriptor.payload_length != descriptor.pkthdr.msg_size_ ||
           (descriptor.payload_length == 0 && !zero_length_coordinates) ||
-          remote.machine_base == nullptr ||
+          invalid_payload_coordinates || remote.machine_base == nullptr ||
           descriptor.machine_id != remote.machine_id) {
         std::fprintf(stderr,
                      "UB: dropping descriptor with inconsistent payload "
@@ -533,16 +535,12 @@ size_t UBTransport::rx_burst() {
         const size_t resolve_start = profile_start();
         UBResolveProfileSample resolve_profile;
         payload = shared_allocator_->resolve_payload(
-            remote.machine_base, descriptor.machine_id, descriptor.block_offset,
-            descriptor.payload_offset, descriptor.block_generation,
-            descriptor.payload_length,
+            remote.machine_base, descriptor.block_offset,
+            descriptor.payload_offset, descriptor.payload_length,
             profile_enabled_ ? &resolve_profile : nullptr);
         profile_record(profile_stats_.rx_resolve, resolve_start);
         if (profile_enabled_) {
           profile_stats_.rx_resolve_bounds.record(resolve_profile.bounds_ticks);
-          profile_stats_.rx_resolve_state.record(resolve_profile.state_ticks);
-          profile_stats_.rx_resolve_metadata.record(
-              resolve_profile.metadata_ticks);
           profile_stats_.rx_resolve_checks.record(resolve_profile.checks_ticks);
         }
         rt_assert(payload != nullptr,
