@@ -7,7 +7,6 @@
 #include <cstring>
 
 #include "pkthdr.h"
-
 #include "transport_impl/ub/ub_atomic.h"
 #include "transport_impl/ub/ub_config.h"
 
@@ -47,13 +46,17 @@ struct alignas(64) UBSpscQueue {
                      ub_atomic::MemoryOrder::kRelaxed);
   }
 
-  bool try_enqueue(uint64_t &producer_tail,
+  bool try_enqueue(uint64_t &producer_tail, uint64_t &cached_consumer_head,
                    const UBMessageDescriptor &descriptor) {
-
-    const uint64_t consumer_head =
-        ub_atomic::load(&head.value, ub_atomic::MemoryOrder::kAcquire);
-    if (producer_tail - consumer_head >= ub_config::kSpscQueueDepth) {
-      return false;
+    // The consumer head is monotonic, so a producer-side cached value is
+    // sufficient while it still proves that the queue has free entries. Only
+    // refresh the remote head when the cached value makes the queue look full.
+    if (producer_tail - cached_consumer_head >= ub_config::kSpscQueueDepth) {
+      cached_consumer_head =
+          ub_atomic::load(&head.value, ub_atomic::MemoryOrder::kAcquire);
+      if (producer_tail - cached_consumer_head >= ub_config::kSpscQueueDepth) {
+        return false;
+      }
     }
 
     UBMessageDescriptor &slot =

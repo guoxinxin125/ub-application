@@ -3,11 +3,14 @@
 #include "transport_impl/ub/ub_transport.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 
 #include "util/huge_alloc.h"
 #include "util/logger.h"
+#include "util/timer.h"
 
 namespace erpc {
 namespace {
@@ -23,6 +26,12 @@ UBEndpointHandle endpoint_from_route(const UBRoutingInfo &route) {
   return UBEndpointHandle(route.endpoint_slot, route.rpc_id,
                           route.endpoint_generation, route.inbox_offset,
                           route.arena_offset, route.arena_size);
+}
+
+bool profile_enabled_from_env() {
+  const char *value = std::getenv("ERPC_UB_PROFILE");
+  return value != nullptr && std::strcmp(value, "0") != 0 &&
+         std::strcmp(value, "false") != 0 && std::strcmp(value, "off") != 0;
 }
 
 }  // namespace
@@ -44,12 +53,27 @@ UBTransport::UBTransport(uint16_t sm_udp_port, uint8_t rpc_id, uint8_t phy_port,
       next_poll_active_index_(0),
       active_rx_source_count_(0),
       machine_context_(nullptr),
-      local_inbox_(nullptr) {
+      local_inbox_(nullptr),
+      profile_enabled_(profile_enabled_from_env()),
+      profile_freq_ghz_(0.0),
+      profile_timestamp_overhead_ticks_(0) {
   rt_assert(rpc_id < ub_config::kMaxRpcEndpoints,
             "UBTransport rpc_id exceeds SPSC queue matrix");
   consumer_heads_.fill(0);
   rx_peer_refcounts_.fill(0);
   active_rx_sources_.fill(UINT8_MAX);
+
+  if (profile_enabled_) {
+    profile_freq_ghz_ = measure_rdtsc_freq();
+    profile_timestamp_overhead_ticks_ = std::numeric_limits<size_t>::max();
+    for (size_t i = 0; i < 1000; ++i) {
+      const size_t start = rdtsc();
+      const size_t elapsed = rdtsc() - start;
+      if (elapsed < profile_timestamp_overhead_ticks_) {
+        profile_timestamp_overhead_ticks_ = elapsed;
+      }
+    }
+  }
 
   try {
     machine_context_ = UBMachineContext::acquire(numa_node);
@@ -64,7 +88,69 @@ UBTransport::UBTransport(uint16_t sm_udp_port, uint8_t rpc_id, uint8_t phy_port,
   }
 }
 
-UBTransport::~UBTransport() { cleanup_noexcept(); }
+UBTransport::~UBTransport() {
+  print_profile();
+  cleanup_noexcept();
+}
+
+size_t UBTransport::profile_start() const {
+  return profile_enabled_ ? rdtsc() : 0;
+}
+
+void UBTransport::profile_record(ProfileCounter &counter,
+                                 size_t start_ticks) const {
+  if (!profile_enabled_) return;
+  counter.record(rdtsc() - start_ticks);
+}
+
+void UBTransport::print_profile() const {
+  if (!profile_enabled_) return;
+  std::fprintf(stderr, "UB_PROFILE rpc_id=%u timestamp_overhead_ns=%.1f\n",
+               rpc_id_,
+               to_nsec(profile_timestamp_overhead_ticks_, profile_freq_ghz_));
+  const auto print_counter = [this](const char *name,
+                                    const ProfileCounter &counter) {
+    const uint64_t calls = counter.calls.load(std::memory_order_relaxed);
+    const uint64_t ticks = counter.ticks.load(std::memory_order_relaxed);
+    if (calls == 0) return;
+    const double average_ticks =
+        static_cast<double>(ticks) / static_cast<double>(calls);
+    const double adjusted_ticks =
+        average_ticks > static_cast<double>(profile_timestamp_overhead_ticks_)
+            ? average_ticks -
+                  static_cast<double>(profile_timestamp_overhead_ticks_)
+            : 0.0;
+    std::fprintf(stderr,
+                 "UB_PROFILE rpc_id=%u stage=%s calls=%llu avg_ns=%.1f "
+                 "adjusted_avg_ns=%.1f\n",
+                 rpc_id_, name, static_cast<unsigned long long>(calls),
+                 average_ticks / profile_freq_ghz_,
+                 adjusted_ticks / profile_freq_ghz_);
+  };
+  print_counter("alloc", profile_stats_.alloc);
+  print_counter("free", profile_stats_.free);
+  print_counter("endpoint_lookup", profile_stats_.endpoint_resolve);
+  print_counter("add_ref", profile_stats_.add_ref);
+  print_counter("tx_queue", profile_stats_.tx_queue);
+  print_counter("tx_burst", profile_stats_.tx_burst);
+  print_counter("rx_queue_empty", profile_stats_.rx_queue_empty);
+  print_counter("rx_queue_hit", profile_stats_.rx_queue_hit);
+  print_counter("rx_resolve", profile_stats_.rx_resolve);
+  print_counter("rx_burst", profile_stats_.rx_burst);
+}
+
+Buffer UBTransport::alloc_shared_buffer(size_t size) {
+  const size_t start = profile_start();
+  const Buffer buffer = shared_allocator_->alloc(size);
+  profile_record(profile_stats_.alloc, start);
+  return buffer;
+}
+
+void UBTransport::free_shared_buffer(Buffer buffer) {
+  const size_t start = profile_start();
+  shared_allocator_->free(buffer);
+  profile_record(profile_stats_.free, start);
+}
 
 void UBTransport::cleanup_noexcept() noexcept {
   // Give already accepted eRPC sends one final chance to enter their shared
@@ -126,12 +212,16 @@ bool UBTransport::ensure_remote_endpoint(const UBRoutingInfo &route) const {
 
   const UBEndpointHandle endpoint = endpoint_from_route(route);
   RemoteEndpoint &remote = remote_endpoints_[route.rpc_id];
+  // Session setup validates the registry entry before caching this endpoint.
+  // Keep the steady-state send path local; a different route generation or
+  // layout falls through to validation and refresh below.
   if (remote.inbox != nullptr && remote.machine_id == route.machine_id &&
+      remote.endpoint.rpc_id == endpoint.rpc_id &&
       remote.endpoint.generation == endpoint.generation &&
       remote.endpoint.slot == endpoint.slot &&
       remote.endpoint.inbox_offset == endpoint.inbox_offset &&
-      machine_context_->validate_endpoint(remote.machine_base, route.machine_id,
-                                          endpoint)) {
+      remote.endpoint.arena_offset == endpoint.arena_offset &&
+      remote.endpoint.arena_size == endpoint.arena_size) {
     return true;
   }
 
@@ -153,6 +243,9 @@ bool UBTransport::ensure_remote_endpoint(const UBRoutingInfo &route) const {
   remote.producer_tail =
       ub_atomic::load(&remote.inbox->queues[rpc_id_].tail.value,
                       ub_atomic::MemoryOrder::kAcquire);
+  remote.cached_consumer_head =
+      ub_atomic::load(&remote.inbox->queues[rpc_id_].head.value,
+                      ub_atomic::MemoryOrder::kAcquire);
   return true;
 }
 
@@ -167,7 +260,9 @@ void UBTransport::drain_pending(RemoteEndpoint &remote) {
   UBSpscQueue &queue = remote.inbox->queues[rpc_id_];
   while (!remote.pending_tx.empty()) {
     const PendingTx &pending = remote.pending_tx.front();
-    if (!queue.try_enqueue(remote.producer_tail, pending.descriptor)) return;
+    if (!queue.try_enqueue(remote.producer_tail, remote.cached_consumer_head,
+                           pending.descriptor))
+      return;
     remote.pending_tx.pop_front();
   }
 }
@@ -306,6 +401,7 @@ std::string UBTransport::routing_info_str(routing_info_t *routing_info) {
 
 void UBTransport::tx_burst(const tx_burst_item_t *tx_burst_arr,
                            size_t num_pkts) {
+  const size_t tx_burst_start = profile_start();
   rt_assert(tx_burst_arr != nullptr, "UB tx burst cannot be null");
   rt_assert(num_pkts <= kPostlist, "UB tx burst exceeds postlist");
 
@@ -320,8 +416,10 @@ void UBTransport::tx_burst(const tx_burst_item_t *tx_burst_arr,
               "UB transport uses one descriptor per complete message");
 
     const UBRoutingInfo route = decode_routing_info(item.routing_info_);
-    rt_assert(ensure_remote_endpoint(route),
-              "UB destination endpoint is unavailable");
+    const size_t endpoint_start = profile_start();
+    const bool endpoint_available = ensure_remote_endpoint(route);
+    profile_record(profile_stats_.endpoint_resolve, endpoint_start);
+    rt_assert(endpoint_available, "UB destination endpoint is unavailable");
 
     RemoteEndpoint &remote = remote_endpoints_[route.rpc_id];
     if (remote.pending_tx.size() >= kMaxPendingTxPerEndpoint) {
@@ -351,20 +449,26 @@ void UBTransport::tx_burst(const tx_burst_item_t *tx_burst_arr,
           shared_allocator_->offset_of(block_payload) - sizeof(UBBlockMetadata);
       descriptor.block_generation =
           shared_allocator_->generation_of(block_payload);
+      const size_t add_ref_start = profile_start();
       shared_allocator_->add_ref(msg_buffer->buffer_);
+      profile_record(profile_stats_.add_ref, add_ref_start);
       descriptor_buffer = msg_buffer->buffer_;
       descriptor.pkthdr.is_zerocopy_ = 1;
     }
 
     UBSpscQueue &queue = remote.inbox->queues[rpc_id_];
+    const size_t tx_queue_start = profile_start();
     if (!remote.pending_tx.empty() ||
-        !queue.try_enqueue(remote.producer_tail, descriptor)) {
+        !queue.try_enqueue(remote.producer_tail, remote.cached_consumer_head,
+                           descriptor)) {
       // Preserve per-destination order. The descriptor reference remains live
       // while it waits here and is transferred to the receiver only when the
       // descriptor is successfully published to the shared queue.
       remote.pending_tx.emplace_back(descriptor, descriptor_buffer);
     }
+    profile_record(profile_stats_.tx_queue, tx_queue_start);
   }
+  profile_record(profile_stats_.tx_burst, tx_burst_start);
 }
 
 void UBTransport::tx_flush() {
@@ -373,6 +477,7 @@ void UBTransport::tx_flush() {
 }
 
 size_t UBTransport::rx_burst() {
+  const size_t rx_burst_start = profile_start();
   rt_assert(rx_ring_ != nullptr, "UB RX ring is not initialized");
   rt_assert(local_inbox_ != nullptr, "UB endpoint inbox is unavailable");
   // rx_burst() runs once per event-loop iteration, so it is also the retry
@@ -387,10 +492,13 @@ size_t UBTransport::rx_burst() {
           (next_poll_active_index_ + n) % active_rx_source_count_;
       const size_t source = active_rx_sources_[active_index];
       UBMessageDescriptor descriptor{};
+      const size_t rx_queue_start = profile_start();
       if (!local_inbox_->queues[source].try_dequeue(consumer_heads_[source],
                                                     &descriptor)) {
+        profile_record(profile_stats_.rx_queue_empty, rx_queue_start);
         continue;
       }
+      profile_record(profile_stats_.rx_queue_hit, rx_queue_start);
       const bool zero_length_coordinates = descriptor.block_offset == 0 &&
                                            descriptor.payload_offset == 0 &&
                                            descriptor.block_generation == 0;
@@ -404,10 +512,12 @@ size_t UBTransport::rx_burst() {
       }
       uint8_t *payload = nullptr;
       if (descriptor.payload_length > 0) {
+        const size_t resolve_start = profile_start();
         payload = shared_allocator_->resolve_payload(
             descriptor.machine_id, descriptor.block_offset,
             descriptor.payload_offset, descriptor.block_generation,
             descriptor.payload_length);
+        profile_record(profile_stats_.rx_resolve, resolve_start);
         rt_assert(payload != nullptr,
                   "UB descriptor references an invalid block");
       }
@@ -423,6 +533,7 @@ size_t UBTransport::rx_burst() {
     }
     if (!found) break;
   }
+  profile_record(profile_stats_.rx_burst, rx_burst_start);
   return received;
 }
 

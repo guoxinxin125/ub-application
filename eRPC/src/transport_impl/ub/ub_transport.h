@@ -7,6 +7,7 @@
 #ifdef ERPC_UB
 
 #include <array>
+#include <atomic>
 #include <deque>
 #include <memory>
 #include <string>
@@ -63,16 +64,38 @@ class UBTransport : public Transport {
   void prepare_disconnect(uint8_t peer_rpc_id);
   void unregister_rx_peer(uint8_t peer_rpc_id);
 
-  Buffer alloc_shared_buffer(size_t size) {
-    return shared_allocator_->alloc(size);
-  }
-  void free_shared_buffer(Buffer buffer) { shared_allocator_->free(buffer); }
+  Buffer alloc_shared_buffer(size_t size);
+  void free_shared_buffer(Buffer buffer);
   bool is_in_shared_memory(void *ptr) const {
     return shared_allocator_->is_shared_ptr(ptr);
   }
   uint8_t *get_rx_payload(const pkthdr_t *pkthdr) const;
 
  private:
+  struct ProfileCounter {
+    std::atomic<uint64_t> calls{0};
+    std::atomic<uint64_t> ticks{0};
+
+    void record(size_t elapsed_ticks) {
+      calls.fetch_add(1, std::memory_order_relaxed);
+      ticks.fetch_add(static_cast<uint64_t>(elapsed_ticks),
+                      std::memory_order_relaxed);
+    }
+  };
+
+  struct ProfileStats {
+    ProfileCounter alloc;
+    ProfileCounter free;
+    ProfileCounter endpoint_resolve;
+    ProfileCounter add_ref;
+    ProfileCounter tx_queue;
+    ProfileCounter tx_burst;
+    ProfileCounter rx_queue_empty;
+    ProfileCounter rx_queue_hit;
+    ProfileCounter rx_resolve;
+    ProfileCounter rx_burst;
+  };
+
   struct PendingTx {
     UBMessageDescriptor descriptor;
     Buffer backing_buffer;
@@ -88,6 +111,7 @@ class UBTransport : public Transport {
     UBEndpointInbox *inbox = nullptr;
     uint64_t machine_id = 0;
     uint64_t producer_tail = 0;
+    uint64_t cached_consumer_head = 0;
     std::deque<PendingTx> pending_tx;
   };
 
@@ -99,6 +123,9 @@ class UBTransport : public Transport {
   void release_pending_noexcept(RemoteEndpoint &remote) noexcept;
   void release_remote_endpoint_noexcept(uint8_t peer_rpc_id) noexcept;
   void cleanup_noexcept() noexcept;
+  size_t profile_start() const;
+  void profile_record(ProfileCounter &counter, size_t start_ticks) const;
+  void print_profile() const;
 
   uint8_t **rx_ring_;
   pkthdr_t rx_pkthdr_ring_[kNumRxRingEntries];
@@ -117,6 +144,10 @@ class UBTransport : public Transport {
   std::array<uint64_t, ub_config::kMaxRpcEndpoints> consumer_heads_;
   std::array<uint16_t, ub_config::kMaxRpcEndpoints> rx_peer_refcounts_;
   std::array<uint8_t, ub_config::kMaxRpcEndpoints> active_rx_sources_;
+  bool profile_enabled_;
+  double profile_freq_ghz_;
+  size_t profile_timestamp_overhead_ticks_;
+  mutable ProfileStats profile_stats_;
 };
 
 }  // namespace erpc

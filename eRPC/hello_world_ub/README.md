@@ -115,5 +115,21 @@ server 参数为：
 hello_ub_server <bind-ip> [server-port] [max-requests]
 ```
 
+## UB transport profiling
+
+Set `ERPC_UB_PROFILE=1` on both the client and server to collect aggregated
+transport-stage timings. Each process prints `UB_PROFILE` lines when its
+`Rpc` is destroyed. The reported stages include shared-buffer allocation and
+free, endpoint lookup, TX reference acquisition, queue publish/poll, remote
+payload resolution, and total TX/RX burst time. `adjusted_avg_ns` subtracts
+the measured timestamp-read overhead.
+
+Profiling adds timestamp and counter overhead. Use it to locate expensive
+stages, then unset `ERPC_UB_PROFILE` when measuring final end-to-end latency:
+
+```bash
+export ERPC_UB_PROFILE=1
+```
+
 成功时 client 输出 `PASS`、实际/预期 checksum、校验错误数和平均端到端延迟。该延迟
 包含完整 RPC，而不是单独的 UB load 延迟。
