@@ -206,18 +206,16 @@ uint32_t UBSharedAllocator::generation_of(const void *ptr) const {
   return (reinterpret_cast<const UBBlockMetadata *>(ptr) - 1)->generation;
 }
 
-uint8_t *UBSharedAllocator::resolve_payload(uint64_t machine_id,
-                                            uint64_t block_offset,
-                                            uint64_t payload_offset,
-                                            uint32_t generation,
-                                            size_t length) {
-  void *base = context_->map_remote_machine(machine_id);
+uint8_t *UBSharedAllocator::resolve_payload(
+    void *machine_base, uint64_t machine_id, uint64_t block_offset,
+    uint64_t payload_offset, uint32_t generation, size_t length) {
   const size_t region_size = context_->region_bytes();
-  if (base == nullptr || block_offset > region_size - sizeof(UBBlockMetadata) ||
+  if (machine_base == nullptr ||
+      block_offset > region_size - sizeof(UBBlockMetadata) ||
       payload_offset > region_size || length > region_size - payload_offset)
     return nullptr;
   auto *metadata = reinterpret_cast<UBBlockMetadata *>(
-      static_cast<uint8_t *>(base) + block_offset);
+      static_cast<uint8_t *>(machine_base) + block_offset);
   const uint32_t state =
       ub_atomic::load(&metadata->state, ub_atomic::MemoryOrder::kAcquire);
   if (state != static_cast<uint32_t>(UBBlockState::kAllocated) ||
@@ -230,7 +228,7 @@ uint8_t *UBSharedAllocator::resolve_payload(uint64_t machine_id,
   if (inside > metadata->payload_capacity ||
       length > metadata->payload_capacity - inside)
     return nullptr;
-  return static_cast<uint8_t *>(base) + payload_offset;
+  return static_cast<uint8_t *>(machine_base) + payload_offset;
 }
 
 }  // namespace erpc

@@ -61,8 +61,8 @@ class UBMachineContext {
   uint64_t local_machine_id() const { return machine_id_; }
   size_t region_bytes() const { return region_bytes_; }
 
-  void *map_remote_machine(uint64_t machine_id);
-  void unmap_remote_machines() noexcept;
+  void *acquire_remote_machine(uint64_t machine_id);
+  void release_remote_machine(uint64_t machine_id) noexcept;
   bool validate_endpoint(void *machine_base, uint64_t machine_id,
                          const UBEndpointHandle &endpoint) const;
 
@@ -70,6 +70,8 @@ class UBMachineContext {
   struct RemoteMapping {
     uint64_t machine_id;
     void *base;
+    // One reference per RemoteEndpoint that caches this mapping.
+    size_t references;
   };
 
   explicit UBMachineContext(size_t numa_node);

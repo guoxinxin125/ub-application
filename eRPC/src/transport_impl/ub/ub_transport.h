@@ -119,7 +119,7 @@ class UBTransport : public Transport {
   void drain_pending(RemoteEndpoint &remote);
   void drain_all_pending();
   void discard_descriptor_noexcept(
-      const UBMessageDescriptor &descriptor) noexcept;
+      void *machine_base, const UBMessageDescriptor &descriptor) noexcept;
   void release_pending_noexcept(RemoteEndpoint &remote) noexcept;
   void release_remote_endpoint_noexcept(uint8_t peer_rpc_id) noexcept;
   void cleanup_noexcept() noexcept;

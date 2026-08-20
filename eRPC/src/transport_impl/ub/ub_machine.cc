@@ -486,11 +486,16 @@ void UBMachineContext::unregister_endpoint(
   }
 }
 
-void *UBMachineContext::map_remote_machine(uint64_t machine_id) {
+void *UBMachineContext::acquire_remote_machine(uint64_t machine_id) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (machine_id == machine_id_) return local_base_;
-  for (const RemoteMapping &remote : remote_mappings_) {
-    if (remote.machine_id == machine_id) return remote.base;
+  for (RemoteMapping &remote : remote_mappings_) {
+    if (remote.machine_id != machine_id) continue;
+    if (remote.references == std::numeric_limits<size_t>::max()) {
+      return nullptr;
+    }
+    ++remote.references;
+    return remote.base;
   }
 
   const std::string name = ub_machine_region_name(machine_id);
@@ -507,18 +512,31 @@ void *UBMachineContext::map_remote_machine(uint64_t machine_id) {
     (void)ubsmem_shmem_unmap(mapping, region_bytes_);
     return nullptr;
   }
-  remote_mappings_.push_back({machine_id, mapping});
+  remote_mappings_.push_back({machine_id, mapping, 1});
   return mapping;
 }
 
-void UBMachineContext::unmap_remote_machines() noexcept {
+void UBMachineContext::release_remote_machine(uint64_t machine_id) noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
-  for (const RemoteMapping &remote : remote_mappings_) {
-    if (remote.base != nullptr && remote.base != local_base_) {
-      (void)ubsmem_shmem_unmap(remote.base, region_bytes_);
+  if (machine_id == machine_id_) return;
+  for (auto it = remote_mappings_.begin(); it != remote_mappings_.end(); ++it) {
+    if (it->machine_id != machine_id) continue;
+    if (it->references == 0) return;
+    --it->references;
+    if (it->references != 0) return;
+    if (it->base != nullptr && it->base != local_base_) {
+      const int result = ubsmem_shmem_unmap(it->base, region_bytes_);
+      if (result != UBSM_OK) {
+        std::fprintf(stderr,
+                     "UB: remote machine unmap failed: machine=%llu "
+                     "error=%d\n",
+                     static_cast<unsigned long long>(machine_id), result);
+        return;
+      }
     }
+    remote_mappings_.erase(it);
+    return;
   }
-  remote_mappings_.clear();
 }
 
 bool UBMachineContext::validate_endpoint(

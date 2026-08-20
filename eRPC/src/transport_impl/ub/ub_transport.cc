@@ -157,10 +157,10 @@ void UBTransport::cleanup_noexcept() noexcept {
   // SPSC queues. Any descriptor that is still pending afterwards was never
   // published, so its in-flight allocator reference is still ours to release.
   drain_all_pending();
-  for (RemoteEndpoint &remote : remote_endpoints_) {
-    release_pending_noexcept(remote);
+  for (size_t peer_rpc_id = 0; peer_rpc_id < remote_endpoints_.size();
+       ++peer_rpc_id) {
+    release_remote_endpoint_noexcept(static_cast<uint8_t>(peer_rpc_id));
   }
-  remote_endpoints_ = {};
   shared_allocator_.reset();
   local_inbox_ = nullptr;
   if (machine_context_ != nullptr) {
@@ -229,13 +229,19 @@ bool UBTransport::ensure_remote_endpoint(const UBRoutingInfo &route) const {
   // not move descriptors queued for the old incarnation to the new inbox.
   if (!remote.pending_tx.empty()) return false;
 
-  void *machine_base = machine_context_->map_remote_machine(route.machine_id);
+  void *machine_base =
+      machine_context_->acquire_remote_machine(route.machine_id);
   if (machine_base == nullptr ||
       !machine_context_->validate_endpoint(machine_base, route.machine_id,
                                            endpoint)) {
+    if (machine_base != nullptr) {
+      machine_context_->release_remote_machine(route.machine_id);
+    }
     return false;
   }
 
+  const bool release_previous_mapping = remote.machine_base != nullptr;
+  const uint64_t previous_machine_id = remote.machine_id;
   remote.machine_base = machine_base;
   remote.endpoint = endpoint;
   remote.inbox = ub_inbox_at(machine_base, endpoint.inbox_offset);
@@ -246,6 +252,9 @@ bool UBTransport::ensure_remote_endpoint(const UBRoutingInfo &route) const {
   remote.cached_consumer_head =
       ub_atomic::load(&remote.inbox->queues[rpc_id_].head.value,
                       ub_atomic::MemoryOrder::kAcquire);
+  if (release_previous_mapping) {
+    machine_context_->release_remote_machine(previous_machine_id);
+  }
   return true;
 }
 
@@ -272,7 +281,7 @@ void UBTransport::drain_all_pending() {
 }
 
 void UBTransport::discard_descriptor_noexcept(
-    const UBMessageDescriptor &descriptor) noexcept {
+    void *machine_base, const UBMessageDescriptor &descriptor) noexcept {
   if (shared_allocator_ == nullptr || descriptor.block_offset == 0 ||
       descriptor.payload_offset == 0 || descriptor.block_generation == 0) {
     return;
@@ -290,7 +299,7 @@ void UBTransport::discard_descriptor_noexcept(
 
   try {
     uint8_t *payload = shared_allocator_->resolve_payload(
-        descriptor.machine_id, descriptor.block_offset,
+        machine_base, descriptor.machine_id, descriptor.block_offset,
         descriptor.payload_offset, descriptor.block_generation, 0);
     if (payload != nullptr) {
       shared_allocator_->free(
@@ -320,7 +329,12 @@ void UBTransport::release_remote_endpoint_noexcept(
     uint8_t peer_rpc_id) noexcept {
   RemoteEndpoint &remote = remote_endpoints_[peer_rpc_id];
   release_pending_noexcept(remote);
+  const bool release_mapping = remote.machine_base != nullptr;
+  const uint64_t machine_id = remote.machine_id;
   remote = RemoteEndpoint{};
+  if (release_mapping && machine_context_ != nullptr) {
+    machine_context_->release_remote_machine(machine_id);
+  }
 }
 
 bool UBTransport::resolve_remote_routing_info(
@@ -352,9 +366,6 @@ void UBTransport::prepare_disconnect(uint8_t peer_rpc_id) {
   // the disconnect request, allowing the peer to delete its owner region.
   if (rx_peer_refcounts_[peer_rpc_id] != 1) return;
   release_remote_endpoint_noexcept(peer_rpc_id);
-  if (active_rx_source_count_ == 1) {
-    machine_context_->unmap_remote_machines();
-  }
 }
 
 void UBTransport::unregister_rx_peer(uint8_t peer_rpc_id) {
@@ -381,9 +392,6 @@ void UBTransport::unregister_rx_peer(uint8_t peer_rpc_id) {
           ? 0
           : next_poll_active_index_ % active_rx_source_count_;
   release_remote_endpoint_noexcept(peer_rpc_id);
-  if (active_rx_source_count_ == 0) {
-    machine_context_->unmap_remote_machines();
-  }
 }
 
 size_t UBTransport::get_bandwidth() const {
@@ -491,6 +499,7 @@ size_t UBTransport::rx_burst() {
       const size_t active_index =
           (next_poll_active_index_ + n) % active_rx_source_count_;
       const size_t source = active_rx_sources_[active_index];
+      RemoteEndpoint &remote = remote_endpoints_[source];
       UBMessageDescriptor descriptor{};
       const size_t rx_queue_start = profile_start();
       if (!local_inbox_->queues[source].try_dequeue(consumer_heads_[source],
@@ -503,18 +512,23 @@ size_t UBTransport::rx_burst() {
                                            descriptor.payload_offset == 0 &&
                                            descriptor.block_generation == 0;
       if (descriptor.payload_length != descriptor.pkthdr.msg_size_ ||
-          (descriptor.payload_length == 0 && !zero_length_coordinates)) {
+          (descriptor.payload_length == 0 && !zero_length_coordinates) ||
+          remote.machine_base == nullptr ||
+          descriptor.machine_id != remote.machine_id) {
         std::fprintf(stderr,
                      "UB: dropping descriptor with inconsistent payload "
-                     "length or zero-length coordinates\n");
-        discard_descriptor_noexcept(descriptor);
+                     "coordinates or remote endpoint\n");
+        if (remote.machine_base != nullptr &&
+            descriptor.machine_id == remote.machine_id) {
+          discard_descriptor_noexcept(remote.machine_base, descriptor);
+        }
         continue;
       }
       uint8_t *payload = nullptr;
       if (descriptor.payload_length > 0) {
         const size_t resolve_start = profile_start();
         payload = shared_allocator_->resolve_payload(
-            descriptor.machine_id, descriptor.block_offset,
+            remote.machine_base, descriptor.machine_id, descriptor.block_offset,
             descriptor.payload_offset, descriptor.block_generation,
             descriptor.payload_length);
         profile_record(profile_stats_.rx_resolve, resolve_start);

@@ -124,6 +124,11 @@ free, endpoint lookup, TX reference acquisition, queue publish/poll, remote
 payload resolution, and total TX/RX burst time. `adjusted_avg_ns` subtracts
 the measured timestamp-read overhead.
 
+Remote machine mappings are acquired and reference-counted when a session
+route is resolved. The RX data path uses the `machine_base` cached in the
+remote endpoint without taking the machine-context mutex. Disconnect releases
+that endpoint's mapping reference, and the last reference performs the unmap.
+
 Profiling adds timestamp and counter overhead. Use it to locate expensive
 stages, then unset `ERPC_UB_PROFILE` when measuring final end-to-end latency:
 

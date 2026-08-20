@@ -54,16 +54,17 @@ void ub_initialize_arena(void *machine_base, uint64_t machine_id,
 
 class UBSharedAllocator {
  public:
-  UBSharedAllocator(UBMachineContext *context, const UBEndpointHandle &endpoint);
+  UBSharedAllocator(UBMachineContext *context,
+                    const UBEndpointHandle &endpoint);
   Buffer alloc(size_t size);
   void add_ref(Buffer buffer);
   void free(Buffer buffer);
   bool is_shared_ptr(const void *ptr) const;
   uint64_t offset_of(const void *ptr) const;
   uint32_t generation_of(const void *ptr) const;
-  uint8_t *resolve_payload(uint64_t machine_id, uint64_t block_offset,
-                           uint64_t payload_offset, uint32_t generation,
-                           size_t length);
+  uint8_t *resolve_payload(void *machine_base, uint64_t machine_id,
+                           uint64_t block_offset, uint64_t payload_offset,
+                           uint32_t generation, size_t length);
 
  private:
   static size_t class_capacity(size_t index);
