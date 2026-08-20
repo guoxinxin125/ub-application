@@ -64,6 +64,7 @@ class UBSharedAllocator {
   Buffer alloc(size_t size);
   void add_ref(Buffer buffer);
   void free(Buffer buffer);
+  void release_remote_ref(Buffer buffer);
   bool is_shared_ptr(const void *ptr) const;
   uint64_t offset_of(const void *ptr) const;
   uint32_t generation_of(const void *ptr) const;

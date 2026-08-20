@@ -129,6 +129,8 @@ void UBTransport::print_profile() const {
   };
   print_counter("alloc", profile_stats_.alloc);
   print_counter("free", profile_stats_.free);
+  print_counter("free_local", profile_stats_.free_local);
+  print_counter("free_remote", profile_stats_.free_remote);
   print_counter("endpoint_lookup", profile_stats_.endpoint_resolve);
   print_counter("add_ref", profile_stats_.add_ref);
   print_counter("tx_queue", profile_stats_.tx_queue);
@@ -150,8 +152,18 @@ Buffer UBTransport::alloc_shared_buffer(size_t size) {
 
 void UBTransport::free_shared_buffer(Buffer buffer) {
   const size_t start = profile_start();
-  shared_allocator_->free(buffer);
-  profile_record(profile_stats_.free, start);
+  const bool is_local = shared_allocator_->is_shared_ptr(buffer.buf_);
+  if (is_local) {
+    shared_allocator_->free(buffer);
+  } else {
+    shared_allocator_->release_remote_ref(buffer);
+  }
+  if (profile_enabled_) {
+    const size_t elapsed = rdtsc() - start;
+    profile_stats_.free.record(elapsed);
+    (is_local ? profile_stats_.free_local : profile_stats_.free_remote)
+        .record(elapsed);
+  }
 }
 
 void UBTransport::cleanup_noexcept() noexcept {

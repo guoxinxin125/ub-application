@@ -86,6 +86,8 @@ class UBTransport : public Transport {
   struct ProfileStats {
     ProfileCounter alloc;
     ProfileCounter free;
+    ProfileCounter free_local;
+    ProfileCounter free_remote;
     ProfileCounter endpoint_resolve;
     ProfileCounter add_ref;
     ProfileCounter tx_queue;

@@ -189,6 +189,16 @@ void UBSharedAllocator::free(Buffer buffer) {
   release_metadata(metadata);
 }
 
+void UBSharedAllocator::release_remote_ref(Buffer buffer) {
+  UBBlockMetadata *metadata = metadata_from_buffer(buffer);
+  if (metadata == nullptr) return;
+  // RX already validated the descriptor's machine and exact block/payload
+  // coordinates before constructing this borrowed buffer. Avoid another
+  // ordinary remote metadata load on the steady release path; the refcount
+  // fetch_sub remains the operation that transfers allocator ownership.
+  release_metadata(metadata);
+}
+
 bool UBSharedAllocator::is_shared_ptr(const void *ptr) const {
   if (ptr == nullptr) return false;
   const uintptr_t value = reinterpret_cast<uintptr_t>(ptr);
