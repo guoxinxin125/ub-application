@@ -54,6 +54,8 @@ UBTransport::UBTransport(uint16_t sm_udp_port, uint8_t rpc_id, uint8_t phy_port,
       active_rx_source_count_(0),
       machine_context_(nullptr),
       local_inbox_(nullptr),
+      pending_tx_count_(0),
+      pending_tx_endpoint_count_(0),
       profile_enabled_(profile_enabled_from_env()),
       profile_freq_ghz_(0.0),
       profile_timestamp_overhead_ticks_(0) {
@@ -62,6 +64,8 @@ UBTransport::UBTransport(uint16_t sm_udp_port, uint8_t rpc_id, uint8_t phy_port,
   consumer_heads_.fill(0);
   rx_peer_refcounts_.fill(0);
   active_rx_sources_.fill(UINT8_MAX);
+  pending_tx_endpoints_.fill(UINT8_MAX);
+  pending_tx_positions_.fill(ub_config::kMaxRpcEndpoints);
 
   if (profile_enabled_) {
     profile_freq_ghz_ = measure_rdtsc_freq();
@@ -272,11 +276,42 @@ bool UBTransport::ensure_remote_endpoint(const UBRoutingInfo &route) const {
   return true;
 }
 
-void UBTransport::drain_pending(RemoteEndpoint &remote) {
+void UBTransport::add_pending_endpoint(uint8_t peer_rpc_id) {
+  if (pending_tx_positions_[peer_rpc_id] != ub_config::kMaxRpcEndpoints) return;
+  pending_tx_positions_[peer_rpc_id] = pending_tx_endpoint_count_;
+  pending_tx_endpoints_[pending_tx_endpoint_count_] = peer_rpc_id;
+  ++pending_tx_endpoint_count_;
+}
+
+void UBTransport::remove_pending_endpoint(uint8_t peer_rpc_id) {
+  const size_t position = pending_tx_positions_[peer_rpc_id];
+  if (position == ub_config::kMaxRpcEndpoints) return;
+
+  const size_t last_position = pending_tx_endpoint_count_ - 1;
+  const uint8_t moved_rpc_id = pending_tx_endpoints_[last_position];
+  pending_tx_endpoints_[position] = moved_rpc_id;
+  pending_tx_positions_[moved_rpc_id] = position;
+  pending_tx_endpoints_[last_position] = UINT8_MAX;
+  pending_tx_positions_[peer_rpc_id] = ub_config::kMaxRpcEndpoints;
+  --pending_tx_endpoint_count_;
+}
+
+void UBTransport::enqueue_pending(uint8_t peer_rpc_id,
+                                  const UBMessageDescriptor &descriptor,
+                                  Buffer backing_buffer) {
+  RemoteEndpoint &remote = remote_endpoints_[peer_rpc_id];
+  const bool was_empty = remote.pending_tx.empty();
+  remote.pending_tx.emplace_back(descriptor, backing_buffer);
+  ++pending_tx_count_;
+  if (was_empty) add_pending_endpoint(peer_rpc_id);
+}
+
+void UBTransport::drain_pending(uint8_t peer_rpc_id) {
+  RemoteEndpoint &remote = remote_endpoints_[peer_rpc_id];
   if (remote.inbox == nullptr || remote.pending_tx.empty()) return;
   if (!machine_context_->validate_endpoint(
           remote.machine_base, remote.machine_id, remote.endpoint)) {
-    release_pending_noexcept(remote);
+    release_pending_noexcept(peer_rpc_id);
     remote.inbox = nullptr;
     return;
   }
@@ -287,11 +322,22 @@ void UBTransport::drain_pending(RemoteEndpoint &remote) {
                            pending.descriptor))
       return;
     remote.pending_tx.pop_front();
+    --pending_tx_count_;
   }
+  remove_pending_endpoint(peer_rpc_id);
 }
 
 void UBTransport::drain_all_pending() {
-  for (RemoteEndpoint &remote : remote_endpoints_) drain_pending(remote);
+  if (pending_tx_count_ == 0) return;
+
+  size_t pending_index = 0;
+  while (pending_index < pending_tx_endpoint_count_) {
+    const uint8_t peer_rpc_id = pending_tx_endpoints_[pending_index];
+    drain_pending(peer_rpc_id);
+    if (pending_tx_positions_[peer_rpc_id] != ub_config::kMaxRpcEndpoints) {
+      ++pending_index;
+    }
+  }
 }
 
 void UBTransport::discard_descriptor_noexcept(
@@ -324,10 +370,12 @@ void UBTransport::discard_descriptor_noexcept(
   }
 }
 
-void UBTransport::release_pending_noexcept(RemoteEndpoint &remote) noexcept {
+void UBTransport::release_pending_noexcept(uint8_t peer_rpc_id) noexcept {
+  RemoteEndpoint &remote = remote_endpoints_[peer_rpc_id];
   while (!remote.pending_tx.empty()) {
     const Buffer buffer = remote.pending_tx.front().backing_buffer;
     remote.pending_tx.pop_front();
+    if (pending_tx_count_ > 0) --pending_tx_count_;
     if (buffer.buf_ == nullptr || shared_allocator_ == nullptr) continue;
     try {
       shared_allocator_->free(buffer);
@@ -336,12 +384,13 @@ void UBTransport::release_pending_noexcept(RemoteEndpoint &remote) noexcept {
                    error.what());
     }
   }
+  remove_pending_endpoint(peer_rpc_id);
 }
 
 void UBTransport::release_remote_endpoint_noexcept(
     uint8_t peer_rpc_id) noexcept {
   RemoteEndpoint &remote = remote_endpoints_[peer_rpc_id];
-  release_pending_noexcept(remote);
+  release_pending_noexcept(peer_rpc_id);
   const bool release_mapping = remote.machine_base != nullptr;
   const uint64_t machine_id = remote.machine_id;
   remote = RemoteEndpoint{};
@@ -485,7 +534,7 @@ void UBTransport::tx_burst(const tx_burst_item_t *tx_burst_arr,
       // Preserve per-destination order. The descriptor reference remains live
       // while it waits here and is transferred to the receiver only when the
       // descriptor is successfully published to the shared queue.
-      remote.pending_tx.emplace_back(descriptor, descriptor_buffer);
+      enqueue_pending(route.rpc_id, descriptor, descriptor_buffer);
     }
     profile_record(profile_stats_.tx_queue, tx_queue_start);
   }

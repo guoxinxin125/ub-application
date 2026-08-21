@@ -120,11 +120,16 @@ class UBTransport : public Transport {
   };
 
   bool ensure_remote_endpoint(const UBRoutingInfo &route) const;
-  void drain_pending(RemoteEndpoint &remote);
+  void add_pending_endpoint(uint8_t peer_rpc_id);
+  void remove_pending_endpoint(uint8_t peer_rpc_id);
+  void enqueue_pending(uint8_t peer_rpc_id,
+                       const UBMessageDescriptor &descriptor,
+                       Buffer backing_buffer);
+  void drain_pending(uint8_t peer_rpc_id);
   void drain_all_pending();
   void discard_descriptor_noexcept(
       void *machine_base, const UBMessageDescriptor &descriptor) noexcept;
-  void release_pending_noexcept(RemoteEndpoint &remote) noexcept;
+  void release_pending_noexcept(uint8_t peer_rpc_id) noexcept;
   void release_remote_endpoint_noexcept(uint8_t peer_rpc_id) noexcept;
   void cleanup_noexcept() noexcept;
   size_t profile_start() const;
@@ -148,6 +153,10 @@ class UBTransport : public Transport {
   std::array<uint64_t, ub_config::kMaxRpcEndpoints> consumer_heads_;
   std::array<uint16_t, ub_config::kMaxRpcEndpoints> rx_peer_refcounts_;
   std::array<uint8_t, ub_config::kMaxRpcEndpoints> active_rx_sources_;
+  size_t pending_tx_count_;
+  size_t pending_tx_endpoint_count_;
+  std::array<uint8_t, ub_config::kMaxRpcEndpoints> pending_tx_endpoints_;
+  std::array<size_t, ub_config::kMaxRpcEndpoints> pending_tx_positions_;
   bool profile_enabled_;
   double profile_freq_ghz_;
   size_t profile_timestamp_overhead_ticks_;
