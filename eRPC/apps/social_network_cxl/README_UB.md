@@ -46,6 +46,8 @@ Check the build dependencies:
 ```bash
 pkg-config --modversion libmongoc-1.0
 pkg-config --modversion libbson-1.0
+pkg-config --libs libmongoc-1.0
+pkg-config --libs libbson-1.0
 protoc --version
 test -f /usr/include/nlohmann/json.hpp || \
   test -f /home/g/.local/include/nlohmann/json.hpp

@@ -418,8 +418,8 @@ elseif(APP STREQUAL "social_network_cxl")
 
   # MongoDB 配置 - 使用 pkg-config 或直接查找库
   find_package(PkgConfig REQUIRED)
-  pkg_check_modules(MONGOC REQUIRED libmongoc-1.0)
-  pkg_check_modules(BSON REQUIRED libbson-1.0)
+  pkg_check_modules(MONGOC REQUIRED IMPORTED_TARGET libmongoc-1.0)
+  pkg_check_modules(BSON REQUIRED IMPORTED_TARGET libbson-1.0)
   find_path(NLOHMANN_JSON_INCLUDE_DIR
     NAMES nlohmann/json.hpp
     DOC "Directory containing nlohmann/json.hpp")
@@ -493,8 +493,8 @@ elseif(APP STREQUAL "social_network_cxl")
       hdr_histogram_static
       pthread
       numa
-      ${MONGOC_LIBRARIES}
-      ${BSON_LIBRARIES}
+      PkgConfig::MONGOC
+      PkgConfig::BSON
     )
   endforeach()
 
