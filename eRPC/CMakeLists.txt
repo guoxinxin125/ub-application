@@ -420,6 +420,14 @@ elseif(APP STREQUAL "social_network_cxl")
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(MONGOC REQUIRED libmongoc-1.0)
   pkg_check_modules(BSON REQUIRED libbson-1.0)
+  find_path(NLOHMANN_JSON_INCLUDE_DIR
+    NAMES nlohmann/json.hpp
+    DOC "Directory containing nlohmann/json.hpp")
+  if(NOT NLOHMANN_JSON_INCLUDE_DIR)
+    message(FATAL_ERROR
+      "social_network_cxl requires nlohmann/json.hpp. Install "
+      "nlohmann-json3-dev or add its install prefix to CMAKE_PREFIX_PATH.")
+  endif()
 
   # 所有服务模块
   set(SN_CXL_PROGRAMS
@@ -473,6 +481,7 @@ elseif(APP STREQUAL "social_network_cxl")
       ${SN_CXL_DIR}/third_party/parallel_hashmap
       ${MONGOC_INCLUDE_DIRS}
       ${BSON_INCLUDE_DIRS}
+      ${NLOHMANN_JSON_INCLUDE_DIR}
     )
     target_compile_features(${program_name} PRIVATE cxx_std_17)
     target_link_libraries(${program_name}
