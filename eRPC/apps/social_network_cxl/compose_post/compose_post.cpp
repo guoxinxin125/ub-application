@@ -170,15 +170,15 @@ void callback_ping_resp(void *_context, void *_tag)
 void handler_ping_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
 
-    auto *req = reinterpret_cast<RPCMsgReq<PingRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
 
     ctx->rpc_->enqueue_request(ctx->nginx_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_PING_RESP),
-                               &ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_ping_resp, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
+                               callback_ping_resp, reinterpret_cast<void *>(slot));
 }
 
 void callback_compose_post_write_resp(void *_context, void *_tag)
@@ -198,14 +198,14 @@ void callback_compose_post_write_resp(void *_context, void *_tag)
 
 void handler_compose_post_write_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->nginx_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_COMPOSE_POST_WRITE_RESP),
-                               &ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_compose_post_write_resp, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
+                               callback_compose_post_write_resp, reinterpret_cast<void *>(slot));
 
 }
 
@@ -241,14 +241,14 @@ void callback_unique_id(void *_context, void *_tag)
 
 void handler_unique_id(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<UniqueIDReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_unique_id_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_unique_id_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_unique_id_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_unique_id_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->unique_id_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_UNIQUE_ID),
-                               &ctx->req_unique_id_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_unique_id, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_unique_id_msgbuf[slot], &resp_msgbuf,
+                               callback_unique_id, reinterpret_cast<void *>(slot));
 }
 
 void callback_compose_creator_with_user_id(void *_context, void *_tag)
@@ -261,7 +261,9 @@ void callback_compose_creator_with_user_id(void *_context, void *_tag)
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_service_msgbuf[req_id];
 
     auto resp = reinterpret_cast<RPCMsgResp<CommonRPCResp> *>(resp_msgbuf.buf_);
-    my_assert(resp_msgbuf.get_data_size() == sizeof(RPCMsgResp<CommonRPCResp>) + resp->resp_control.data_length);
+    my_assert(resp_msgbuf.get_data_size() ==
+              sizeof(RPCMsgResp<CommonRPCResp>) +
+                  resp->resp_control.data_length);
 
 
     release_msgbuf(ctx->rpc_, req_msgbuf);
@@ -274,6 +276,7 @@ void callback_compose_creator_with_user_id(void *_context, void *_tag)
     }
     ReqState* req_state = ctx->state_store->req_state_map[req_id];
     ctx->state_store->mutex.unlock();
+
     {
     }
      // printf("finish user %u\n", req_id);
@@ -283,14 +286,14 @@ void callback_compose_creator_with_user_id(void *_context, void *_tag)
 }
 void handler_compose_creator_with_user_id(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_user_service_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_user_service_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_service_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_service_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->user_service_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_COMPOSE_CREATOR_WITH_USER_ID),
-                               &ctx->req_user_service_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_compose_creator_with_user_id, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_user_service_msgbuf[slot], &resp_msgbuf,
+                               callback_compose_creator_with_user_id, reinterpret_cast<void *>(slot));
 
 }
 
@@ -305,8 +308,9 @@ void callback_user_mention(void *_context, void *_tag)
     erpc::MsgBuffer &req_msgbuf = ctx->req_user_mention_msgbuf[req_id];
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_mention_msgbuf[req_id];
 
-    auto resp = reinterpret_cast<RPCMsgResp<CommonRPCResp> *>(resp_msgbuf.buf_);
-    my_assert(resp_msgbuf.get_data_size() == sizeof(RPCMsgResp<CommonRPCResp>) + resp->resp_control.data_length);
+    auto resp = reinterpret_cast<RPCMsgResp<UserMentionRPCResp> *>(resp_msgbuf.buf_);
+    my_assert(resp_msgbuf.get_data_size() ==
+              sizeof(RPCMsgResp<UserMentionRPCResp>));
 
 
     release_msgbuf(ctx->rpc_, req_msgbuf);
@@ -320,6 +324,13 @@ void callback_user_mention(void *_context, void *_tag)
     ReqState* req_state = ctx->state_store->req_state_map[req_id];
     ctx->state_store->mutex.unlock();
 
+    my_assert(resp->resp_control.count <= SN_MAX_MENTIONS);
+    req_state->cxl_post_ptr->mentions_count = resp->resp_control.count;
+    for (size_t i = 0; i < resp->resp_control.count; ++i) {
+        req_state->cxl_post_ptr->mentions_ids[i] =
+            resp->resp_control.user_ids[i];
+    }
+
      // printf("finish user_mention %u\n", req_id);
 
     req_state->generate_next_step();
@@ -327,14 +338,14 @@ void callback_user_mention(void *_context, void *_tag)
 }
 void handler_user_mention(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_user_mention_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_user_mention_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_mention_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_mention_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->user_mention_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_USER_MENTION),
-                               &ctx->req_user_mention_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_user_mention, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_user_mention_msgbuf[slot], &resp_msgbuf,
+                               callback_user_mention, reinterpret_cast<void *>(slot));
 
 }
 
@@ -372,14 +383,14 @@ void callback_url_shorten(void *_context, void *_tag)
 }
 void handler_url_shorten(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_url_shorten_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_url_shorten_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_url_shorten_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_url_shorten_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->url_shorten_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_URL_SHORTEN),
-                               &ctx->req_url_shorten_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_url_shorten, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_url_shorten_msgbuf[slot], &resp_msgbuf,
+                               callback_url_shorten, reinterpret_cast<void *>(slot));
 
 }
 
@@ -399,14 +410,14 @@ void callback_post_storage_write_req(void *_context, void *_tag)
 }
 void handler_post_storage_write_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_post_storage_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_post_storage_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_post_storage_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_post_storage_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->post_storage_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_WRITE_REQ),
-                               &ctx->req_post_storage_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_post_storage_write_req, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_post_storage_msgbuf[slot], &resp_msgbuf,
+                               callback_post_storage_write_req, reinterpret_cast<void *>(slot));
 
 }
 
@@ -427,14 +438,14 @@ void callback_user_timeline_write_req(void *_context, void *_tag)
 }
 void handler_user_timeline_write_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<UserTimeLineWriteReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_user_timeline_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_user_timeline_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_timeline_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_timeline_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->user_timeline_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_WRITE_REQ),
-                               &ctx->req_user_timeline_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_user_timeline_write_req, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_user_timeline_msgbuf[slot], &resp_msgbuf,
+                               callback_user_timeline_write_req, reinterpret_cast<void *>(slot));
 
 }
 
@@ -456,14 +467,14 @@ void callback_home_timeline_write_req(void *_context, void *_tag)
 }
 void handler_home_timeline_write_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_home_timeline_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_home_timeline_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_home_timeline_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_home_timeline_msgbuf[slot];
     ctx->rpc_->enqueue_request(ctx->home_timeline_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_WRITE_REQ),
-                               &ctx->req_home_timeline_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_home_timeline_write_req, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_home_timeline_msgbuf[slot], &resp_msgbuf,
+                               callback_home_timeline_write_req, reinterpret_cast<void *>(slot));
 
 }
 
@@ -475,7 +486,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + 20 + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                     rpc_id,
                                     basic_sm_handler_client, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;
@@ -486,7 +497,8 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     for(auto iter: tmp_vec){
         for(size_t i=0; i<kAppMaxBuffer; i++){
-            iter[i] = rpc.alloc_msg_buffer_or_die(sizeof(RPCMsgResp<CommonRPCResp>));
+            iter[i] = rpc.alloc_msg_buffer_or_die(
+                sizeof(RPCMsgResp<UserMentionRPCResp>));
         }
     }
 
@@ -546,7 +558,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                     rpc_id,
                                     basic_sm_handler_server, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;
@@ -569,7 +581,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
         }
     }
 }
-void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *consumer_back, MPMC_QUEUE *consumer_fwd, erpc::Rpc<erpc::CXLTransport> *rpc_, erpc::Rpc<erpc::CXLTransport> *server_rpc_,ReqStateStore* store )
+void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *consumer_back, MPMC_QUEUE *consumer_fwd, AppRpc *rpc_, AppRpc *server_rpc_,ReqStateStore* store )
 {
     link_worker_cacheable(server_rpc_->get_rpc_id());
     // // printf("[compose_post] worker_thread_func %zu: STARTED, producer=%p\n", thread_id, (void*)producer);

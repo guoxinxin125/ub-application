@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "post_data.h"
+
 enum class RPC_TYPE : uint8_t
 {
     RPC_PING = 0,
@@ -154,9 +156,7 @@ public:
 class PostStorageWriteCXLReq {
 public:
     int64_t post_id;
-    uint64_t offset;
-    size_t size;
-    uint32_t ref_count;
+    PostData post;
 };
 
 class PostStorageReadCXLReq {
@@ -168,10 +168,22 @@ public:
 
 class PostStorageReadCXLResp {
 public:
+    struct SharedPostHandle {
+        uint64_t machine_id;
+        uint64_t block_offset;
+        uint64_t payload_offset;
+        uint64_t payload_length;
+    };
+
     size_t count;
-    struct {
-        uint64_t offset;
-        size_t size;
-        uint32_t ref_count;
-    } posts[64];
+    SharedPostHandle posts[64];
 };
+
+class UserMentionRPCResp {
+public:
+    uint32_t count;
+    int64_t user_ids[SN_MAX_MENTIONS];
+};
+
+static_assert(sizeof(PostStorageReadCXLResp::SharedPostHandle) == 32,
+              "shared post handle wire layout changed");

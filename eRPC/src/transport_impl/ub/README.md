@@ -54,6 +54,7 @@ ARM generic timer。两种架构都通过同一组 eRPC 时间换算和超时逻
 cd eRPC
 cmake -S . -B build-ub \
   -DTRANSPORT=ub \
+  -DPERF=ON \
   -DUBSM_INCLUDE_DIR=/usr/local/ubs_mem/include \
   -DUBSM_LIBRARY=/usr/local/ubs_mem/lib/libubsm_sdk.so
 cmake --build build-ub -j --target erpc_ub_manager hello_ub_server hello_ub_client

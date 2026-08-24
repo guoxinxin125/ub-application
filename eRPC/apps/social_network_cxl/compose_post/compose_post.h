@@ -24,13 +24,12 @@ class ReqState
 {
 public:
 
-    explicit ReqState(uint32_t r_id, uint64_t cxl_offset, MPMC_QUEUE *queue, erpc::Rpc<erpc::CXLTransport> *rpc){
+    explicit ReqState(uint32_t r_id, const PostData &input_post,
+                      MPMC_QUEUE *queue, AppRpc *rpc){
         req_id = r_id;
         rpc_ = rpc;
-        
-        void *cxl_ptr = social_network_cxl::get_cxl_allocator(rpc_)->offset_to_ptr(cxl_offset);
-        cxl_post_ptr = reinterpret_cast<PostData *>(cxl_ptr);
-        cxl_req_offset = cxl_offset;
+        post = input_post;
+        cxl_post_ptr = &post;
         
         original_text = cxl_post_ptr->text;
         creator.set_user_id(cxl_post_ptr->creator_user_id);
@@ -42,55 +41,42 @@ public:
 
     void send_first_step() {
         // unique id
-        auto req_msgbuf1 = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
-        auto *cxl_req_ptr1 = reinterpret_cast<PostStorageWriteCXLReq*>((req_msgbuf1.buf_) + sizeof(CommonReq));
-        cxl_req_ptr1->offset = cxl_req_offset;
-        new(req_msgbuf1.buf_) RPCMsgReq<PostStorageWriteCXLReq>(RPC_TYPE::RPC_UNIQUE_ID, req_id, *cxl_req_ptr1);
+        auto req_msgbuf1 = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<UniqueIDReq>));
+        PostStorageWriteCXLReq request{cxl_post_ptr->post_id, *cxl_post_ptr};
+        new(req_msgbuf1.buf_) RPCMsgReq<UniqueIDReq>(
+            RPC_TYPE::RPC_UNIQUE_ID, req_id, {0});
         consumer_mpmc_queue->push(req_msgbuf1);
 
         // user
         auto req_msgbuf2 = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
-        auto *cxl_req_ptr2 = reinterpret_cast<PostStorageWriteCXLReq*>((req_msgbuf2.buf_) + sizeof(CommonReq));
-        cxl_req_ptr2->offset = cxl_req_offset;
-        new(req_msgbuf2.buf_) RPCMsgReq<PostStorageWriteCXLReq>(RPC_TYPE::RPC_COMPOSE_CREATOR_WITH_USER_ID, req_id, *cxl_req_ptr2);
+        new(req_msgbuf2.buf_) RPCMsgReq<PostStorageWriteCXLReq>(
+            RPC_TYPE::RPC_COMPOSE_CREATOR_WITH_USER_ID, req_id, request);
         consumer_mpmc_queue->push(req_msgbuf2);
 
         // user_mention
         auto req_msgbuf3 = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
-        auto *cxl_req_ptr3 = reinterpret_cast<PostStorageWriteCXLReq*>((req_msgbuf3.buf_) + sizeof(CommonReq));
-        cxl_req_ptr3->offset = cxl_req_offset;
-        new(req_msgbuf3.buf_) RPCMsgReq<PostStorageWriteCXLReq>(RPC_TYPE::RPC_USER_MENTION, req_id, *cxl_req_ptr3);
+        new(req_msgbuf3.buf_) RPCMsgReq<PostStorageWriteCXLReq>(
+            RPC_TYPE::RPC_USER_MENTION, req_id, request);
         consumer_mpmc_queue->push(req_msgbuf3);
 
         // url_shorten
         auto req_msgbuf4 = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
-        auto *cxl_req_ptr4 = reinterpret_cast<PostStorageWriteCXLReq*>((req_msgbuf4.buf_) + sizeof(CommonReq));
-        cxl_req_ptr4->offset = cxl_req_offset;
-        new(req_msgbuf4.buf_) RPCMsgReq<PostStorageWriteCXLReq>(RPC_TYPE::RPC_URL_SHORTEN, req_id, *cxl_req_ptr4);
+        new(req_msgbuf4.buf_) RPCMsgReq<PostStorageWriteCXLReq>(
+            RPC_TYPE::RPC_URL_SHORTEN, req_id, request);
         consumer_mpmc_queue->push(req_msgbuf4);
     }
 
         void send_second_step() {
     //        // printf("ready to second step %u\n", req_id);
-        size_t extra_length = sizeof(PostData);
-
         auto req_msgbuf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
-        auto *cxl_req_ptr = reinterpret_cast<PostStorageWriteCXLReq*>((req_msgbuf.buf_) + sizeof(CommonReq));
-        cxl_req_ptr->post_id = cxl_post_ptr->post_id;
-        cxl_req_ptr->offset = cxl_req_offset;
-        cxl_req_ptr->size = extra_length;
-        cxl_req_ptr->ref_count = 1;
-
-        auto req1 = new(req_msgbuf.buf_) RPCMsgReq<PostStorageWriteCXLReq>(RPC_TYPE::RPC_POST_STORAGE_WRITE_REQ, req_id, *cxl_req_ptr);
+        PostStorageWriteCXLReq request{cxl_post_ptr->post_id, *cxl_post_ptr};
+        new(req_msgbuf.buf_) RPCMsgReq<PostStorageWriteCXLReq>(
+            RPC_TYPE::RPC_POST_STORAGE_WRITE_REQ, req_id, request);
         consumer_mpmc_queue->push(req_msgbuf);
 
         auto req_msgbuf2 = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
-        auto *cxl_req_ptr2 = reinterpret_cast<PostStorageWriteCXLReq*>((req_msgbuf2.buf_) + sizeof(CommonReq));
-        cxl_req_ptr2->post_id = cxl_post_ptr->post_id;
-        cxl_req_ptr2->offset = cxl_req_offset;
-        cxl_req_ptr2->size = extra_length;
-        cxl_req_ptr2->ref_count = 1;
-        new(req_msgbuf2.buf_) RPCMsgReq<PostStorageWriteCXLReq>(RPC_TYPE::RPC_HOME_TIMELINE_WRITE_REQ, req_id, *cxl_req_ptr2);
+        new(req_msgbuf2.buf_) RPCMsgReq<PostStorageWriteCXLReq>(
+            RPC_TYPE::RPC_HOME_TIMELINE_WRITE_REQ, req_id, request);
         consumer_mpmc_queue->push(req_msgbuf2);
 
         req_msgbuf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<UserTimeLineWriteReq>));
@@ -118,10 +104,10 @@ public:
 
 
     MPMC_QUEUE *consumer_mpmc_queue;
-    erpc::Rpc<erpc::CXLTransport> *rpc_;
+    AppRpc *rpc_;
 
+    PostData post;
     PostData *cxl_post_ptr;
-    uint64_t cxl_req_offset;
 
     // is always true after construct
 
@@ -311,14 +297,18 @@ void init_specific_config(){
     post_storage_addr = value;
 }
 
-void compose_post_write_and_create(void *buf_, ReqStateStore* store,  MPMC_QUEUE *forward_queue, erpc::Rpc<erpc::CXLTransport> *c_rpc){
+void compose_post_write_and_create(void *buf_, ReqStateStore* store,  MPMC_QUEUE *forward_queue, AppRpc *c_rpc){
     auto* req = static_cast<RPCMsgReq<PostStorageWriteCXLReq> *>(buf_);
+    PostData post;
+    std::memcpy(&post, &req->req_control.post, sizeof(post));
 
     store->mutex.lock();
 
     my_assert(!store->req_state_map.count(req->req_common.req_number));
 
-    ReqState *req_state = new ReqState(req->req_common.req_number, req->req_control.offset, forward_queue, c_rpc);
+    ReqState *req_state = new ReqState(req->req_common.req_number,
+                                       post,
+                                       forward_queue, c_rpc);
 
     store->req_state_map[req->req_common.req_number] = req_state;
 

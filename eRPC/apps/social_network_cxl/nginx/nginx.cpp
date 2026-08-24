@@ -193,15 +193,15 @@ void callback_ping_resp(void *_context, void *_tag)
 
 void handler_ping_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
-    auto *req = reinterpret_cast<RPCMsgReq<PingRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
 
     ctx->rpc_->enqueue_request(ctx->backward_session_num_, static_cast<uint8_t>(RPC_TYPE::RPC_PING_RESP),
-                               &ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_ping_resp, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
+                               callback_ping_resp, reinterpret_cast<void *>(slot));
 }
 
 void callback_common_req(void *_context, void *_tag)
@@ -222,7 +222,7 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
     const uint8_t req_type = req_msgbuf.get_hdr_req_type();
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_forward_msgbuf[slot] = req_msgbuf;
+    ctx->req_forward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[slot];
 
@@ -266,7 +266,7 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
     const uint8_t req_type = req_msgbuf.get_hdr_req_type();
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_backward_msgbuf[slot] = req_msgbuf;
+    ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
 
@@ -283,7 +283,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + 20 + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                     rpc_id,
                                     basic_sm_handler_client, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;
@@ -357,7 +357,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                     rpc_id,
                                     basic_sm_handler_server, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;

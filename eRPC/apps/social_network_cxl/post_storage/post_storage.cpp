@@ -12,7 +12,7 @@ mongoc_client_pool_t* mongodb_client_pool;
 std::atomic<bool> post_storage_clients_stopped{false};
 
 void release_post_storage_map(ServerContext *ctx) {
-    std::vector<std::pair<void*, size_t>> buffers_to_release;
+    std::vector<SharedPostBuffer> buffers_to_release;
 
     ctx->map_mutex.lock();
     buffers_to_release.reserve(ctx->post_storage_map.size());
@@ -23,8 +23,8 @@ void release_post_storage_map(ServerContext *ctx) {
     ctx->map_mutex.unlock();
 
     for (auto &buffer : buffers_to_release) {
-        if (buffer.first != nullptr) {
-            social_network_cxl::free_cxl_buffer(ctx->rpc_, buffer.first, buffer.second);
+        if (buffer.buffer.buf_ != nullptr) {
+            release_owned_post(ctx->rpc_, buffer);
         }
     }
 
@@ -108,21 +108,18 @@ void mongodb_init(AppContext *ctx) {
 
         size_t size = sizeof(PostData);
 
-        void *cxl_ptr = social_network_cxl::alloc_cxl_buffer(ctx->server_contexts_[0]->rpc_, size);
-        if (!cxl_ptr) {
-            printf("CRITICAL ERROR: alloc_cxl_buffer returned nullptr for size %zu\n", size);
+        SharedPostBuffer shared_post =
+            alloc_shared_post(ctx->server_contexts_[0]->rpc_, size);
+        if (shared_post.buffer.buf_ == nullptr) {
+            printf("CRITICAL ERROR: shared post allocation failed for size %zu\n", size);
             continue;
         }
 
-        memcpy(cxl_ptr, &post, size);
-#if defined(USE_NO_CC_QUEUE) && !defined(USE_ONE_SIDE_READ)
-        clflush(cxl_ptr, size);
-#endif
-        // It's the first time placing it in map, the allocator creates it with refcount=1. 
-        // We will keep it mapped with that reference count.
+        memcpy(shared_post.buffer.buf_, &post, size);
+        publish_shared_post(ctx->server_contexts_[0]->rpc_, shared_post);
 
         ctx->server_contexts_[0]->map_mutex.lock();
-        ctx->server_contexts_[0]->post_storage_map[post.post_id] = {cxl_ptr, size};
+        ctx->server_contexts_[0]->post_storage_map[post.post_id] = shared_post;
         ctx->server_contexts_[0]->map_mutex.unlock();
         count++;
     }
@@ -197,6 +194,9 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle, void *_context) 
     auto *req_msgbuf = req_handle->get_req_msgbuf();
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
     auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLReq> *>(req_msgbuf->buf_);
+    my_assert(req_msgbuf->get_data_size() ==
+              sizeof(RPCMsgReq<PostStorageReadCXLReq>));
+    my_assert(req->req_control.count <= 64);
 
     auto *storage_handler = new StorageHandler();
     storage_handler->req_number = req->req_common.req_number;
@@ -211,6 +211,9 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle, void *_context) 
     for (auto post_id : storage_handler->post_ids) {
         auto it = ctx->post_storage_map.find(post_id);
         if (it != ctx->post_storage_map.end()) {
+            // This reference is transferred through the response handle to
+            // the final client. Intermediate services only forward the handle.
+            retain_shared_post(ctx->rpc_, it->second);
             storage_handler->buffers.push_back(it->second);
         }
     }
@@ -229,28 +232,28 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle, void *_context)
     auto *req_msgbuf = req_handle->get_req_msgbuf();
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
     auto *req = reinterpret_cast<RPCMsgReq<PostStorageWriteCXLReq> *>(req_msgbuf->buf_);
-    int64_t final_post_id = req->req_control.post_id;
-    erpc::MsgBuffer mb;
-    
-    // cxl_ptr points to the very base allocated by compose_post
-    void *cxl_ptr = social_network_cxl::get_cxl_allocator(ctx->rpc_)->offset_to_ptr(req->req_control.offset);
-    size_t data_size = req->req_control.size;
-    
-    std::pair<void*, size_t> old_buffer = {nullptr, 0};
+    my_assert(req_msgbuf->get_data_size() ==
+              sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
+    PostData post;
+    std::memcpy(&post, &req->req_control.post, sizeof(post));
+    const int64_t final_post_id = post.post_id;
+
+    SharedPostBuffer stored_post = alloc_shared_post(ctx->rpc_, sizeof(PostData));
+    my_assert(stored_post.buffer.buf_ != nullptr);
+    memcpy(stored_post.buffer.buf_, &post, sizeof(PostData));
+    publish_shared_post(ctx->rpc_, stored_post);
+
+    SharedPostBuffer old_buffer;
     ctx->map_mutex.lock();
     auto old_it = ctx->post_storage_map.find(final_post_id);
-    if (old_it == ctx->post_storage_map.end() || old_it->second.first != cxl_ptr) {
-        // Keep one post_storage-owned reference so sender-side release cannot free it.
-        social_network_cxl::add_ref_cxl_buffer(ctx->rpc_, cxl_ptr);
-        if (old_it != ctx->post_storage_map.end()) {
-            old_buffer = old_it->second;
-        }
+    if (old_it != ctx->post_storage_map.end()) {
+        old_buffer = old_it->second;
     }
-    ctx->post_storage_map[final_post_id] = {cxl_ptr, data_size};
+    ctx->post_storage_map[final_post_id] = stored_post;
     ctx->map_mutex.unlock();
 
-    if (old_buffer.first != nullptr) {
-        social_network_cxl::free_cxl_buffer(ctx->rpc_, old_buffer.first, old_buffer.second);
+    if (old_buffer.buffer.buf_ != nullptr) {
+        release_owned_post(ctx->rpc_, old_buffer);
     }
     
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
@@ -279,7 +282,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
     uint8_t phy_port = port_vec.at(thread_id % port_vec.size());
     uint8_t rpc_id = FLAGS_rpc_id + 20 + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                     rpc_id,
                                     basic_sm_handler_client, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;
@@ -302,23 +305,18 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                 auto &req_msgbuf = ctx->req_backward_msgbuf[storage_handler->req_number % kAppMaxBuffer];
                 req_msgbuf = ctx->rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageReadCXLResp>));
 
-                auto *cxl_resp_ptr = reinterpret_cast<PostStorageReadCXLResp*>((req_msgbuf.buf_) + sizeof(CommonReq));
-                cxl_resp_ptr->count = 0;
+                PostStorageReadCXLResp response{};
 
                 for (auto &buffer : storage_handler->buffers) {
-                    if (cxl_resp_ptr->count < 64) {
-                        void* original_ptr = buffer.first;
-                        uint64_t offset = social_network_cxl::get_cxl_allocator(ctx->rpc_)->ptr_to_offset(original_ptr);
-                        cxl_resp_ptr->posts[cxl_resp_ptr->count].offset = offset;
-                        cxl_resp_ptr->posts[cxl_resp_ptr->count].size = buffer.second;
-                        cxl_resp_ptr->posts[cxl_resp_ptr->count].ref_count = 1;
-                        cxl_resp_ptr->count++;
-                        
-                        social_network_cxl::add_ref_cxl_buffer(ctx->rpc_, original_ptr);
+                    if (response.count < 64) {
+                        response.posts[response.count] = buffer.handle;
+                        response.count++;
                     }
                 }
                 
-                new (req_msgbuf.buf_) RPCMsgReq<PostStorageReadCXLResp>(RPC_TYPE::RPC_POST_STORAGE_READ_RESP, storage_handler->req_number, *cxl_resp_ptr);
+                new (req_msgbuf.buf_) RPCMsgReq<PostStorageReadCXLResp>(
+                    RPC_TYPE::RPC_POST_STORAGE_READ_RESP,
+                    storage_handler->req_number, response);
 
                 auto &resp_msgbuf = ctx->resp_backward_msgbuf[storage_handler->req_number % kAppMaxBuffer];
                 flush_msgbuf_before_send(ctx->rpc_, req_msgbuf);
@@ -354,7 +352,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
     ctx->server_id_ = thread_id;
     std::vector<size_t> port_vec = flags_get_cxl_ports(0);
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                         FLAGS_rpc_id + thread_id,
                                         basic_sm_handler_server, port_vec[0]);
     ctx->rpc_ = &rpc;

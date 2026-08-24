@@ -69,59 +69,29 @@ void user_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
     auto *req_common = reinterpret_cast<CommonReq *>(req_msgbuf->buf_);
 
-#if defined(ERPC_CXL)
-    const bool has_cxl_payload =
-        req_msgbuf->get_data_size() == sizeof(RPCMsgReq<PostStorageReadCXLResp>);
-#else
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf->buf_);
-    //    // printf("user timeline read resp, type %u, number %u, data_length %ld\n", static_cast<uint32_t>(req->req_common.type), req->req_common.req_number, req->req_control.data_length);
-    my_assert(req_msgbuf->get_data_size() == sizeof(RPCMsgReq<CommonRPCReq>) + req->req_control.data_length, "data size not match");
-#endif
+    my_assert(req_msgbuf->get_data_size() ==
+              sizeof(RPCMsgReq<PostStorageReadCXLResp>));
 
     ctx->rpc_->resize_msg_buffer(&req_handler->pre_resp_msgbuf_, 0);
 
 
-#if defined(ERPC_CXL)
     hdr_record_value_atomic(latency_user_timeline_hist_,
         static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
 
-    if (has_cxl_payload) {
-        auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
-        PostStorageReadCXLResp cxl_resp = req->req_control;
-        auto *cxl_resp_ptr = &cxl_resp;
-
-        // Release references to the shared data!
-        for (size_t i = 0; i < cxl_resp_ptr->count; i++) {
-            void* ptr = social_network_cxl::get_cxl_allocator(ctx->rpc_)->offset_to_ptr(cxl_resp_ptr->posts[i].offset);
-            invalidate_cxl_buffer_before_read(ctx->rpc_, ptr, cxl_resp_ptr->posts[i].size);
-            // Directly read PostData to simulate consumption!
-            PostData* post_data = static_cast<PostData*>(ptr);
-            [[maybe_unused]] int64_t dummy_id = post_data->post_id;
-            social_network_cxl::free_cxl_buffer(ctx->rpc_, ptr, cxl_resp_ptr->posts[i].size);
-        }
+    auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
+    PostStorageReadCXLResp reference_resp = req->req_control;
+    for (size_t i = 0; i < reference_resp.count; i++) {
+        ImportedSharedPost imported =
+            import_shared_post(ctx->rpc_, reference_resp.posts[i]);
+        my_assert(imported.size == sizeof(PostData));
+        PostData post_data;
+        std::memcpy(&post_data, imported.buffer.buf_, sizeof(post_data));
+        [[maybe_unused]] int64_t dummy_id = post_data.post_id;
+        release_imported_post(ctx->rpc_, imported);
     }
 
     ctx->queue_store->PushNextReq();
     __sync_synchronize();
-#elif defined(RMEM_PROGRAM)
-    social_network::PostStorageReadRefResp post_storage_read_ref_resp;
-    post_storage_read_ref_resp.ParseFromArray(req + 1, req->req_control.data_length);
-    ReaderHandler *reader_handler = new ReaderHandler();
-    reader_handler->hist = latency_user_timeline_hist_;
-    reader_handler->req_num = req->req_common.req_number;
-    for (int i = 0;i < post_storage_read_ref_resp.posts_ref_addr_size();i++) {
-        reader_handler->addrs_size.push_back({ post_storage_read_ref_resp.posts_ref_addr(i), post_storage_read_ref_resp.posts_ref_size(i) });
-        reader_handler->rmem_bufs.push_back(malloc(post_storage_read_ref_resp.posts_ref_size(i)));
-    }
-    reader_queues[ctx->server_id_]->push(reader_handler);
-
-#else
-    hdr_record_value_atomic(latency_user_timeline_hist_,
-        static_cast<int64_t>(timers[ctx->server_id_][req->req_common.req_number % kAppMaxBuffer].toc() * 10));
-
-    ctx->queue_store->PushNextReq();
-    __sync_synchronize();
-#endif
     ctx->rpc_->enqueue_response(req_handler, &req_handler->pre_resp_msgbuf_);
 
 }
@@ -133,46 +103,28 @@ void home_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
     auto *req_common = reinterpret_cast<CommonReq *>(req_msgbuf->buf_);
 
-#if defined(ERPC_CXL)
-    const bool has_cxl_payload =
-        req_msgbuf->get_data_size() == sizeof(RPCMsgReq<PostStorageReadCXLResp>);
-#else
-    auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf->buf_);
-    my_assert(req_msgbuf->get_data_size() == sizeof(RPCMsgReq<CommonRPCReq>) + req->req_control.data_length, "data size not match");
-#endif
+    my_assert(req_msgbuf->get_data_size() ==
+              sizeof(RPCMsgReq<PostStorageReadCXLResp>));
 
     ctx->rpc_->resize_msg_buffer(&req_handler->pre_resp_msgbuf_, 0);
 
-#if defined(ERPC_CXL)
     hdr_record_value_atomic(latency_home_timeline_hist_,
         static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
 
-    if (has_cxl_payload) {
-        auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
-        PostStorageReadCXLResp cxl_resp = req->req_control;
-        auto *cxl_resp_ptr = &cxl_resp;
-
-        // Release references
-        for (size_t i = 0; i < cxl_resp_ptr->count; i++) {
-            void* ptr = social_network_cxl::get_cxl_allocator(ctx->rpc_)->offset_to_ptr(cxl_resp_ptr->posts[i].offset);
-            invalidate_cxl_buffer_before_read(ctx->rpc_, ptr, cxl_resp_ptr->posts[i].size);
-            // Directly read PostData to simulate consumption!
-            PostData* post_data = static_cast<PostData*>(ptr);
-            [[maybe_unused]] int64_t dummy_id = post_data->post_id;
-            social_network_cxl::free_cxl_buffer(ctx->rpc_, ptr, cxl_resp_ptr->posts[i].size);
-        }
+    auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
+    PostStorageReadCXLResp reference_resp = req->req_control;
+    for (size_t i = 0; i < reference_resp.count; i++) {
+        ImportedSharedPost imported =
+            import_shared_post(ctx->rpc_, reference_resp.posts[i]);
+        my_assert(imported.size == sizeof(PostData));
+        PostData post_data;
+        std::memcpy(&post_data, imported.buffer.buf_, sizeof(post_data));
+        [[maybe_unused]] int64_t dummy_id = post_data.post_id;
+        release_imported_post(ctx->rpc_, imported);
     }
 
     ctx->queue_store->PushNextReq();
     __sync_synchronize();
-
-#else
-    hdr_record_value_atomic(latency_home_timeline_hist_,
-        static_cast<int64_t>(timers[ctx->server_id_][req->req_common.req_number % kAppMaxBuffer].toc() * 10));
-
-    ctx->queue_store->PushNextReq();
-    __sync_synchronize();
-#endif
 
     ctx->rpc_->enqueue_response(req_handler, &req_handler->pre_resp_msgbuf_);
 
@@ -205,7 +157,7 @@ void callback_rmem_param(void *_context, void *_tag) {
 
     // 如果返回值不为0，则认为后续不会有响应，直接将请求号和错误码放入队列
     // 如果返回值为0，则认为后续将有响应，不care
-#ifdef ERPC_CXL
+#if defined(ERPC_CXL) || defined(ERPC_UB)
     // CXL path does not require RMEM handshake payload. Some services may reply with non-zero
     // status for RPC_RMEM_PARAM, so we must not abort here.
     if (resp->resp_common.status != 0) {
@@ -235,9 +187,9 @@ void callback_rmem_param(void *_context, void *_tag) {
 }
 
 void handler_rmem_param(ClientContext *ctx, REQ_MSG req_msg) {
-#ifdef ERPC_CXL
+#if defined(ERPC_CXL) || defined(ERPC_UB)
     _unused(req_msg);
-    // CXL shared memory does not need RMEM connection negotiation.
+    // Shared-memory transports do not need RMEM connection negotiation.
     __sync_synchronize();
     rmems_init_number++;
     return;
@@ -334,7 +286,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + 20 + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
         rpc_id,
         basic_sm_handler_client, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;
@@ -387,7 +339,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
         rpc_id,
         basic_sm_handler_server, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;

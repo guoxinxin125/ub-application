@@ -32,6 +32,18 @@ struct UBRoutingInfo {
   uint64_t arena_size;
 };
 
+struct UBSharedObjectHandle {
+  uint64_t machine_id = 0;
+  uint64_t block_offset = 0;
+  uint64_t payload_offset = 0;
+  uint64_t payload_length = 0;
+};
+
+struct UBImportedObject {
+  Buffer buffer;
+  uint64_t machine_id = 0;
+};
+
 static_assert(sizeof(UBRoutingInfo) <= Transport::kMaxRoutingInfoSize,
               "UB routing info exceeds eRPC routing-info storage");
 
@@ -66,6 +78,14 @@ class UBTransport : public Transport {
 
   Buffer alloc_shared_buffer(size_t size);
   void free_shared_buffer(Buffer buffer);
+  void retain_shared_buffer(Buffer buffer);
+  Buffer alloc_shared_object(size_t size);
+  UBSharedObjectHandle describe_shared_object(Buffer buffer,
+                                               size_t payload_length) const;
+  UBImportedObject import_shared_object(
+      const UBSharedObjectHandle &handle) const;
+  void retain_shared_object(Buffer buffer);
+  void release_imported_object(UBImportedObject object);
   bool is_in_shared_memory(void *ptr) const {
     return shared_allocator_->is_shared_ptr(ptr);
   }

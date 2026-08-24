@@ -224,7 +224,7 @@ void init_specific_config(){
     mongodb_conns_num = conns;
 }
 
-void read_home_time_line_post_details(void *buf_, erpc::Rpc<erpc::CXLTransport> *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_QUEUE *consumer_back) {
+void read_home_time_line_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_QUEUE *consumer_back) {
     auto* req = static_cast<RPCMsgReq<HomeTimeLineReq> *>(buf_);
 
     bool is_fwd = true;
@@ -283,13 +283,12 @@ void read_home_time_line_post_details(void *buf_, erpc::Rpc<erpc::CXLTransport> 
     consumer_fwd->push(fwd_req);
 }
 
-void write_home_timeline_and_return(void *buf_, erpc::Rpc<erpc::CXLTransport> *rpc_, MPMC_QUEUE *consumer_back) {
+void write_home_timeline_and_return(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_back) {
     auto* req = static_cast<RPCMsgReq<PostStorageWriteCXLReq> *>(buf_);
-
-#ifdef ERPC_CXL
-    uint64_t cxl_offset = req->req_control.offset;
-    void *cxl_ptr = social_network_cxl::get_cxl_allocator(rpc_)->offset_to_ptr(cxl_offset);
-    PostData *cxl_post_ptr = reinterpret_cast<PostData *>(cxl_ptr);
+    PostData post;
+    std::memcpy(&post, &req->req_control.post, sizeof(post));
+    const PostData *cxl_post_ptr = &post;
+    my_assert(cxl_post_ptr->mentions_count <= SN_MAX_MENTIONS);
 
     auto it = user_followers_map.find(cxl_post_ptr->creator_user_id);
     if (it != user_followers_map.end()) {
@@ -304,8 +303,6 @@ void write_home_timeline_and_return(void *buf_, erpc::Rpc<erpc::CXLTransport> *r
             user_home_timeline_map[m].push_back(cxl_post_ptr->post_id);
         }
     }
-#endif
-
     erpc::MsgBuffer resp_buf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<CommonRPCReq>));
     new (resp_buf.buf_) RPCMsgReq<CommonRPCReq>(RPC_TYPE::RPC_HOME_TIMELINE_WRITE_RESP, req->req_common.req_number, {0});
     resp_buf.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_WRITE_RESP));

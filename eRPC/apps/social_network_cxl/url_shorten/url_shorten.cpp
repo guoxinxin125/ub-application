@@ -50,11 +50,9 @@ void url_shorten_handler(erpc::ReqHandle *req_handler, void *_context)
 
     my_assert(req_msgbuf->get_data_size() == sizeof(RPCMsgReq<PostStorageWriteCXLReq>), "data size not match");
 
-#ifdef ERPC_CXL
-    uint64_t cxl_offset = req->req_control.offset;
-    void *cxl_ptr = social_network_cxl::get_cxl_allocator(ctx->rpc_)->offset_to_ptr(cxl_offset);
-    PostData *cxl_post_ptr = reinterpret_cast<PostData *>(cxl_ptr);
-    std::string original_text = cxl_post_ptr->text;
+    PostData post;
+    std::memcpy(&post, &req->req_control.post, sizeof(post));
+    std::string original_text = post.text;
     
     static const std::regex e("(http://|https://)([a-zA-Z0-9_!~*'().&=+$%-]+)");
     std::sregex_iterator it2(original_text.begin(), original_text.end(), e);
@@ -65,8 +63,6 @@ void url_shorten_handler(erpc::ReqHandle *req_handler, void *_context)
         std::string shortened = HOSTNAME + generate_random_string();
         it2++;
     }
-#endif
-
     size_t resp_data_length = 0;
 
     new (req_handler->pre_resp_msgbuf_.buf_) RPCMsgResp<CommonRPCResp>(req->req_common.type, req->req_common.req_number, 0, {resp_data_length});
@@ -106,15 +102,15 @@ void callback_ping_resp(void *_context, void *_tag)
 void handler_ping_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
 
-    auto *req = reinterpret_cast<RPCMsgReq<PingRPCReq> *>(req_msgbuf.buf_);
+    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
-    ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer] = req_msgbuf;
+    ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
-    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer];
+    erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
 
     ctx->rpc_->enqueue_request(ctx->backward_session_num_, static_cast<uint8_t>(RPC_TYPE::RPC_PING_RESP),
-                               &ctx->req_backward_msgbuf[req->req_common.req_number % kAppMaxBuffer], &resp_msgbuf,
-                               callback_ping_resp, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
+                               &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
+                               callback_ping_resp, reinterpret_cast<void *>(slot));
 }
 
 
@@ -126,7 +122,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + 20 + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                     rpc_id,
                                     basic_sm_handler_client, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;
@@ -172,7 +168,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
 
     uint8_t rpc_id = FLAGS_rpc_id + thread_id;
 
-    erpc::Rpc<erpc::CXLTransport> rpc(nexus, static_cast<void *>(ctx),
+    AppRpc rpc(nexus, static_cast<void *>(ctx),
                                     rpc_id,
                                     basic_sm_handler_server, phy_port);
     rpc.retry_connect_on_invalid_rpc_id_ = true;
@@ -195,7 +191,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
         }
     }
 }
-void worker_thread_func(size_t thread_id, SPSC_QUEUE *producer, SPSC_QUEUE *consumer, erpc::Rpc<erpc::CXLTransport> *rpc_, erpc::Rpc<erpc::CXLTransport> *server_rpc_)
+void worker_thread_func(size_t thread_id, SPSC_QUEUE *producer, SPSC_QUEUE *consumer, AppRpc *rpc_, AppRpc *server_rpc_)
 {
     link_worker_cacheable(server_rpc_->get_rpc_id());
     _unused(thread_id);

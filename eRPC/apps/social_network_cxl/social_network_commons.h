@@ -21,16 +21,20 @@
 #include "atomic_queue/atomic_queue.h"
 #include "social_network_rpc_type.h"
 #include "util/numautils.h"
-#include "utils/bypass_cache.h"
 
 #include "pkthdr.h"
 
 #include "rpc.h"
 
 #ifdef ERPC_CXL
+#include "utils/bypass_cache.h"
 #include "transport_impl/cxl/cxl_transport.h"
 #include "transport_impl/cxl/cxl_shared_allocator.h"
 #include "social_network_cxl.h"
+#elif defined(ERPC_UB)
+#include "transport_impl/ub/ub_transport.h"
+#else
+#error "social_network_cxl requires TRANSPORT=cxl or TRANSPORT=ub"
 #endif
 
 #include <gflags/gflags.h>
@@ -52,6 +56,8 @@ DECLARE_string(bandwidth_file);
 DECLARE_uint64(rpc_id);
 
 using json = nlohmann::json;
+using AppTransport = erpc::CTransport;
+using AppRpc = erpc::Rpc<AppTransport>;
 
 #define my_assert(expr, ...) assert(expr)
 
@@ -160,9 +166,8 @@ inline std::vector<size_t> flags_get_cxl_ports(size_t numa_node) {
     return ret;
 } 
 
-#ifdef ERPC_CXL
-inline erpc::MsgBuffer clone_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc,
-                                   const erpc::MsgBuffer &src) {
+inline erpc::MsgBuffer clone_msgbuf(AppRpc *rpc,
+                                    const erpc::MsgBuffer &src) {
     size_t size = src.get_data_size();
     erpc::MsgBuffer dst = rpc->alloc_msg_buffer_or_die(size);
     if (size != 0) {
@@ -171,13 +176,17 @@ inline erpc::MsgBuffer clone_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc,
     return dst;
 }
 
-inline void *msgbuf_to_cxl_ptr(const erpc::MsgBuffer &msgbuf) {
+inline void *msgbuf_backing_ptr(const erpc::MsgBuffer &msgbuf) {
     return static_cast<void *>(msgbuf.buf_ - sizeof(erpc::pkthdr_t));
 }
- 
-inline erpc::MsgBuffer pin_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc,
+
+inline erpc::MsgBuffer pin_msgbuf(AppRpc *rpc,
                                   const erpc::MsgBuffer &src) {
-    void *base = msgbuf_to_cxl_ptr(src);
+    if (src.buf_ == nullptr) {
+        return src;
+    }
+    void *base = msgbuf_backing_ptr(src);
+#ifdef ERPC_CXL
     if (social_network_cxl::is_shared_ptr(rpc, base)) {
         social_network_cxl::add_ref_cxl_buffer(rpc, base);
         erpc::MsgBuffer pinned = src;
@@ -185,32 +194,72 @@ inline erpc::MsgBuffer pin_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc,
         return pinned;
     }
     return clone_msgbuf(rpc, src);
+#else
+    size_t total_size = src.get_data_size() + sizeof(erpc::pkthdr_t);
+    rpc->get_transport()->retain_shared_buffer(
+        erpc::Buffer(static_cast<uint8_t *>(base), total_size, total_size));
+    erpc::MsgBuffer pinned = src;
+    pinned.own_pkthdr_copy();
+    return pinned;
+#endif
 }
 
-inline void release_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc,
+inline erpc::MsgBuffer prepare_forward_msgbuf(AppRpc *rpc,
+                                              const erpc::MsgBuffer &src) {
+#ifdef ERPC_CXL
+    _unused(rpc);
+    return src;
+#else
+    void *base = msgbuf_backing_ptr(src);
+    if (rpc->get_transport()->is_in_shared_memory(base)) {
+        return src;
+    }
+    // UB descriptors currently require the immediate sender to own payload.
+    // This helper consumes src: after copying, release its borrowed/foreign
+    // reference because only the returned local MsgBuffer continues onward.
+    erpc::MsgBuffer local = clone_msgbuf(rpc, src);
+    const size_t total_size =
+        src.get_data_size() + sizeof(erpc::pkthdr_t);
+    rpc->get_transport()->free_shared_buffer(
+        erpc::Buffer(static_cast<uint8_t *>(base), total_size, total_size));
+    return local;
+#endif
+}
+
+inline void release_msgbuf(AppRpc *rpc,
                            const erpc::MsgBuffer &msgbuf) {
     if (msgbuf.buf_ == nullptr) {
         return;
     }
-    void *base = msgbuf_to_cxl_ptr(msgbuf);
+#ifdef ERPC_CXL
+    void *base = msgbuf_backing_ptr(msgbuf);
     if (social_network_cxl::is_shared_ptr(rpc, base)) {
-        size_t total_size = msgbuf.get_data_size() + sizeof(erpc::pkthdr_t);
+        const size_t total_size =
+            msgbuf.get_data_size() + sizeof(erpc::pkthdr_t);
         social_network_cxl::free_cxl_buffer(rpc, base, total_size);
         return;
     }
     rpc->free_msg_buffer(msgbuf);
+#else
+    void *base = msgbuf_backing_ptr(msgbuf);
+    const size_t total_size =
+        msgbuf.get_data_size() + sizeof(erpc::pkthdr_t);
+    rpc->get_transport()->free_shared_buffer(
+        erpc::Buffer(static_cast<uint8_t *>(base), total_size, total_size));
+#endif
 }
 
-inline uint8_t msgbuf_owner_rpc_id(erpc::Rpc<erpc::CXLTransport> *rpc,
+#ifdef ERPC_CXL
+inline uint8_t msgbuf_owner_rpc_id(AppRpc *rpc,
                                    const erpc::MsgBuffer &msgbuf) {
-    void *base = msgbuf_to_cxl_ptr(msgbuf);
+    void *base = msgbuf_backing_ptr(msgbuf);
     if (!social_network_cxl::is_shared_ptr(rpc, base)) {
         return UINT8_MAX;
     }
     return social_network_cxl::get_cxl_allocator(rpc)->get_owner_rpc_id(base);
 }
 
-inline bool msgbuf_needs_no_cc_flush(erpc::Rpc<erpc::CXLTransport> *rpc,
+inline bool msgbuf_needs_no_cc_flush(AppRpc *rpc,
                                      const erpc::MsgBuffer &msgbuf) {
 #ifdef USE_NO_CC_QUEUE
     if (msgbuf.buf_ == nullptr || msgbuf.get_data_size() == 0) {
@@ -230,7 +279,7 @@ inline bool msgbuf_needs_no_cc_flush(erpc::Rpc<erpc::CXLTransport> *rpc,
 #endif
 }
 
-inline void flush_msgbuf_before_send(erpc::Rpc<erpc::CXLTransport> *rpc,
+inline void flush_msgbuf_before_send(AppRpc *rpc,
                                      const erpc::MsgBuffer &msgbuf) {
 #ifdef USE_NO_CC_QUEUE
     if (msgbuf_needs_no_cc_flush(rpc, msgbuf)) {
@@ -242,7 +291,7 @@ inline void flush_msgbuf_before_send(erpc::Rpc<erpc::CXLTransport> *rpc,
 #endif
 }
 
-inline void invalidate_msgbuf_before_read(erpc::Rpc<erpc::CXLTransport> *rpc,
+inline void invalidate_msgbuf_before_read(AppRpc *rpc,
                                           const erpc::MsgBuffer &msgbuf) {
 #ifdef USE_NO_CC_QUEUE
     if (msgbuf_needs_no_cc_flush(rpc, msgbuf)) {
@@ -254,7 +303,7 @@ inline void invalidate_msgbuf_before_read(erpc::Rpc<erpc::CXLTransport> *rpc,
 #endif
 }
 
-inline bool cxl_buffer_needs_no_cc_flush(erpc::Rpc<erpc::CXLTransport> *rpc,
+inline bool cxl_buffer_needs_no_cc_flush(AppRpc *rpc,
                                          void *ptr, size_t size) {
 #ifdef USE_NO_CC_QUEUE
     if (ptr == nullptr || size == 0) {
@@ -276,7 +325,7 @@ inline bool cxl_buffer_needs_no_cc_flush(erpc::Rpc<erpc::CXLTransport> *rpc,
 #endif
 }
 
-inline void flush_cxl_buffer_before_send(erpc::Rpc<erpc::CXLTransport> *rpc,
+inline void flush_cxl_buffer_before_send(AppRpc *rpc,
                                          void *ptr, size_t size) {
 #ifdef USE_NO_CC_QUEUE
     if (cxl_buffer_needs_no_cc_flush(rpc, ptr, size)) {
@@ -289,7 +338,7 @@ inline void flush_cxl_buffer_before_send(erpc::Rpc<erpc::CXLTransport> *rpc,
 #endif
 }
 
-inline void invalidate_cxl_buffer_before_read(erpc::Rpc<erpc::CXLTransport> *rpc,
+inline void invalidate_cxl_buffer_before_read(AppRpc *rpc,
                                               void *ptr, size_t size) {
 #ifdef USE_NO_CC_QUEUE
     if (cxl_buffer_needs_no_cc_flush(rpc, ptr, size)) {
@@ -301,6 +350,120 @@ inline void invalidate_cxl_buffer_before_read(erpc::Rpc<erpc::CXLTransport> *rpc
     _unused(size);
 #endif
 }
+#else
+inline void flush_msgbuf_before_send(AppRpc *rpc,
+                                     const erpc::MsgBuffer &msgbuf) {
+    _unused(rpc);
+    _unused(msgbuf);
+}
+
+inline void invalidate_msgbuf_before_read(AppRpc *rpc,
+                                          const erpc::MsgBuffer &msgbuf) {
+    _unused(rpc);
+    _unused(msgbuf);
+}
+#endif
+
+using SharedPostHandle = PostStorageReadCXLResp::SharedPostHandle;
+
+struct SharedPostBuffer {
+    erpc::Buffer buffer;
+    size_t size = 0;
+    SharedPostHandle handle{};
+};
+
+struct ImportedSharedPost {
+    erpc::Buffer buffer;
+    size_t size = 0;
+    uint64_t machine_id = 0;
+};
+
+inline SharedPostBuffer alloc_shared_post(AppRpc *rpc, size_t size) {
+    SharedPostBuffer post;
+#ifdef ERPC_CXL
+    erpc::CXLSharedAllocator *allocator =
+        social_network_cxl::get_cxl_allocator(rpc);
+    post.buffer = allocator->alloc(size, 1);
+    post.size = size;
+    post.handle.payload_offset = allocator->ptr_to_offset(post.buffer.buf_);
+    post.handle.payload_length = size;
+#else
+    post.buffer = rpc->get_transport()->alloc_shared_object(size);
+    post.size = size;
+    const erpc::UBSharedObjectHandle ub_handle =
+        rpc->get_transport()->describe_shared_object(post.buffer, size);
+    post.handle.machine_id = ub_handle.machine_id;
+    post.handle.block_offset = ub_handle.block_offset;
+    post.handle.payload_offset = ub_handle.payload_offset;
+    post.handle.payload_length = ub_handle.payload_length;
+#endif
+    return post;
+}
+
+inline void retain_shared_post(AppRpc *rpc, const SharedPostBuffer &post) {
+#ifdef ERPC_CXL
+    social_network_cxl::add_ref_cxl_buffer(rpc, post.buffer.buf_);
+#else
+    rpc->get_transport()->retain_shared_object(post.buffer);
+#endif
+}
+
+inline ImportedSharedPost import_shared_post(AppRpc *rpc,
+                                             const SharedPostHandle &handle) {
+    ImportedSharedPost post;
+#ifdef ERPC_CXL
+    erpc::CXLSharedAllocator *allocator =
+        social_network_cxl::get_cxl_allocator(rpc);
+    post.buffer = erpc::Buffer(
+        static_cast<uint8_t *>(allocator->offset_to_ptr(handle.payload_offset)),
+        static_cast<size_t>(handle.payload_length),
+        0);
+    post.size = static_cast<size_t>(handle.payload_length);
+    invalidate_cxl_buffer_before_read(rpc, post.buffer.buf_, post.size);
+#else
+    erpc::UBSharedObjectHandle ub_handle;
+    ub_handle.machine_id = handle.machine_id;
+    ub_handle.block_offset = handle.block_offset;
+    ub_handle.payload_offset = handle.payload_offset;
+    ub_handle.payload_length = handle.payload_length;
+    erpc::UBImportedObject imported =
+        rpc->get_transport()->import_shared_object(ub_handle);
+    post.buffer = imported.buffer;
+    post.size = static_cast<size_t>(handle.payload_length);
+    post.machine_id = imported.machine_id;
+#endif
+    return post;
+}
+
+inline void release_imported_post(AppRpc *rpc, ImportedSharedPost post) {
+#ifdef ERPC_CXL
+    social_network_cxl::free_cxl_buffer(
+        rpc, post.buffer.buf_, post.size);
+#else
+    erpc::UBImportedObject imported;
+    imported.buffer = post.buffer;
+    imported.machine_id = post.machine_id;
+    rpc->get_transport()->release_imported_object(imported);
+#endif
+}
+
+inline void release_owned_post(AppRpc *rpc, const SharedPostBuffer &post) {
+#ifdef ERPC_CXL
+    social_network_cxl::free_cxl_buffer(
+        rpc, post.buffer.buf_, post.size);
+#else
+    rpc->get_transport()->free_shared_buffer(post.buffer);
+#endif
+}
+
+inline void publish_shared_post(AppRpc *rpc, const SharedPostBuffer &post) {
+#ifdef ERPC_CXL
+    flush_cxl_buffer_before_send(rpc, post.buffer.buf_, post.size);
+#else
+    _unused(rpc);
+    _unused(post);
+#endif
+}
 
 inline uint64_t get_timestamp_us() {
     return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -310,14 +473,16 @@ inline uint64_t get_timestamp_us() {
 
 class BasicContext {
 public:
-    erpc::Rpc<erpc::CXLTransport> *rpc_ = nullptr;
+    AppRpc *rpc_ = nullptr;
     std::vector<int> session_num_vec_;
     size_t num_sm_resps_ = 0;
 };
 
+#ifdef ERPC_CXL
 namespace erpc {
 extern ::MemoryManager* erpc_global_cacheable_ptrs[256];
 }
+#endif
 
 inline void link_worker_cacheable(uint8_t server_rpc_id) {
 #ifdef ERPC_CXL
@@ -365,8 +530,6 @@ inline void basic_sm_handler_server(int session_num, erpc::SmEventType sm_event_
     c->session_num_vec_.push_back(session_num);
     // // printf("Server id %" PRIu8 ": Got session %d\n", c->rpc_->get_rpc_id(), session_num);
 }
-
-#endif  // ERPC_CXL
 
 inline size_t get_bind_core(size_t numa) {
     static size_t numa0_core = 0;

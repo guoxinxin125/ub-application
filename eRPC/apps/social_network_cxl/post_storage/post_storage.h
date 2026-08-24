@@ -22,7 +22,7 @@ public:
     uint32_t rpc_type{};
     bool is_read{};
     std::vector<int64_t> post_ids;
-    std::vector<std::pair<void*, size_t>> buffers;
+    std::vector<SharedPostBuffer> buffers;
     social_network::PostStorageReadResp resp;
 };
 using STORAGE_QUEUE = atomic_queue::AtomicQueueB2<StorageHandler*, std::allocator<StorageHandler*>, true, false, false>;
@@ -77,7 +77,7 @@ public:
         stat_req_err_tot = 0;
     }
   
-    std::unordered_map<int64_t, std::pair<void*, size_t>> post_storage_map;
+    std::unordered_map<int64_t, SharedPostBuffer> post_storage_map;
     spinlock_mutex map_mutex;
 };
 

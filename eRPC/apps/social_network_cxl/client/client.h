@@ -239,7 +239,7 @@ std::string generate_random_string(int length) {
     return result;
 }
 
-void generate_compose_post_req_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc_, SPSC_QUEUE* consumer_queue) {
+void generate_compose_post_req_msgbuf(AppRpc *rpc_, SPSC_QUEUE* consumer_queue) {
     for (int64_t i = 0; i < generate_data_num; i++) {
             PostData post;
             post.init();
@@ -274,23 +274,17 @@ void generate_compose_post_req_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc_, SPSC_
             post.media_count++;
         }
         post.post_type = static_cast<int32_t>(social_network::PostType::POST_TYPE_POST);
-        size_t size = sizeof(PostData);
-        void* cxl_ptr = social_network_cxl::alloc_cxl_buffer(rpc_, size);
-        memcpy(cxl_ptr, &post, size);
-
         auto req_msgbuf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
-        auto *cxl_req_ptr = reinterpret_cast<PostStorageWriteCXLReq*>((req_msgbuf.buf_) + sizeof(CommonReq));
-        cxl_req_ptr->post_id = post.post_id;
-        cxl_req_ptr->offset = social_network_cxl::get_cxl_allocator(rpc_)->ptr_to_offset(cxl_ptr);
-        cxl_req_ptr->size = size;
-        cxl_req_ptr->ref_count = 1;
-
-        new (req_msgbuf.buf_) RPCMsgReq<PostStorageWriteCXLReq>(RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ, 0, *cxl_req_ptr);
+        PostStorageWriteCXLReq write_req;
+        write_req.post_id = post.post_id;
+        write_req.post = post;
+        new (req_msgbuf.buf_) RPCMsgReq<PostStorageWriteCXLReq>(
+            RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ, 0, write_req);
         consumer_queue->push(req_msgbuf);
     }
 }
 
-void generate_user_timeline_req_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc_, SPSC_QUEUE* consumer_queue) {
+void generate_user_timeline_req_msgbuf(AppRpc *rpc_, SPSC_QUEUE* consumer_queue) {
     for (int64_t i = 0; i < generate_data_num; i++) {
         auto req_msgbuf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<UserTimeLineReq>));
         new (req_msgbuf.buf_) RPCMsgReq<UserTimeLineReq>(RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, 0, {0, i, 0, 10});
@@ -298,7 +292,7 @@ void generate_user_timeline_req_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc_, SPSC
     }
 }
 
-void generate_home_timeline_req_msgbuf(erpc::Rpc<erpc::CXLTransport> *rpc_, SPSC_QUEUE* consumer_queue) {
+void generate_home_timeline_req_msgbuf(AppRpc *rpc_, SPSC_QUEUE* consumer_queue) {
     for (int64_t i = 0; i < generate_data_num; i++) {
         auto req_msgbuf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<HomeTimeLineReq>));
         new (req_msgbuf.buf_) RPCMsgReq<HomeTimeLineReq>(RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ, 0, {0, i, 0, 10});

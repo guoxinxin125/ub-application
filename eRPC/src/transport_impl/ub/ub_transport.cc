@@ -154,6 +154,80 @@ Buffer UBTransport::alloc_shared_buffer(size_t size) {
   return buffer;
 }
 
+void UBTransport::retain_shared_buffer(Buffer buffer) {
+  if (buffer.buf_ == nullptr) return;
+  shared_allocator_->add_ref(buffer);
+}
+
+Buffer UBTransport::alloc_shared_object(size_t size) {
+  return shared_allocator_->alloc(size);
+}
+
+UBSharedObjectHandle UBTransport::describe_shared_object(
+    Buffer buffer, size_t payload_length) const {
+  if (buffer.buf_ == nullptr ||
+      !shared_allocator_->is_shared_ptr(buffer.buf_) || payload_length == 0 ||
+      payload_length > buffer.class_size_) {
+    throw std::invalid_argument(
+        "UB transport: invalid local shared object");
+  }
+
+  const uint64_t payload_offset =
+      shared_allocator_->offset_of(buffer.buf_);
+  if (payload_offset < sizeof(UBBlockMetadata)) {
+    throw std::runtime_error("UB transport: invalid shared object offset");
+  }
+
+  UBSharedObjectHandle handle;
+  handle.machine_id = machine_context_->local_machine_id();
+  handle.block_offset = payload_offset - sizeof(UBBlockMetadata);
+  handle.payload_offset = payload_offset;
+  handle.payload_length = payload_length;
+  return handle;
+}
+
+UBImportedObject UBTransport::import_shared_object(
+    const UBSharedObjectHandle &handle) const {
+  if (handle.machine_id == 0 || handle.block_offset == 0 ||
+      handle.payload_offset == 0 || handle.payload_length == 0 ||
+      handle.payload_length > std::numeric_limits<size_t>::max() ||
+      handle.payload_offset < handle.block_offset ||
+      handle.payload_offset - handle.block_offset !=
+          sizeof(UBBlockMetadata)) {
+    throw std::invalid_argument("UB transport: invalid shared object handle");
+  }
+
+  void *machine_base =
+      machine_context_->acquire_remote_machine(handle.machine_id);
+  uint8_t *payload = shared_allocator_->resolve_payload(
+      machine_base, handle.block_offset, handle.payload_offset,
+      static_cast<size_t>(handle.payload_length));
+  if (payload == nullptr) {
+    machine_context_->release_remote_machine(handle.machine_id);
+    throw std::runtime_error("UB transport: shared object resolve failed");
+  }
+
+  UBImportedObject object;
+  object.buffer =
+      Buffer(payload, static_cast<size_t>(handle.payload_length), 0);
+  object.machine_id = handle.machine_id;
+  return object;
+}
+
+void UBTransport::retain_shared_object(Buffer buffer) {
+  retain_shared_buffer(buffer);
+}
+
+void UBTransport::release_imported_object(UBImportedObject object) {
+  try {
+    shared_allocator_->release_remote_ref(object.buffer);
+  } catch (...) {
+    machine_context_->release_remote_machine(object.machine_id);
+    throw;
+  }
+  machine_context_->release_remote_machine(object.machine_id);
+}
+
 void UBTransport::free_shared_buffer(Buffer buffer) {
   const size_t start = profile_start();
   const bool is_local = shared_allocator_->is_shared_ptr(buffer.buf_);

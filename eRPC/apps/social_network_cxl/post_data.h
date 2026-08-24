@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 // POD representation of Post for zero-copy CXL transfer
 // Keep sizes conservative; adjust if needed.
@@ -42,3 +43,6 @@ struct PostData {
         memset(mentions_ids, 0, sizeof(mentions_ids));
     }
 };
+
+static_assert(std::is_trivially_copyable<PostData>::value,
+              "PostData must remain safe for shared-memory memcpy");

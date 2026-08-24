@@ -389,8 +389,12 @@ elseif(APP STREQUAL "persistent_kv")
 elseif(APP STREQUAL "log")
   set(LIBRARIES ${LIBRARIES} ${PMEM})
 elseif(APP STREQUAL "social_network_cxl")
-  # Social Network CXL App - 编译所有服务模块
-  message(STATUS "Building social_network_cxl application with CXL transport")
+  if(NOT TRANSPORT STREQUAL "cxl" AND NOT TRANSPORT STREQUAL "ub")
+    message(FATAL_ERROR
+      "social_network_cxl supports only TRANSPORT=cxl or TRANSPORT=ub")
+  endif()
+  message(STATUS
+    "Building social_network_cxl application with ${TRANSPORT} transport")
 
   find_package(Protobuf REQUIRED)
   include_directories(${PROTOBUF_INCLUDE_DIRS})
@@ -428,20 +432,27 @@ elseif(APP STREQUAL "social_network_cxl")
     ${CMAKE_SOURCE_DIR}/third_party/HdrHistogram_c/src
   )
   target_link_libraries(erpc PUBLIC
-    shm-lib
+    ${LIBRARIES}
     pthread
     numa
-    memkind
   )
 
+  set(SN_TRANSPORT_SOURCES)
+  set(SN_TRANSPORT_LIBRARIES)
+  if(TRANSPORT STREQUAL "cxl")
+    list(APPEND SN_TRANSPORT_SOURCES ${SN_CXL_DIR}/social_network_cxl.cc)
+    list(APPEND SN_TRANSPORT_LIBRARIES
+      -Wl,--whole-archive shm-lib -Wl,--no-whole-archive
+      memkind)
+  endif()
+
   foreach(program_name IN LISTS SN_CXL_PROGRAMS)
-    set(EXTRA_SOURCES ${SN_CXL_DIR}/social_network_cxl.cc)
     add_executable(${program_name}
       ${SN_CXL_DIR}/${program_name}/${program_name}.cpp
       ${SN_CXL_DIR}/gflags_definitions.cc
       ${SN_PROTO_SRCS}
       ${SN_PROTO_HDRS}
-      ${EXTRA_SOURCES}
+      ${SN_TRANSPORT_SOURCES}
     )
     target_include_directories(${program_name} PRIVATE
       ${SN_CXL_DIR}
@@ -452,15 +463,15 @@ elseif(APP STREQUAL "social_network_cxl")
       ${MONGOC_INCLUDE_DIRS}
       ${BSON_INCLUDE_DIRS}
     )
+    target_compile_features(${program_name} PRIVATE cxx_std_17)
     target_link_libraries(${program_name}
       -Wl,--whole-archive erpc -Wl,--no-whole-archive
-      -Wl,--whole-archive shm-lib -Wl,--no-whole-archive
+      ${SN_TRANSPORT_LIBRARIES}
       ${PROTOBUF_LIBRARIES}
       gflags
       hdr_histogram_static
       pthread
       numa
-      memkind
       ${MONGOC_LIBRARIES}
       ${BSON_LIBRARIES}
     )

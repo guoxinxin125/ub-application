@@ -166,7 +166,7 @@ void init_specific_config(){
     mongodb_conns_num = conns;
 }
 
-void read_post_details(void *buf_, erpc::Rpc<erpc::CXLTransport> *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_QUEUE *consumer_back) {
+void read_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_QUEUE *consumer_back) {
     auto* req = static_cast<RPCMsgReq<UserTimeLineReq> *>(buf_);
 
     bool is_fwd = true;
@@ -218,7 +218,7 @@ void read_post_details(void *buf_, erpc::Rpc<erpc::CXLTransport> *rpc_, MPMC_QUE
     consumer_fwd->push(fwd_req);
 }
 
-void write_post_ids_and_return(void *buf_, erpc::Rpc<erpc::CXLTransport> *rpc_, MPMC_QUEUE *consumer_back) {
+void write_post_ids_and_return(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_back) {
     auto* req = static_cast<RPCMsgReq<UserTimeLineWriteReq> *>(buf_);
 
     erpc::MsgBuffer resp_buf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<UserTimeLineWriteReq>));
