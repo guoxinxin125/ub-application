@@ -6,7 +6,7 @@
 #include "../social_network_cxl.h"
 #endif
 #include "../post_data.h"
-#include "../social_network.pb.h"
+#include <social_network.pb.h>
 #include "../spinlock_mutex.h"
 #include <hdr/hdr_histogram.h>
 

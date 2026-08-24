@@ -1,6 +1,6 @@
 #pragma once
 #include "../social_network_commons.h"
-#include "../social_network.pb.h"
+#include <social_network.pb.h>
 #ifdef ERPC_CXL
 #include "../social_network_cxl.h"
 #endif

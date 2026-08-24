@@ -39,6 +39,7 @@ Both machines need:
 - Protobuf and `protoc`
 - gflags and libnuma
 - pkg-config, libmongoc-1.0, and libbson-1.0
+- the header-only nlohmann/json library (`nlohmann/json.hpp`)
 
 Check the build dependencies:
 
@@ -46,6 +47,28 @@ Check the build dependencies:
 pkg-config --modversion libmongoc-1.0
 pkg-config --modversion libbson-1.0
 protoc --version
+test -f /usr/include/nlohmann/json.hpp || \
+  test -f /home/g/.local/include/nlohmann/json.hpp
+```
+
+On Ubuntu or Debian, install the JSON header with:
+
+```bash
+sudo apt-get install nlohmann-json3-dev
+```
+
+Without root access, install it under the same private prefix used by the other
+dependencies:
+
+```bash
+cd /home/g/src
+git clone --depth 1 --branch v3.11.3 \
+  https://github.com/nlohmann/json.git nlohmann-json
+cmake -S nlohmann-json -B nlohmann-json/build \
+  -DJSON_BuildTests=OFF \
+  -DCMAKE_INSTALL_PREFIX=/home/g/.local
+cmake --install nlohmann-json/build
+test -f /home/g/.local/include/nlohmann/json.hpp
 ```
 
 If the dependencies are installed under a private prefix, export it before

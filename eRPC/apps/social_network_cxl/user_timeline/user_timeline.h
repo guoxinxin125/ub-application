@@ -1,6 +1,6 @@
 #pragma once
 #include "../social_network_commons.h"
-#include "../social_network.pb.h"
+#include <social_network.pb.h>
 #include "../spinlock_mutex.h"
 #include <hdr/hdr_histogram.h>
 #include <future>

@@ -1,5 +1,5 @@
 #include "../social_network_commons.h"
-#include "../social_network.pb.h"
+#include <social_network.pb.h>
 
 int main() {
     social_network::Post post1, post2;

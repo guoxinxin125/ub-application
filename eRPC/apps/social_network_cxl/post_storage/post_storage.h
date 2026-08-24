@@ -1,7 +1,7 @@
 #pragma once
 #include "atomic_queue/atomic_queue.h"
 #include "../social_network_commons.h"
-#include "../social_network.pb.h"
+#include <social_network.pb.h>
 #include "../spinlock_mutex.h"
 #include <future>
 #include <mutex>
