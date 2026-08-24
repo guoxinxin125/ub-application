@@ -100,6 +100,9 @@ cmake --build cmake-build-social-ub -j \
   user_timeline home_timeline post_storage
 ```
 
+Do not skip the preceding CMake configure command: CMake registers the
+`erpc_ub_manager` target while configuring a `TRANSPORT=ub` build tree.
+
 The repository CMake configuration places the executables in `eRPC/build`,
 which is also the default directory used by `run_ub.sh`.
 

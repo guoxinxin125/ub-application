@@ -329,6 +329,17 @@ endif()
 configure_file(src/config.h.in src/config.h)
 include_directories(BEFORE ${CMAKE_BINARY_DIR}/src)
 
+# Some applications, including social_network_cxl, return before the generic
+# target section below. Register the process-mode UB manager before app
+# dispatch so every UB build exposes the target required by its launcher.
+if(TRANSPORT STREQUAL "ub")
+  add_executable(erpc_ub_manager
+    src/transport_impl/ub/ub_manager.cc
+    src/transport_impl/ub/ub_machine.cc
+    src/transport_impl/ub/ub_shared_allocator.cc)
+  target_link_libraries(erpc_ub_manager ${UBSM_LIBRARY} pthread)
+endif()
+
 # MICA sources
 set(MICA_SOURCES
   mica/src/mica/util/cityhash/city_mod.cc
@@ -597,12 +608,6 @@ endif()
 add_library(erpc ${SOURCES})
 
 if(TRANSPORT STREQUAL "ub")
-  add_executable(erpc_ub_manager
-    src/transport_impl/ub/ub_manager.cc
-    src/transport_impl/ub/ub_machine.cc
-    src/transport_impl/ub/ub_shared_allocator.cc)
-  target_link_libraries(erpc_ub_manager ${UBSM_LIBRARY} pthread)
-
   add_executable(hello_ub_server hello_world_ub/server.cc)
   target_link_libraries(hello_ub_server erpc ${LIBRARIES})
   add_executable(hello_ub_client hello_world_ub/client.cc)
