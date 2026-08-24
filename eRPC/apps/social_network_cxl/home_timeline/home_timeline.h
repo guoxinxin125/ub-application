@@ -6,7 +6,7 @@
 #include "../social_network_cxl.h"
 #endif
 #include "../post_data.h"
-#include <hdr/hdr_histogram.h>
+#include <hdr_histogram.h>
 #include <future>
 #include <map>
 #include <set>

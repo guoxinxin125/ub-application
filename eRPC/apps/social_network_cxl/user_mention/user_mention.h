@@ -8,7 +8,7 @@
 #include "../post_data.h"
 #include <social_network.pb.h>
 #include "../spinlock_mutex.h"
-#include <hdr/hdr_histogram.h>
+#include <hdr_histogram.h>
 
 std::string compose_post_addr;
 
