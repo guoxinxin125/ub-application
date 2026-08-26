@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <string>
 
+#include "payload.h"
 #include "rpc.h"
 
 static constexpr uint16_t kDefaultServerPort = 31850;

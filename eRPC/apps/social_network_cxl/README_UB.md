@@ -7,14 +7,15 @@ initial social-network data.
 
 The recommended first deployment is:
 
-- machine 81: `client`
-- machine 82: all ten service processes and MongoDB
+- machine 81, NUMA 1 (37 CPUs): `client`, front-end, compose, and helper services
+- machine 82, NUMA 0 (20 CPUs): timeline and Post Storage services
 - one `erpc_ub_manager` process on each machine
 
 Replace `IP81`, `IP82`, and `/path/to/ub-application` in the commands below
 with the real values. The two machines must use the same source revision,
-configuration file, UB memory mode, region size, arena size, and region prefix.
-Their `ERPC_UB_MACHINE_ID` values must be different and nonzero.
+routing addresses, RPC IDs, UB memory mode, region size, arena size, and region
+prefix. Use a machine-local JSON file when the machines use different NUMA
+nodes. Their `ERPC_UB_MACHINE_ID` values must be different and nonzero.
 
 ## Data path and ownership
 
@@ -92,16 +93,15 @@ export LD_LIBRARY_PATH="/usr/local/ubs_mem/lib:${LD_LIBRARY_PATH:-}"
 
 Before launching the full application, first verify that `hello_world_ub`
 works between the same two machines. Also check that the selected NUMA node
-has enough logical CPUs for the offsets in `config.ub.json`:
+has enough logical CPUs for the offsets in the machine-local UB configuration:
 
 ```bash
 numactl -H
 lscpu -e=CPU,NODE
 ```
 
-The current configuration uses `bind_core_offset` values through 40. Reduce
-or redistribute these offsets if the selected NUMA node does not contain that
-many usable logical CPUs.
+The deployment below assigns local core indices 0-30 on machine 81 and 0-13
+on machine 82. Verify these ranges against the CPUs available on each node.
 
 ## 2. Build on both machines
 
@@ -156,7 +156,11 @@ the original exported dataset, but the current UB application does not open a
 connection to it. It may be started and restored for dataset compatibility,
 but it is not required by the current request paths.
 
-When all database-using services run on machine 82, bind MongoDB to localhost:
+Machine 81 does not run `mongod` or require the MongoDB database tools. All
+three database instances run on machine 82. User Mention runs on machine 81
+and reads port 20011 remotely during initialization, so port 20011 must bind to
+`IP82` and be reachable from machine 81. Ports 20012 and 20014 are used only
+by services on machine 82 and may remain localhost-only.
 
 ```bash
 export SN_MONGO_ROOT=/path/to/mongodb_data
@@ -168,7 +172,7 @@ mkdir -p \
 mongod --port 20011 \
   --dbpath "$SN_MONGO_ROOT/user" \
   --logpath "$SN_MONGO_ROOT/user/mongod.log" \
-  --bind_ip 127.0.0.1 --fork
+  --bind_ip 127.0.0.1,IP82 --fork
 
 mongod --port 20012 \
   --dbpath "$SN_MONGO_ROOT/user_timeline" \
@@ -181,7 +185,8 @@ mongod --port 20014 \
   --bind_ip 127.0.0.1 --fork
 ```
 
-If the original four-database layout is desired, also start port 20013:
+If the original four-database layout is desired, port 20013 may also be
+started on machine 82:
 
 ```bash
 mkdir -p "$SN_MONGO_ROOT/social_network"
@@ -193,6 +198,8 @@ mongod --port 20013 \
 
 Import the provided DeathStarBench archives once, if they have not already
 been restored. Set `SN_MONGO_EXPORT` to the directory containing the archives:
+
+Run all restore commands on machine 82:
 
 ```bash
 export SN_MONGO_EXPORT=/path/to/mongodb_export
@@ -212,7 +219,7 @@ mongorestore --host 127.0.0.1 --port 20013 \
   --gzip --archive="$SN_MONGO_EXPORT/social_graph_archive.gz"
 ```
 
-Verify that the required listeners and data exist:
+Verify all required listeners and data on machine 82:
 
 ```bash
 ss -ltnp | grep -E ':20011|:20012|:20014'
@@ -228,36 +235,60 @@ An empty database can allow the processes to start, but timeline reads will
 not produce representative results. Use the restored dataset for performance
 measurements.
 
-## 4. Create the shared two-machine configuration
+## 4. Create the two-machine configurations
 
-Create one configuration and copy the identical file to both machines:
+Create one file for each machine. Their routing and RPC ID fields are
+identical; only their `common` NUMA fields differ in the 81/82 placement used
+by this guide:
 
 ```bash
 cd /path/to/ub-application/eRPC
 cp apps/social_network_cxl/config/config.json \
-  apps/social_network_cxl/config/config.ub.json
+  apps/social_network_cxl/config/config.ub81.json
+cp apps/social_network_cxl/config/config.json \
+  apps/social_network_cxl/config/config.ub82.json
 ```
 
-Edit `apps/social_network_cxl/config/config.ub.json` with this placement:
+Edit both files with this placement:
 
-| Service | `server_addr` | `rpc_id` |
-| --- | --- | --- |
-| `load_balance` | `IP82:31850` | 0 |
-| `client` | `IP81:31851` | 1 |
-| `nginx` | `IP82:31852` | 2 |
-| `unique_id` | `IP82:31853` | 3 |
-| `url_shorten` | `IP82:31854` | 4 |
-| `compose_post` | `IP82:31855` | 5 |
-| `user_timeline` | `IP82:31856` | 6 |
-| `home_timeline` | `IP82:31857` | 7 |
-| `user_mention` | `IP82:31858` | 8 |
-| `post_storage` | `IP82:31859` | 9 |
-| `user_service` | `IP82:31860` | 10 |
+| Service | `server_addr` | `rpc_id` | `bind_core_offset` |
+| --- | --- | ---: | ---: |
+| `client` | `IP81:31851` | 1 | 0 |
+| `load_balance` | `IP81:31850` | 0 | 4 |
+| `nginx` | `IP81:31852` | 2 | 7 |
+| `compose_post` | `IP81:31855` | 5 | 10 |
+| `unique_id` | `IP81:31853` | 3 | 14 |
+| `url_shorten` | `IP81:31854` | 4 | 18 |
+| `user_service` | `IP81:31860` | 10 | 22 |
+| `user_mention` | `IP81:31858` | 8 | 26 |
+| `user_timeline` | `IP82:31856` | 6 | 0 |
+| `home_timeline` | `IP82:31857` | 7 | 5 |
+| `post_storage` | `IP82:31859` | 9 | 10 |
 
 Do not leave these addresses as `127.0.0.1`. They are eRPC control-plane
 addresses and must be bindable on the hosting machine and reachable by the
-other machine. Keep the MongoDB addresses as `127.0.0.1` when MongoDB and all
-database-using services are on machine 82.
+other machine. Set `user_mongodb.addr` to `IP82` because User Mention runs on
+machine 81. Keep the other MongoDB addresses as `127.0.0.1`.
+
+In `config.ub81.json`, place all eRPC client, server, worker, and Nexus threads
+on NUMA node 1:
+
+```json
+"numa_client_node": 1,
+"numa_server_node": 1
+```
+
+In `config.ub82.json`, place them on NUMA node 0:
+
+```json
+"numa_client_node": 0,
+"numa_server_node": 0
+```
+
+The per-service `bind_core_offset` is an index within the selected NUMA node,
+not a global Linux CPU ID. This layout reserves local core indices 0-30 on
+machine 81 and 0-13 on machine 82. It counts RPC, worker, leader, and MongoDB
+initialization threads, leaving CPUs for the manager, MongoDB, and the OS.
 
 The RPC IDs must be globally unique in the range 0-63. With
 `server_num=client_num=1`, the service server endpoints use the configured IDs
@@ -266,8 +297,10 @@ The RPC IDs must be globally unique in the range 0-63. With
 Check the edited configuration:
 
 ```bash
-grep -n 'server_addr\|rpc_id\|_mongodb\|"addr"\|"port"' \
-  apps/social_network_cxl/config/config.ub.json
+grep -n 'numa_.*_node\|server_addr\|rpc_id\|_mongodb\|"addr"\|"port"' \
+  apps/social_network_cxl/config/config.ub81.json
+grep -n 'numa_.*_node\|server_addr\|rpc_id\|_mongodb\|"addr"\|"port"' \
+  apps/social_network_cxl/config/config.ub82.json
 ```
 
 ## 5. Start services on machine 82
@@ -278,7 +311,7 @@ pane; `run_ub.sh` remains in the foreground and writes per-process logs.
 ```bash
 cd /path/to/ub-application/eRPC
 
-export LD_LIBRARY_PATH="/usr/local/ubs_mem/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="/home/g/.local/lib:/home/g/.local/lib64:/usr/local/ubs_mem/lib:${LD_LIBRARY_PATH:-}"
 export ERPC_UB_MACHINE_ID=82
 export ERPC_UB_PROCESS_MODE=multi
 export ERPC_UB_MEMORY_MODE=one-sided
@@ -287,11 +320,12 @@ export ERPC_UB_REGION_MB=1024
 export ERPC_UB_ARENA_MB=16
 
 export SN_BUILD_DIR="$(pwd)/build"
-export SN_CONFIG="$(pwd)/apps/social_network_cxl/config/config.ub.json"
+export SN_CONFIG="$(pwd)/apps/social_network_cxl/config/config.ub82.json"
 export SN_LOG_DIR="$(pwd)/apps/social_network_cxl/logs/ub-82"
-export SN_SERVICES="post_storage unique_id url_shorten user_mention user_service user_timeline home_timeline compose_post nginx load_balance"
+export SN_SERVICES="post_storage user_timeline home_timeline"
 
-./apps/social_network_cxl/run_ub.sh
+numactl --cpunodebind=0 --membind=0 \
+  ./apps/social_network_cxl/run_ub.sh
 ```
 
 The expected default region name is:
@@ -300,27 +334,28 @@ The expected default region name is:
 erpc_ub_rx_0000000000000052
 ```
 
-## 6. Start the client on machine 81
+## 6. Start client and front-end services on machine 81
 
 After the services on machine 82 have started, run on machine 81:
 
 ```bash
 cd /path/to/ub-application/eRPC
 
-export LD_LIBRARY_PATH="/usr/local/ubs_mem/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="/home/g/.local/lib:/home/g/.local/lib64:/usr/local/ubs_mem/lib:${LD_LIBRARY_PATH:-}"
 export ERPC_UB_MACHINE_ID=81
 export ERPC_UB_PROCESS_MODE=multi
 export ERPC_UB_MEMORY_MODE=one-sided
-export ERPC_UB_PROVIDER_NUMA=0
+export ERPC_UB_PROVIDER_NUMA=1
 export ERPC_UB_REGION_MB=1024
 export ERPC_UB_ARENA_MB=16
 
 export SN_BUILD_DIR="$(pwd)/build"
-export SN_CONFIG="$(pwd)/apps/social_network_cxl/config/config.ub.json"
+export SN_CONFIG="$(pwd)/apps/social_network_cxl/config/config.ub81.json"
 export SN_LOG_DIR="$(pwd)/apps/social_network_cxl/logs/ub-81"
-export SN_SERVICES="client"
+export SN_SERVICES="client load_balance nginx compose_post unique_id url_shorten user_service user_mention"
 
-./apps/social_network_cxl/run_ub.sh
+numactl --cpunodebind=1 --membind=1 \
+  ./apps/social_network_cxl/run_ub.sh
 ```
 
 The expected default region name is:
@@ -349,7 +384,7 @@ tail -f apps/social_network_cxl/logs/ub-81/erpc_ub_manager.log
 On machine 82:
 
 ```bash
-tail -f apps/social_network_cxl/logs/ub-82/load_balance.log
+tail -f apps/social_network_cxl/logs/ub-82/user_timeline.log
 tail -f apps/social_network_cxl/logs/ub-82/post_storage.log
 tail -f apps/social_network_cxl/logs/ub-82/erpc_ub_manager.log
 ```
@@ -386,7 +421,7 @@ For example, a User Timeline Read run can use:
   "user_num": 1,
   "home_num": 0,
   "write_num": 0,
-  "bind_core_offset": 4
+  "bind_core_offset": 0
 }
 ```
 
@@ -412,8 +447,7 @@ The current convenience launcher owns both the manager and workers; pressing
 Ctrl-C asks all of them to exit, so always inspect the manager log for a clean
 region teardown afterward. Do not manually remove `/dev/obmm_shmdev*` objects.
 
-After all application processes on a machine have exited, stop MongoDB on
-machine 82 with the exact database paths used at startup:
+After all application processes have exited, stop MongoDB on machine 82:
 
 ```bash
 mongod --dbpath "$SN_MONGO_ROOT/user" --shutdown

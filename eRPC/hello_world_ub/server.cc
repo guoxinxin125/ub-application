@@ -9,6 +9,7 @@ erpc::Rpc<erpc::CTransport> *g_rpc = nullptr;
 volatile sig_atomic_t g_stop = 0;
 size_t g_request_count = 0;
 uint64_t g_request_checksum = 0;
+size_t g_request_errors = 0;
 size_t g_max_requests = 0;
 
 void signal_handler(int) { g_stop = 1; }
@@ -16,20 +17,21 @@ void signal_handler(int) { g_stop = 1; }
 void request_handler(erpc::ReqHandle *req_handle, void *) {
   const erpc::MsgBuffer *request = req_handle->get_req_msgbuf();
   if (request == nullptr || request->buf_ == nullptr ||
-      request->get_data_size() < sizeof(uint64_t)) {
+      request->get_data_size() < kUBHelloPayloadHeaderSize) {
     std::fprintf(stderr, "UB hello server: received an invalid request\n");
+    ++g_request_errors;
     g_stop = 1;
     return;
   }
 
-  const uint64_t request_id =
-      *reinterpret_cast<const uint64_t *>(request->buf_);
-  ++g_request_count;
-  g_request_checksum += request_id;
-
   erpc::MsgBuffer &response = req_handle->dyn_resp_msgbuf_;
   response = g_rpc->alloc_msg_buffer_or_die(request->get_data_size());
-  *reinterpret_cast<uint64_t *>(response.buf_) = request_id;
+  UBHelloPayloadIdentity identity{};
+  const bool valid = ub_hello_make_response(
+      request->buf_, response.buf_, request->get_data_size(), &identity);
+  ++g_request_count;
+  g_request_checksum += identity.request_id;
+  if (!valid) ++g_request_errors;
   g_rpc->enqueue_response(req_handle, &response);
 }
 
@@ -74,7 +76,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  std::printf("UB hello server: requests=%zu checksum=%llu\n", g_request_count,
-              static_cast<unsigned long long>(g_request_checksum));
-  return 0;
+  std::printf("UB hello server: requests=%zu checksum=%llu errors=%zu\n",
+              g_request_count,
+              static_cast<unsigned long long>(g_request_checksum),
+              g_request_errors);
+  return g_request_errors == 0 ? 0 : 1;
 }

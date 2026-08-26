@@ -9,9 +9,10 @@ BUILD_DIR ?= $(ERPC_ROOT)/build-ub
 UBSM_INCLUDE_DIR ?= /usr/local/ubs_mem/include
 UBSM_LIBRARY ?= /usr/local/ubs_mem/lib/libubsm_sdk.so
 
-UB_TARGETS := erpc_ub_manager hello_ub_server hello_ub_client
+UB_TARGETS := erpc_ub_manager hello_ub_server hello_ub_client \
+	hello_ub_multi_server hello_ub_multi_client
 
-.PHONY: all configure server client manager clean help
+.PHONY: all configure server client multi-server multi-client manager clean help
 
 all: configure
 	$(CMAKE) --build "$(BUILD_DIR)" -j "$(JOBS)" --target $(UB_TARGETS)
@@ -30,6 +31,12 @@ server: configure
 client: configure
 	$(CMAKE) --build "$(BUILD_DIR)" -j "$(JOBS)" --target hello_ub_client
 
+multi-server: configure
+	$(CMAKE) --build "$(BUILD_DIR)" -j "$(JOBS)" --target hello_ub_multi_server
+
+multi-client: configure
+	$(CMAKE) --build "$(BUILD_DIR)" -j "$(JOBS)" --target hello_ub_multi_client
+
 manager: configure
 	$(CMAKE) --build "$(BUILD_DIR)" -j "$(JOBS)" --target erpc_ub_manager
 
@@ -42,9 +49,11 @@ clean:
 
 help:
 	@echo "UB hello_world build targets:"
-	@echo "  make             Configure and build server, client, and manager"
+	@echo "  make             Configure and build single, multi, and manager targets"
 	@echo "  make server      Build hello_ub_server"
 	@echo "  make client      Build hello_ub_client"
+	@echo "  make multi-server Build hello_ub_multi_server"
+	@echo "  make multi-client Build hello_ub_multi_client"
 	@echo "  make manager     Build erpc_ub_manager"
 	@echo "  make clean       Clean the existing CMake build tree"
 	@echo ""

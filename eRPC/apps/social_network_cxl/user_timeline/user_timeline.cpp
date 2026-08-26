@@ -517,7 +517,8 @@ void leader_thread_func()
     auto *context = new AppContext();
 
     std::thread mongodb_init_thread(mongodb_init, context);
-    erpc::bind_to_core(mongodb_init_thread, 1, get_bind_core(1));
+    erpc::bind_to_core(mongodb_init_thread, FLAGS_numa_server_node,
+                       get_bind_core(FLAGS_numa_server_node));
 
 
     clients[0] = std::thread(client_thread_func, 0, context->client_contexts_[0], &nexus);
@@ -587,6 +588,7 @@ int main(int argc, char **argv)
     init_specific_config();
 
     std::thread leader_thread(leader_thread_func);
-    erpc::bind_to_core(leader_thread, 1, get_bind_core(1));
+    erpc::bind_to_core(leader_thread, FLAGS_numa_server_node,
+                       get_bind_core(FLAGS_numa_server_node));
     leader_thread.join();
 }
