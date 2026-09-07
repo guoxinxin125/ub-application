@@ -300,6 +300,13 @@ int main(int argc, char **argv)
                 barrier.sync();
                 require(!table.search(lifecycle_key),
                         "deleted tuple remains visible");
+
+                // Both coordinators must finish observing the tombstone before
+                // coordinator 0 reuses it for the same key.  Otherwise the
+                // faster coordinator can resurrect the tuple while its peer is
+                // still performing the deletion-visibility check above.
+                barrier.sync();
+
                 if (id == 0) {
                         require(table.insert(lifecycle_key, lifecycle_value, 1),
                                 "same-key tombstone reuse failed");
