@@ -174,9 +174,10 @@ requires the platform's NC-CC/snoop configuration to support that mode.
 
 ## Build
 
-The current CMake configuration requires CMake, `/usr/bin/clang-15`,
-`/usr/bin/clang++-15`, `lld-15`, pthread, Boost, jemalloc, glog, and gflags.
-`numactl` is recommended for runtime placement. Debian/Ubuntu package names are:
+The build requires a C/C++ compiler with C++14 support, CMake, pthread, Boost,
+jemalloc, glog, and gflags. GCC/GNU ld is the default on openEuler; Clang/LLD
+is optional rather than an ABI requirement. `numactl` is recommended for
+runtime placement. Debian/Ubuntu package names are:
 
 ```bash
 sudo apt-get install -y \
@@ -185,51 +186,42 @@ sudo apt-get install -y \
   libgoogle-glog-dev libgflags-dev numactl
 ```
 
-On an RPM-based UB host, install the corresponding development packages and
-confirm the exact compiler/linker paths expected by `CMakeLists.txt`:
+On openEuler, the recommended minimal build dependencies use the system GCC and
+do not require a versioned Clang package:
 
 ```bash
-# openEuler 22.03 LTS SP2/SP3/SP4; clang15/lld15 are normally in EPOL.
 sudo dnf makecache
 sudo dnf install -y \
-  cmake make gcc-c++ glibc-devel \
-  clang15 lld15 \
+  cmake make gcc gcc-c++ glibc-devel \
   boost-devel jemalloc-devel \
   glog-devel gflags-devel \
   numactl
 ```
 
-If `dnf` cannot find `clang15`, `lld15`, `glog-devel`, or `gflags-devel`, first
-check that the EPOL repository matching the installed openEuler release and
-AArch64 architecture is configured and enabled:
+If a previous `dnf install` command included unavailable `clang15/lld15`, DNF
+may have aborted the whole transaction. Run the command above again without
+those packages, then verify the installed compiler:
 
 ```bash
 cat /etc/openEuler-release
 uname -m                         # expected: aarch64
-sudo dnf repolist --enabled
-sudo dnf provides '*/clang-15'
-sudo dnf provides '*/clang++-15'
-sudo dnf provides '*/ld.lld-15'
+gcc --version
+g++ --version
+ld --version
 ```
 
-Do not enable an EPOL repository from a different openEuler service pack. Some
-newer openEuler releases name the packages `clang` and `lld` instead of
-`clang15` and `lld15`; use the packages reported by `dnf provides`, but verify
-that they install the exact paths currently required by Tigon:
+Clang can still be selected explicitly if the repositories for the installed
+openEuler release provide it. Current releases commonly use unversioned package
+and executable names:
 
 ```bash
-command -v cmake
-test -x /usr/bin/clang-15
-test -x /usr/bin/clang++-15
-command -v ld.lld-15
-rpm -q cmake clang15 lld15 boost-devel jemalloc-devel \
-  glog-devel gflags-devel numactl
+sudo dnf install -y clang llvm lld
+command -v clang clang++ ld.lld
 ```
 
-The final `rpm -q` example uses the openEuler 22.03 LTS package names. If the
-installed release uses unversioned `clang`/`lld` packages, substitute those two
-names in the query. The UB SDK itself is not installed by this command; its
-headers and AArch64 `libubsm_sdk.so` must already be installed under
+Do not enable an EPOL repository from a different openEuler service pack merely
+to obtain a particular compiler version. The UB SDK itself is not installed by
+these commands; its headers and AArch64 `libubsm_sdk.so` must already be under
 `/usr/local/ubs_mem`, or supplied through `UBSM_INCLUDE_DIR` and `UBSM_LIBRARY`.
 
 Host/build-layer tests:
@@ -252,9 +244,11 @@ Run the following from the `ub-application` repository root on each host:
 
 ```bash
 export TIGON_REPO_ROOT="$PWD"
-export TIGON_BUILD_DIR="$TIGON_REPO_ROOT/tigon/build-ub-aarch64"
+export TIGON_BUILD_DIR="$TIGON_REPO_ROOT/tigon/build-ub-aarch64-gcc"
 
 cmake -S "$TIGON_REPO_ROOT/tigon" -B "$TIGON_BUILD_DIR" \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
   -DTIGON_ENABLE_UB=ON \
   -DUBSM_INCLUDE_DIR=/usr/local/ubs_mem/include \
   -DUBSM_LIBRARY=/usr/local/ubs_mem/lib/libubsm_sdk.so
@@ -271,11 +265,12 @@ setting is:
 
 ```bash
 export TIGON_REPO_ROOT=/work/ub-application
-export TIGON_BUILD_DIR="$TIGON_REPO_ROOT/tigon/build-ub-aarch64"
+export TIGON_BUILD_DIR="$TIGON_REPO_ROOT/tigon/build-ub-aarch64-gcc"
 ```
 
 The scripts default to `tigon/build-ub`. `TIGON_BUILD_DIR` is needed here only
-because this guide deliberately uses the distinct `build-ub-aarch64` directory.
+because this guide deliberately uses the distinct `build-ub-aarch64-gcc`
+directory.
 
 The UB build does not link
 `dependencies/cxlalloc/libcxlalloc_static.a`. That archive is an x86-64
@@ -292,9 +287,13 @@ file /usr/local/ubs_mem/lib/libubsm_sdk.so
 ldd /usr/local/ubs_mem/lib/libubsm_sdk.so
 ```
 
-The configure output should contain:
+Use a new build directory if an older CMake cache recorded
+`/usr/bin/clang-15`. The configure output should show the selected GCC paths
+and contain:
 
 ```text
+Tigon C compiler: /usr/bin/gcc
+Tigon C++ compiler: /usr/bin/g++
 Tigon UB backend enabled for aarch64; the legacy cxlalloc archive will not be linked
 ```
 

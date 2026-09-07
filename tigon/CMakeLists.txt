@@ -9,9 +9,6 @@ set(TIGON_CXLALLOC_LIBRARY
         "${CMAKE_SOURCE_DIR}/dependencies/cxlalloc/libcxlalloc_static.a"
         CACHE FILEPATH "Legacy CXL allocator library (not used by the UB backend)")
 
-set(CMAKE_C_COMPILER /usr/bin/clang-15)
-set(CMAKE_CXX_COMPILER /usr/bin/clang++-15)
-
 set(CMAKE_C_STANDARD 14)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -21,7 +18,10 @@ set(CMAKE_CXX_FLAGS "-pthread -Wall -fno-omit-frame-pointer -pedantic -O3 -march
                     -Wno-variadic-macros -Wno-unused-lambda-capture -Wno-c99-extensions \
                     -Wno-zero-length-array -Wno-deprecated-declarations"
 )
-set(CMAKE_EXE_LINKER_FLAGS "-O3 -march=native -no-pie -fuse-ld=lld-15")
+set(CMAKE_EXE_LINKER_FLAGS "-O3 -march=native -no-pie")
+
+message(STATUS "Tigon C compiler: ${CMAKE_C_COMPILER}")
+message(STATUS "Tigon C++ compiler: ${CMAKE_CXX_COMPILER}")
 
 # include path
 include_directories(
