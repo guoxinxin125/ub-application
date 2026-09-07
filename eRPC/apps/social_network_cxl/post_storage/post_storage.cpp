@@ -303,6 +303,9 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                                         : ctx->user_timeline_session_num_;
 
                 auto &req_msgbuf = ctx->req_backward_msgbuf[storage_handler->req_number % kAppMaxBuffer];
+                require_empty_msgbuf_slot(
+                    req_msgbuf, "post_storage.req_backward_msgbuf",
+                    storage_handler->req_number % kAppMaxBuffer);
                 req_msgbuf = ctx->rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageReadCXLResp>));
 
                 PostStorageReadCXLResp response{};
@@ -328,6 +331,9 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                                            reinterpret_cast<void *>(static_cast<std::uintptr_t>(storage_handler->req_number % kAppMaxBuffer)));
             } else {
                 auto &req_msgbuf = ctx->req_backward_msgbuf[storage_handler->req_number % kAppMaxBuffer];
+                require_empty_msgbuf_slot(
+                    req_msgbuf, "post_storage.req_backward_msgbuf",
+                    storage_handler->req_number % kAppMaxBuffer);
                 req_msgbuf = ctx->rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<CommonRPCReq>));
                 new (req_msgbuf.buf_) RPCMsgReq<CommonRPCReq>(RPC_TYPE::RPC_POST_STORAGE_WRITE_RESP, storage_handler->req_number, {0});
 

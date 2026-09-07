@@ -10,6 +10,7 @@
 #include <thread>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <mutex>
 #include <utility>
 #include <cstdint>
@@ -174,6 +175,16 @@ inline erpc::MsgBuffer clone_msgbuf(AppRpc *rpc,
         std::memcpy(dst.buf_, src.buf_, size);
     }
     return dst;
+}
+
+inline void require_empty_msgbuf_slot(const erpc::MsgBuffer &slot,
+                                      const char *slot_name,
+                                      size_t slot_index) {
+    if (slot.buf_ != nullptr) {
+        throw std::runtime_error(
+            std::string("social_network_cxl: MsgBuffer slot still in use: ") +
+            slot_name + "[" + std::to_string(slot_index) + "]");
+    }
 }
 
 inline void *msgbuf_backing_ptr(const erpc::MsgBuffer &msgbuf) {

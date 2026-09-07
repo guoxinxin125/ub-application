@@ -63,8 +63,6 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context) {
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
-    const size_t slot = req_msgbuf->get_hdr_req_num() % kAppMaxBuffer;
-
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ:
             ctx->stat_req_compose_post_tot++;
@@ -81,11 +79,6 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context) {
 
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
-    if (likely(ctx->req_forward_msgbuf_ptr[slot].buf_ != nullptr)) {
-        release_msgbuf(ctx->rpc_, ctx->req_forward_msgbuf_ptr[slot]);
-        __sync_synchronize();
-    }
-
     ctx->forward_spsc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
     __sync_synchronize();
 
@@ -97,8 +90,6 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
-    const size_t slot = req_msgbuf->get_hdr_req_num() % kAppMaxBuffer;
-
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_RESP:
             ctx->stat_req_compose_post_resp_tot++;
@@ -115,11 +106,6 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
 
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
-    if (ctx->req_backward_msgbuf_ptr[slot].buf_ != nullptr) {
-        release_msgbuf(ctx->rpc_, ctx->req_backward_msgbuf_ptr[slot]);
-        __sync_synchronize();
-    }
-
     ctx->backward_spsc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
     __sync_synchronize();
 
@@ -134,23 +120,26 @@ void callback_ping(void *_context, void *_tag) {
     my_assert(resp_msgbuf.get_data_size() == sizeof(RPCMsgResp<PingRPCResp>), "data size not match");
 
     release_msgbuf(ctx->rpc_, ctx->req_forward_msgbuf[req_id]);
+    ctx->req_forward_msgbuf[req_id].buf_ = nullptr;
 }
 
 void handler_ping(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf) {
     auto *req = reinterpret_cast<RPCMsgReq<PingRPCReq> *>(req_msgbuf.buf_);
 
     for (int i = 0; i < ctx->servers_num_; i++) {
-        if (i == ctx->servers_num_ - 1) {
-            ctx->req_forward_msgbuf[(req->req_common.req_number + i) % kAppMaxBuffer] = clone_msgbuf(ctx->rpc_, req_msgbuf);
-        } else {
-            ctx->req_forward_msgbuf[(req->req_common.req_number + i) % kAppMaxBuffer] = clone_msgbuf(ctx->rpc_, req_msgbuf);
-        }
-        erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[(req->req_common.req_number + i) % kAppMaxBuffer];
+        const size_t slot =
+            (req->req_common.req_number + static_cast<size_t>(i)) %
+            kAppMaxBuffer;
+        require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
+                                  "load_balance.req_forward_msgbuf", slot);
+        ctx->req_forward_msgbuf[slot] = clone_msgbuf(ctx->rpc_, req_msgbuf);
+        erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[slot];
 
         ctx->rpc_->enqueue_request(i, static_cast<uint8_t>(RPC_TYPE::RPC_PING),
-                                   &ctx->req_forward_msgbuf[(req->req_common.req_number + i) % kAppMaxBuffer], &resp_msgbuf,
-                                   callback_ping, reinterpret_cast<void *>((req->req_common.req_number + i) % kAppMaxBuffer));
+                                   &ctx->req_forward_msgbuf[slot], &resp_msgbuf,
+                                   callback_ping, reinterpret_cast<void *>(slot));
     }
+    release_msgbuf(ctx->rpc_, req_msgbuf);
 }
 
 void callback_ping_resp(void *_context, void *_tag) {
@@ -167,6 +156,8 @@ void callback_ping_resp(void *_context, void *_tag) {
 void handler_ping_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf) {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "load_balance.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
 
@@ -190,6 +181,8 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf) {
     const uint8_t req_type = req_msgbuf.get_hdr_req_type();
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
+                              "load_balance.req_forward_msgbuf", slot);
     ctx->req_forward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[slot];
 
@@ -215,6 +208,8 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf) 
     const uint8_t req_type = req_msgbuf.get_hdr_req_type();
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "load_balance.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
 

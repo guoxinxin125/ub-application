@@ -104,6 +104,8 @@ void handler_ping_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "url_shorten.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];

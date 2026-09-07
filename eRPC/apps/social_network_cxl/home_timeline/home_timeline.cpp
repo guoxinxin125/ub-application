@@ -132,15 +132,7 @@ void post_storage_read_resp_handler(erpc::ReqHandle *req_handle, void *_context)
     ctx->init_mutex.unlock();
 
     auto *req_msgbuf = req_handle->get_req_msgbuf();
-    const uint8_t req_type = req_msgbuf->get_hdr_req_type();
-    const size_t slot = req_msgbuf->get_hdr_req_num() % kAppMaxBuffer;
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
-
-    if (likely(ctx->req_backward_msgbuf_ptr[slot].buf_ != nullptr))
-    {
-        release_msgbuf(ctx->rpc_, ctx->req_backward_msgbuf_ptr[slot]);
-        __sync_synchronize();
-    }
 
     ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
     __sync_synchronize();
@@ -183,6 +175,8 @@ void handler_ping_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "home_timeline.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
@@ -210,6 +204,8 @@ void callback_home_timeline_write_resp(void *_context, void *_tag)
 void handler_home_timeline_write_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "home_timeline.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
@@ -239,6 +235,8 @@ void callback_home_timeline_read_resp(void *_context, void *_tag)
 void handler_home_timeline_read_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "home_timeline.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
@@ -276,6 +274,8 @@ void callback_post_storage_read_req(void *_context, void *_tag)
 void handler_post_storage_read_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
+    require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
+                              "home_timeline.req_forward_msgbuf", slot);
     ctx->req_forward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[slot];

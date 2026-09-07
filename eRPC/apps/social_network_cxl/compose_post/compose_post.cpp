@@ -172,6 +172,8 @@ void handler_ping_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "compose_post.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
@@ -200,6 +202,8 @@ void handler_compose_post_write_resp(ClientContext *ctx, const erpc::MsgBuffer &
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
+                              "compose_post.req_backward_msgbuf", slot);
     ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
@@ -243,6 +247,8 @@ void handler_unique_id(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_unique_id_msgbuf[slot],
+                              "compose_post.req_unique_id_msgbuf", slot);
     ctx->req_unique_id_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_unique_id_msgbuf[slot];
@@ -288,6 +294,8 @@ void handler_compose_creator_with_user_id(ClientContext *ctx, const erpc::MsgBuf
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_user_service_msgbuf[slot],
+                              "compose_post.req_user_service_msgbuf", slot);
     ctx->req_user_service_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_service_msgbuf[slot];
@@ -340,6 +348,8 @@ void handler_user_mention(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_user_mention_msgbuf[slot],
+                              "compose_post.req_user_mention_msgbuf", slot);
     ctx->req_user_mention_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_mention_msgbuf[slot];
@@ -385,6 +395,8 @@ void handler_url_shorten(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_url_shorten_msgbuf[slot],
+                              "compose_post.req_url_shorten_msgbuf", slot);
     ctx->req_url_shorten_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_url_shorten_msgbuf[slot];
@@ -412,6 +424,8 @@ void handler_post_storage_write_req(ClientContext *ctx, const erpc::MsgBuffer &r
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_post_storage_msgbuf[slot],
+                              "compose_post.req_post_storage_msgbuf", slot);
     ctx->req_post_storage_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_post_storage_msgbuf[slot];
@@ -440,6 +454,8 @@ void handler_user_timeline_write_req(ClientContext *ctx, const erpc::MsgBuffer &
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_user_timeline_msgbuf[slot],
+                              "compose_post.req_user_timeline_msgbuf", slot);
     ctx->req_user_timeline_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_user_timeline_msgbuf[slot];
@@ -469,6 +485,8 @@ void handler_home_timeline_write_req(ClientContext *ctx, const erpc::MsgBuffer &
 {
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
 
+    require_empty_msgbuf_slot(ctx->req_home_timeline_msgbuf[slot],
+                              "compose_post.req_home_timeline_msgbuf", slot);
     ctx->req_home_timeline_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_home_timeline_msgbuf[slot];
