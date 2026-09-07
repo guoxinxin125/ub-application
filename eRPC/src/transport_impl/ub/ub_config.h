@@ -23,6 +23,8 @@ static constexpr size_t kBandwidthGbps = 64;
 static constexpr uint32_t kRegionMagic = 0x55424552U;  // "UBER"
 static constexpr uint16_t kRegionVersion = 2;
 static constexpr uint32_t kSdkLogLevel = 3;
+static constexpr uint64_t kDefaultShutdownTimeoutMs = 30000;
+static constexpr uint64_t kDefaultShutdownRetryIntervalMs = 500;
 
 enum class ProcessMode : uint8_t { kSingle = 1, kMulti = 2 };
 
@@ -52,6 +54,17 @@ inline std::string manager_socket_path() {
   const char *value = std::getenv("ERPC_UB_MANAGER_SOCKET");
   return value == nullptr || value[0] == '\0' ? "/tmp/erpc_ub_manager.sock"
                                               : value;
+}
+
+inline uint64_t shutdown_timeout_ms() {
+  return parse_u64_env("ERPC_UB_SHUTDOWN_TIMEOUT_MS",
+                       kDefaultShutdownTimeoutMs);
+}
+
+inline uint64_t shutdown_retry_interval_ms() {
+  const uint64_t configured = parse_u64_env("ERPC_UB_SHUTDOWN_RETRY_MS",
+                                            kDefaultShutdownRetryIntervalMs);
+  return configured == 0 ? 1 : configured;
 }
 
 inline size_t machine_region_bytes() {

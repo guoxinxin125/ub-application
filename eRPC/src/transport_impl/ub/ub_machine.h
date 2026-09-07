@@ -27,6 +27,11 @@ class UBMachineRegionOwner {
   UBMachineRegionOwner(const UBMachineRegionOwner &) = delete;
   UBMachineRegionOwner &operator=(const UBMachineRegionOwner &) = delete;
 
+  // Unmap the owner's local view and delete the exported region. A peer may
+  // still be dropping its import while the manager shuts down, so deletion
+  // retries only UBSM_ERR_IN_USING until timeout_ms expires.
+  bool shutdown(uint64_t timeout_ms, uint64_t retry_interval_ms) noexcept;
+
   UBEndpointHandle register_endpoint(uint32_t process_id, uint16_t sm_udp_port,
                                      uint8_t rpc_id);
   bool unregister_endpoint(const UBEndpointHandle &endpoint,

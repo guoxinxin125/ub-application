@@ -92,6 +92,7 @@ erpc::UBManagerResponse handle_request(erpc::UBMachineRegionOwner &owner,
 
 int main() {
   using namespace erpc;
+  bool region_shutdown_ok = true;
   try {
     if (ub_config::process_mode() != ub_config::ProcessMode::kMulti) {
       std::fprintf(stderr, "ub_manager requires ERPC_UB_PROCESS_MODE=multi\n");
@@ -174,6 +175,15 @@ int main() {
     listen_fd = -1;
     (void)unlink(socket_path.c_str());
     socket_bound = false;
+
+    const uint64_t shutdown_timeout_ms = ub_config::shutdown_timeout_ms();
+    std::printf(
+        "ub_manager: shutting down region=%s; waiting up to %llu ms for "
+        "peer mappings\n",
+        owner.name().c_str(),
+        static_cast<unsigned long long>(shutdown_timeout_ms));
+    region_shutdown_ok = owner.shutdown(
+        shutdown_timeout_ms, ub_config::shutdown_retry_interval_ms());
   } catch (const std::exception &error) {
     std::fprintf(stderr, "ub_manager: %s\n", error.what());
     if (listen_fd >= 0) close(listen_fd);
@@ -183,7 +193,7 @@ int main() {
   }
 
   if (sdk_initialized) ub_sdk_finalize_noexcept();
-  return 0;
+  return region_shutdown_ok ? 0 : 1;
 }
 
 #endif  // ERPC_UB

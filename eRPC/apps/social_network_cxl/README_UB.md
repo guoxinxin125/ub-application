@@ -447,6 +447,20 @@ The current convenience launcher owns both the manager and workers; pressing
 Ctrl-C asks all of them to exit, so always inspect the manager log for a clean
 region teardown afterward. Do not manually remove `/dev/obmm_shmdev*` objects.
 
+During manager shutdown, region deletion retries `UBSM_ERR_IN_USING` for 30
+seconds by default. Stop the launchers on both machines within this window so
+that each peer can release its imported mapping. The timeout and retry interval
+can be adjusted on both machines before launch:
+
+```bash
+export ERPC_UB_SHUTDOWN_TIMEOUT_MS=30000
+export ERPC_UB_SHUTDOWN_RETRY_MS=500
+```
+
+Other deletion errors are not retried. If the timeout expires, `run_ub.sh`
+reports that manager cleanup failed and the manager log contains the exact
+region name and UBSM error code.
+
 After all application processes have exited, stop MongoDB on machine 82:
 
 ```bash

@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -18,6 +19,7 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 #include "transport_impl/ub/ub_manager_protocol.h"
 #include "transport_impl/ub/ub_shared_allocator.h"
@@ -225,14 +227,58 @@ UBMachineRegionOwner::UBMachineRegionOwner(ub_config::ProcessMode mode,
                    ub_atomic::MemoryOrder::kRelease);
 }
 
-UBMachineRegionOwner::~UBMachineRegionOwner() {
+UBMachineRegionOwner::~UBMachineRegionOwner() { (void)shutdown(0, 1); }
+
+bool UBMachineRegionOwner::shutdown(uint64_t timeout_ms,
+                                    uint64_t retry_interval_ms) noexcept {
   if (mapping_ != nullptr) {
-    (void)ubsmem_shmem_unmap(mapping_, region_bytes_);
+    const int result = ubsmem_shmem_unmap(mapping_, region_bytes_);
+    if (result != UBSM_OK) {
+      std::fprintf(stderr,
+                   "UB: ubsmem_shmem_unmap(%s) failed during shutdown, "
+                   "error=%d\n",
+                   name_.c_str(), result);
+      return false;
+    }
     mapping_ = nullptr;
+    metadata_ = nullptr;
   }
-  if (allocated_) {
-    (void)ubsmem_shmem_deallocate(name_.c_str());
-    allocated_ = false;
+
+  if (!allocated_) return true;
+
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+  size_t attempts = 0;
+  while (true) {
+    ++attempts;
+    const int result = ubsmem_shmem_deallocate(name_.c_str());
+    if (result == UBSM_OK) {
+      allocated_ = false;
+      if (attempts > 1) {
+        std::fprintf(stderr,
+                     "UB: deleted region %s after %zu attempts while peers "
+                     "released their mappings\n",
+                     name_.c_str(), attempts);
+      }
+      return true;
+    }
+    if (result != UBSM_ERR_IN_USING) {
+      std::fprintf(stderr,
+                   "UB: ubsmem_shmem_deallocate(%s) failed during shutdown, "
+                   "error=%d\n",
+                   name_.c_str(), result);
+      return false;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      std::fprintf(stderr,
+                   "UB: timed out deleting region %s after %llu ms and %zu "
+                   "attempts: it is still in use (error=%d)\n",
+                   name_.c_str(), static_cast<unsigned long long>(timeout_ms),
+                   attempts, result);
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+        retry_interval_ms == 0 ? 1 : retry_interval_ms));
   }
 }
 

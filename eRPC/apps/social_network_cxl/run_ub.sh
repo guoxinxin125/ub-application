@@ -17,6 +17,8 @@ export ERPC_UB_MEMORY_MODE="${ERPC_UB_MEMORY_MODE:-one-sided}"
 export ERPC_UB_REGION_MB="${ERPC_UB_REGION_MB:-1024}"
 export ERPC_UB_ARENA_MB="${ERPC_UB_ARENA_MB:-16}"
 export ERPC_UB_MANAGER_SOCKET="${ERPC_UB_MANAGER_SOCKET:-/tmp/erpc_ub_social_network.sock}"
+export ERPC_UB_SHUTDOWN_TIMEOUT_MS="${ERPC_UB_SHUTDOWN_TIMEOUT_MS:-30000}"
+export ERPC_UB_SHUTDOWN_RETRY_MS="${ERPC_UB_SHUTDOWN_RETRY_MS:-500}"
 
 if [[ "$ERPC_UB_PROCESS_MODE" != "multi" ]]; then
   echo "social_network_cxl launches multiple processes and requires ERPC_UB_PROCESS_MODE=multi" >&2
@@ -70,7 +72,9 @@ cleanup() {
 
   if [[ -n "$manager_pid" ]]; then
     kill -TERM "$manager_pid" 2>/dev/null || true
-    wait "$manager_pid" 2>/dev/null || true
+    if ! wait "$manager_pid"; then
+      echo "UB manager did not delete its region cleanly; inspect $LOG_DIR/erpc_ub_manager.log" >&2
+    fi
   fi
 }
 trap cleanup EXIT INT TERM
