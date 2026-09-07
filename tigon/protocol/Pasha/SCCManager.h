@@ -6,8 +6,9 @@
 
 #include <stdint.h>
 #include <atomic>
+#if defined(__x86_64__) || defined(__i386__)
 #include <immintrin.h>
-#include <xmmintrin.h>
+#endif
 #include <glog/logging.h>
 
 /*
@@ -53,6 +54,7 @@ class SCCManager {
                 // statistics
                 num_clflush.fetch_add(1);
 
+#if defined(__x86_64__) || defined(__i386__)
                 /*
                  * Loop through cache-line-size (typically 64B) aligned chunks
                  * covering the given range.
@@ -63,6 +65,11 @@ class SCCManager {
 
                 // make sure clflush completes before memcpy
                 _mm_sfence();
+#else
+                (void)addr;
+                (void)len;
+                CHECK(false) << "legacy CXL clflush is unsupported on this architecture";
+#endif
         }
 
         inline void clwb(const void *addr, uint64_t len)
@@ -70,6 +77,7 @@ class SCCManager {
                 // statistics
                 num_clwb.fetch_add(1);
 
+#if defined(__x86_64__) || defined(__i386__)
                 /*
                  * Loop through cache-line-size (typically 64B) aligned chunks
                  * covering the given range.
@@ -80,6 +88,11 @@ class SCCManager {
 
                 // make sure clwb completes before memcpy
                 _mm_sfence();
+#else
+                (void)addr;
+                (void)len;
+                CHECK(false) << "legacy CXL clwb is unsupported on this architecture";
+#endif
         }
 
         std::atomic<uint64_t> num_clflush{ 0 };

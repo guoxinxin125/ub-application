@@ -9,7 +9,10 @@
 #include <boost/interprocess/offset_ptr.hpp>
 #include <stddef.h>
 #include <atomic>
+#if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
+#include <immintrin.h>
+#endif
 #include <glog/logging.h>
 
 namespace star
@@ -176,6 +179,7 @@ class MPSCRingBuffer {
 
         inline void clflush(const void *addr, uint64_t len)
         {
+#if defined(__x86_64__) || defined(__i386__)
                 /*
                  * Loop through cache-line-size (typically 64B) aligned chunks
                  * covering the given range.
@@ -186,10 +190,16 @@ class MPSCRingBuffer {
 
                 // make sure clflush completes before memcpy
                 _mm_sfence();
+#else
+                (void)addr;
+                (void)len;
+                CHECK(false) << "legacy CXL transport clflush is unsupported on this architecture";
+#endif
         }
 
         inline void clwb(const void *addr, uint64_t len)
         {
+#if defined(__x86_64__) || defined(__i386__)
                 /*
                  * Loop through cache-line-size (typically 64B) aligned chunks
                  * covering the given range.
@@ -200,6 +210,11 @@ class MPSCRingBuffer {
 
                 // make sure clwb completes before memcpy
                 _mm_sfence();
+#else
+                (void)addr;
+                (void)len;
+                CHECK(false) << "legacy CXL transport clwb is unsupported on this architecture";
+#endif
         }
 
         uint64_t entry_struct_size;

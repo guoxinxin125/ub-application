@@ -228,13 +228,23 @@ Host/build-layer tests:
 
 ```bash
 cmake -S tigon -B tigon/build-host \
-  -DTIGON_BUILD_UB_UNIT_TESTS=ON
+  -DCMAKE_C_COMPILER=/usr/bin/gcc \
+  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DTIGON_ENABLE_UB=ON \
+  -DTIGON_BUILD_UB_UNIT_TESTS=ON \
+  -DUBSM_INCLUDE_DIR=/usr/local/ubs_mem/include \
+  -DUBSM_LIBRARY=/usr/local/ubs_mem/lib/libubsm_sdk.so
 cmake --build tigon/build-host -j --target \
   ub_primitives_test ub_btree_host_test ub_btree_compile_test \
   ub_adapter_compile_test ub_tpcc_adapter_compile_test ub_twopl_compile_test
 ctest --test-dir tigon/build-host --output-on-failure \
   -R 'ub_(primitives|btree|adapter|tpcc|twopl)'
 ```
+
+On AArch64, `TIGON_ENABLE_UB=ON` is required even for this test build so the
+legacy x86-64 `cxlalloc` archive is not linked. If this build directory was
+previously configured without that option, re-run the configure command above
+before building.
 
 Build independently on both AArch64 hosts because the project uses
 `-march=native`. Use a new directory rather than a cache produced for x86-64 or
@@ -549,6 +559,10 @@ Common failures:
 - `ubs_mem.h was not found`: correct `UBSM_INCLUDE_DIR`.
 - `libubsm_sdk.so: cannot open shared object file`: inspect
   `LD_LIBRARY_PATH` and `ldd` output.
+- `immintrin.h: No such file or directory` on AArch64: update to the portable
+  source where legacy B+ Tree spin loops use `UBCpu.h` and x86 CXL cache
+  intrinsics are architecture-guarded. Do not install or copy an x86 intrinsic
+  header onto the ARM host. Re-run CMake with `TIGON_ENABLE_UB=ON` afterward.
 - `UBSM_ERR_IN_USING` (`6024`): an old process or mapping still references the
   object. Do not force-delete a live region; stop both old processes or use a
   fresh prefix while investigating cleanup.

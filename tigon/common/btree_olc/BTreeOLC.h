@@ -1,8 +1,9 @@
 #pragma once
 // Adapted from https://github.com/zxjcarrot/spitfire/blob/main/include/engine/btreeolc.h
 // Contributors: Jie Hou, Yilin Chen, Xinjing ZHou
-#include <immintrin.h>
 #include <sched.h>
+
+#include "common/UBCpu.h"
 
 #include <atomic>
 #include <cassert>
@@ -45,28 +46,28 @@ class OLTPRWSpinLatch : public LatchBase {
 	void acquireRead()
 	{
 		while (tryAcquireRead() == false) {
-			_mm_pause();
+			star::ub_cpu_relax();
 		}
 	}
 
 	void acquireWrite()
 	{
 		while (tryAcquireWrite() == false) {
-			_mm_pause();
+			star::ub_cpu_relax();
 		}
 	}
 
 	void releaseRead()
 	{
 		while (tryReleaseRead() == false) {
-			_mm_pause();
+			star::ub_cpu_relax();
 		}
 	}
 
 	void releaseWrite()
 	{
 		while (tryReleaseWrite() == false) {
-			_mm_pause();
+			star::ub_cpu_relax();
 		}
 	}
 
@@ -215,7 +216,7 @@ class BPlusTree {
 			if (isLocked(version)) {
 				// acquire read lock fail
 				needRestart = true;
-				_mm_pause();
+				star::ub_cpu_relax();
 			}
 			return version;
 			//}
@@ -233,7 +234,7 @@ class BPlusTree {
 			if (isLocked(version)) {
 				// acquire read lock fail
 				needRestart = true;
-				_mm_pause();
+				star::ub_cpu_relax();
 				return;
 			}
 			word.fetch_add(1);
@@ -285,7 +286,7 @@ class BPlusTree {
 			if (word.compare_exchange_strong(version, version + kLockMask)) {
 				version = version + kLockMask;
 			} else {
-				//_mm_pause();
+				// star::ub_cpu_relax();
 				needRestart = true;
 			}
 			//}
@@ -338,28 +339,28 @@ class BPlusTree {
 		void acquireRead()
 		{
 			while (tryAcquireRead() == false) {
-				_mm_pause();
+				star::ub_cpu_relax();
 			}
 		}
 
 		void acquireWrite()
 		{
 			while (tryAcqurieWrite() == false) {
-				_mm_pause();
+				star::ub_cpu_relax();
 			}
 		}
 
 		void releaseRead()
 		{
 			while (tryReleaseRead() == false) {
-				_mm_pause();
+				star::ub_cpu_relax();
 			}
 		}
 
 		void releaseWrite()
 		{
 			while (tryReleaseWrite() == false) {
-				_mm_pause();
+				star::ub_cpu_relax();
 			}
 		}
 
@@ -400,7 +401,7 @@ class BPlusTree {
 		void RWLockDowngradeToReadLock()
 		{
 			while (tryDowngradeToReadLock() == false) {
-				_mm_pause();
+				star::ub_cpu_relax();
 			}
 		}
 
@@ -1486,7 +1487,7 @@ class BPlusTree {
 			sched_yield();
 #endif
 		} else {
-			_mm_pause();
+			star::ub_cpu_relax();
 		}
 	}
 
