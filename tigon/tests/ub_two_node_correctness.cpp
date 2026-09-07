@@ -282,6 +282,12 @@ int main(int argc, char **argv)
                 require(static_cast<bool>(table.search(lifecycle_key)),
                         "committed placeholder is not visible");
 
+                // Both coordinators must finish observing the committed tuple
+                // before coordinator 1 is allowed to tombstone it.  Without
+                // this barrier, coordinator 1 can validate and delete the row
+                // before coordinator 0 performs the visibility check above.
+                barrier.sync();
+
                 if (id == 1) {
                         auto victim = table.search(lifecycle_key);
                         while (!victim.header->lock.try_lock())
