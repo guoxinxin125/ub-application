@@ -27,12 +27,51 @@ default_services="post_storage unique_id url_shorten user_mention user_service u
 read -r -a services <<< "${SN_SERVICES:-$default_services}"
 
 mkdir -p "$LOG_DIR"
-pids=()
+manager_pid=""
+worker_pids=()
+cleanup_started=0
 
 cleanup() {
-  for pid in "${pids[@]}"; do
-    kill "$pid" 2>/dev/null || true
+  if [[ "$cleanup_started" -ne 0 ]]; then
+    return
+  fi
+  cleanup_started=1
+  trap - EXIT INT TERM
+
+  # Workers own the endpoint registrations and remote mappings. Give them an
+  # opportunity to run their SIGINT handlers and unregister while the manager
+  # socket and machine region are still alive.
+  for pid in "${worker_pids[@]}"; do
+    kill -INT "$pid" 2>/dev/null || true
   done
+
+  for _ in $(seq 1 100); do
+    workers_alive=0
+    for pid in "${worker_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        workers_alive=1
+        break
+      fi
+    done
+    [[ "$workers_alive" -eq 0 ]] && break
+    sleep 0.05
+  done
+
+  # Do not let a worker that cannot complete graceful shutdown keep the local
+  # manager alive forever. The manager is still deliberately stopped last.
+  for pid in "${worker_pids[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+  done
+  for pid in "${worker_pids[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+
+  if [[ -n "$manager_pid" ]]; then
+    kill -TERM "$manager_pid" 2>/dev/null || true
+    wait "$manager_pid" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -43,7 +82,7 @@ if [[ ! -x "$manager" ]]; then
 fi
 
 "$manager" >"$LOG_DIR/erpc_ub_manager.log" 2>&1 &
-pids+=("$!")
+manager_pid="$!"
 
 for _ in $(seq 1 100); do
   [[ -S "$ERPC_UB_MANAGER_SOCKET" ]] && break
@@ -62,7 +101,7 @@ for name in "${services[@]}"; do
   fi
   echo "Starting $name on UB machine $ERPC_UB_MACHINE_ID"
   "$bin" --config_file="$CONFIG" >"$LOG_DIR/$name.log" 2>&1 &
-  pids+=("$!")
+  worker_pids+=("$!")
 done
 
 wait

@@ -385,11 +385,17 @@ inline SharedPostBuffer alloc_shared_post(AppRpc *rpc, size_t size) {
         social_network_cxl::get_cxl_allocator(rpc);
     post.buffer = allocator->alloc(size, 1);
     post.size = size;
+    if (post.buffer.buf_ == nullptr) {
+        return post;
+    }
     post.handle.payload_offset = allocator->ptr_to_offset(post.buffer.buf_);
     post.handle.payload_length = size;
 #else
     post.buffer = rpc->get_transport()->alloc_shared_object(size);
     post.size = size;
+    if (post.buffer.buf_ == nullptr) {
+        return post;
+    }
     const erpc::UBSharedObjectHandle ub_handle =
         rpc->get_transport()->describe_shared_object(post.buffer, size);
     post.handle.machine_id = ub_handle.machine_id;
