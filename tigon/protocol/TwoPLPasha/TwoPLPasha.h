@@ -79,7 +79,19 @@ template <class Database> class TwoPLPasha {
                                 auto tableId = insertKey.get_table_id();
                                 auto partitionId = insertKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
-                                if (partitioner.has_master_partition(partitionId)) {
+                                if (this->context.shared_memory_backend == "ub") {
+                                        const bool discarded = table->discard_placeholder(
+                                                insertKey.get_key());
+                                        CHECK(discarded)
+                                                << "failed to roll back UB insert placeholder";
+                                        if (insertKey.get_next_row_locked()) {
+                                                auto next_row_entity =
+                                                        insertKey.get_next_row_entity();
+                                                DCHECK(next_row_entity.meta != nullptr);
+                                                TwoPLPashaHelper::write_lock_release(
+                                                        *next_row_entity.meta);
+                                        }
+                                } else if (partitioner.has_master_partition(partitionId)) {
                                         // remove the placeholder
                                         auto key = insertKey.get_key();
                                         bool success = table->remove(key);
@@ -112,6 +124,9 @@ template <class Database> class TwoPLPasha {
                                 auto partitionId = readKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
                                 if (readKey.get_read_lock_bit()) {
+                                        // UB point requests cache owner-local rows in
+                                        // cached_local_row and peer-owned rows as a
+                                        // UBTupleHeader in cached_migrated_row.
                                         if (partitioner.has_master_partition(partitionId)) {
                                                 auto cached_row = readKey.get_cached_local_row();
                                                 DCHECK(std::get<0>(cached_row) != nullptr && std::get<1>(cached_row) != nullptr);
@@ -161,7 +176,8 @@ template <class Database> class TwoPLPasha {
 
                                 // release the next row
                                 if (scanKey.get_next_row_locked() == true) {
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 auto next_row_entity = scanKey.get_next_row_entity();
                                                 std::atomic<uint64_t> *meta = next_row_entity.meta;
                                                 DCHECK(meta != nullptr);
@@ -196,7 +212,8 @@ template <class Database> class TwoPLPasha {
 
                                 if (scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_READ) {
                                         // release read locks
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 for (auto i = 0u; i < scan_results.size(); i++) {
                                                         std::atomic<uint64_t> *meta = scan_results[i].meta;
                                                         DCHECK(meta != nullptr);
@@ -213,7 +230,8 @@ template <class Database> class TwoPLPasha {
                                         scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_INSERT ||
                                         scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_DELETE) {
                                         // release write locks
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 for (auto i = 0u; i < scan_results.size(); i++) {
                                                         std::atomic<uint64_t> *meta = scan_results[i].meta;
                                                         DCHECK(meta != nullptr);
@@ -243,8 +261,12 @@ template <class Database> class TwoPLPasha {
                                 auto tableId = insertKey.get_table_id();
                                 auto partitionId = insertKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
-                                if (partitioner.has_master_partition(partitionId)) {
-                                        // remove the placeholder
+                                if (this->context.shared_memory_backend == "ub") {
+                                        const bool discarded = table->discard_placeholder(
+                                                insertKey.get_key());
+                                        CHECK(discarded)
+                                                << "failed to roll back UB insert placeholder";
+                                } else if (partitioner.has_master_partition(partitionId)) {
                                         auto key = insertKey.get_key();
                                         bool success = table->remove(key);
                                         DCHECK(success == true);
@@ -266,7 +288,11 @@ template <class Database> class TwoPLPasha {
                                 auto tableId = deleteKey.get_table_id();
                                 auto partitionId = deleteKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
-                                if (partitioner.has_master_partition(partitionId)) {
+                                if (this->context.shared_memory_backend == "ub") {
+                                        auto meta = table->search_metadata(deleteKey.get_key());
+                                        DCHECK(meta != nullptr);
+                                        TwoPLPashaHelper::write_lock_release(*meta);
+                                } else if (partitioner.has_master_partition(partitionId)) {
                                         auto key = deleteKey.get_key();
                                         auto row = table->search(key);
                                         std::atomic<uint64_t> &meta = *reinterpret_cast<std::atomic<uint64_t> *>(std::get<0>(row));
@@ -330,7 +356,8 @@ template <class Database> class TwoPLPasha {
                 release_migrated_rows(txn);
 
                 // reactively move out data
-                if (migration_manager->when_to_move_out == MigrationManager::Reactive) {
+                if (this->context.shared_memory_backend != "ub" &&
+                    migration_manager->when_to_move_out == MigrationManager::Reactive) {
                         // send out data move out hints
                         for (auto remote_host_id : txn.remote_hosts_involved) {
                                 txn.network_size += MessageFactoryType::new_data_move_out_hint_message(*messages[remote_host_id]);
@@ -390,7 +417,13 @@ template <class Database> class TwoPLPasha {
                                 auto tableId = insertKey.get_table_id();
                                 auto partitionId = insertKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
-                                if (partitioner.has_master_partition(partitionId)) {
+                                if (this->context.shared_memory_backend == "ub") {
+                                        auto meta = table->search_metadata_including_invalid(
+                                                insertKey.get_key());
+                                        DCHECK(meta != nullptr);
+                                        twopl_pasha_global_helper->modify_tuple_valid_bit(
+                                                *meta, true, true);
+                                } else if (partitioner.has_master_partition(partitionId)) {
                                         auto key = insertKey.get_key();
 
                                         auto key_info_updater = [&](const void *prev_key, void *prev_meta, void *prev_data, const void *cur_key, void *cur_meta, void *cur_data, const void *next_key, void *next_meta, void *next_data) {
@@ -460,7 +493,18 @@ template <class Database> class TwoPLPasha {
                                 std::vector<ITable::row_entity> &scan_results = *reinterpret_cast<std::vector<ITable::row_entity> *>(scanKey.get_scan_res_vec());
                                 DCHECK(scan_results.size() > 0);
 
-                                if (partitioner.has_master_partition(partitionId)) {
+                                if (this->context.shared_memory_backend == "ub") {
+                                        for (auto row_index = 0u;
+                                             row_index < scan_results.size();
+                                             ++row_index) {
+                                                std::atomic<uint64_t> *meta =
+                                                        scan_results[row_index].meta;
+                                                DCHECK(meta != nullptr);
+                                                twopl_pasha_global_helper->modify_tuple_valid_bit(
+                                                        *meta, false);
+                                                TwoPLPashaHelper::write_lock_release(*meta);
+                                        }
+                                } else if (partitioner.has_master_partition(partitionId)) {
                                         for (auto i = 0u; i < scan_results.size(); i++) {
                                                 auto key = reinterpret_cast<const void *>(scan_results[i].key);
 
@@ -488,10 +532,15 @@ template <class Database> class TwoPLPasha {
                                 auto tableId = insertKey.get_table_id();
                                 auto partitionId = insertKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
-                                if (partitioner.has_master_partition(partitionId)) {
-                                        // make the placeholder as valid
+                                if (this->context.shared_memory_backend == "ub") {
+                                        auto meta = table->search_metadata_including_invalid(
+                                                insertKey.get_key());
+                                        DCHECK(meta != nullptr);
+                                        twopl_pasha_global_helper->modify_tuple_valid_bit(
+                                                *meta, true, true);
+                                } else if (partitioner.has_master_partition(partitionId)) {
                                         auto key = insertKey.get_key();
-                                        std::atomic<uint64_t> *meta = table->search_metadata(key);      // cannot use cached row
+                                        std::atomic<uint64_t> *meta = table->search_metadata(key);
                                         DCHECK(meta != nullptr);
                                         twopl_pasha_global_helper->modify_tuple_valid_bit(*meta, true, true);
                                 } else {
@@ -509,7 +558,13 @@ template <class Database> class TwoPLPasha {
                                 auto tableId = deleteKey.get_table_id();
                                 auto partitionId = deleteKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
-                                if (partitioner.has_master_partition(partitionId)) {
+                                if (this->context.shared_memory_backend == "ub") {
+                                        auto meta = table->search_metadata(deleteKey.get_key());
+                                        DCHECK(meta != nullptr);
+                                        twopl_pasha_global_helper->modify_tuple_valid_bit(
+                                                *meta, false);
+                                        TwoPLPashaHelper::write_lock_release(*meta);
+                                } else if (partitioner.has_master_partition(partitionId)) {
                                         auto key = deleteKey.get_key();
                                         bool success = table->remove(key);
                                         DCHECK(success == true);
@@ -537,7 +592,8 @@ template <class Database> class TwoPLPasha {
                 release_migrated_rows(txn);
 
                 // reactively move out data
-                if (migration_manager->when_to_move_out == MigrationManager::Reactive) {
+                if (this->context.shared_memory_backend != "ub" &&
+                    migration_manager->when_to_move_out == MigrationManager::Reactive) {
                         // send out data move out hints
                         for (auto remote_host_id : txn.remote_hosts_involved) {
                                 txn.network_size += MessageFactoryType::new_data_move_out_hint_message(*messages[remote_host_id]);
@@ -654,7 +710,8 @@ template <class Database> class TwoPLPasha {
 
                                 // write
                                 if (scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_UPDATE) {
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 for (auto i = 0u; i < scan_results.size(); i++) {
                                                         auto key = reinterpret_cast<const void *>(scan_results[i].key);
                                                         auto value = scan_results[i].data;
@@ -826,7 +883,8 @@ template <class Database> class TwoPLPasha {
 
                                 // release the next row
                                 if (insertKey.get_next_row_locked() == true) {
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 auto next_row_entity = insertKey.get_next_row_entity();
                                                 std::atomic<uint64_t> *meta = next_row_entity.meta;
                                                 DCHECK(meta != nullptr);
@@ -854,7 +912,8 @@ template <class Database> class TwoPLPasha {
                                 // release the next row
                                 DCHECK(scanKey.get_next_row_locked() == true);
                                 if (scanKey.get_next_row_locked() == true) {
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 auto next_row_entity = scanKey.get_next_row_entity();
                                                 std::atomic<uint64_t> *meta = next_row_entity.meta;
                                                 DCHECK(meta != nullptr);
@@ -890,7 +949,8 @@ template <class Database> class TwoPLPasha {
 
                                 if (scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_READ) {
                                         // release read locks
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 for (auto i = 0u; i < scan_results.size(); i++) {
                                                         auto key = reinterpret_cast<const void *>(scan_results[i].key);
                                                         std::atomic<uint64_t> *meta = scan_results[i].meta;
@@ -906,7 +966,8 @@ template <class Database> class TwoPLPasha {
                                         }
                                 } else if (scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_UPDATE) {
                                         // release write locks for updates
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 for (auto i = 0u; i < scan_results.size(); i++) {
                                                         auto key = reinterpret_cast<const void *>(scan_results[i].key);
                                                         std::atomic<uint64_t> *meta = scan_results[i].meta;
@@ -924,7 +985,8 @@ template <class Database> class TwoPLPasha {
                                         }
                                 } else if (scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_INSERT) {
                                         // release write locks for updates
-                                        if (partitioner.has_master_partition(partitionId)) {
+                                        if (this->context.shared_memory_backend == "ub" ||
+                                            partitioner.has_master_partition(partitionId)) {
                                                 for (auto i = 0u; i < scan_results.size(); i++) {
                                                         auto key = reinterpret_cast<const void *>(scan_results[i].key);
                                                         std::atomic<uint64_t> *meta = scan_results[i].meta;
@@ -999,6 +1061,9 @@ template <class Database> class TwoPLPasha {
                                 auto partitionId = scanKey.get_partition_id();
                                 auto table = db.find_table(tableId, partitionId);
                                 std::vector<ITable::row_entity> &scan_results = *reinterpret_cast<std::vector<ITable::row_entity> *>(scanKey.get_scan_res_vec());
+
+                                if (this->context.shared_memory_backend == "ub")
+                                        continue;
 
                                 if (partitioner.has_master_partition(partitionId) == false) {
                                         if (scanKey.get_request_type() == TwoPLPashaRWKey::SCAN_FOR_DELETE) {

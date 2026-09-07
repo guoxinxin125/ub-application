@@ -11,6 +11,8 @@
 #include "common/MPSCRingBuffer.h"
 #include "common/CXLTransport.h"
 #include "common/CXL_EBR.h"
+#include "common/UBMemory.h"
+#include "common/UBMPSCRingBuffer.h"
 #include "core/ControlMessage.h"
 #include "core/Dispatcher.h"
 #include "core/Executor.h"
@@ -43,13 +45,14 @@ class Coordinator {
 
                 // init cxlalloc
                 cxl_memory.init(context);
-                cxl_memory.init_cxlalloc_for_given_thread(context.worker_num + 1, 0, context.coordinator_num, context.coordinator_id);
-
-                // init CXL transport
-                initCXLTransport();
-
-                // init CXL EBR
-                initCXLEBR();
+                if (context.shared_memory_backend != "ub") {
+                        cxl_memory.init_cxlalloc_for_given_thread(context.worker_num + 1, 0,
+                                context.coordinator_num, context.coordinator_id);
+                        initCXLTransport();
+                        initCXLEBR();
+                } else if (context.use_ub_transport) {
+                        initUBTransport();
+                }
 
                 // init logger
                 if (context.log_path != "" && context.wal_group_commit_time != 0) {
@@ -187,7 +190,7 @@ class Coordinator {
 		std::vector<std::thread> iDispatcherThreads, oDispatcherThreads;
 
 		for (auto i = 0u; i < context.io_thread_num; i++) {
-			iDispatchers[i] = std::make_unique<IncomingDispatcher>(id, i, context.io_thread_num, inSockets[i], cxl_ringbuffers, workers, in_queue, 
+			iDispatchers[i] = std::make_unique<IncomingDispatcher>(id, i, context.io_thread_num, inSockets[i], cxl_ringbuffers, ub_inbox.get(), workers, in_queue,
                                                                                out_to_in_queue, ioStopFlag, context);
 			oDispatchers[i] = std::make_unique<OutgoingDispatcher>(id, i, context.io_thread_num, outSockets[i], workers, out_queue,
                                                                                out_to_in_queue, ioStopFlag, context);
@@ -401,7 +404,17 @@ class Coordinator {
 			context.master_logger->print_sync_stats();
                 }
 
-		measure_round_trip();
+		if (context.shared_memory_backend == "ub") {
+			// All tuple users are stopped. Drop imported mappings before the
+			// final synchronization when a peer exists, then owner
+			// deallocation is safe. A one-node run has no importer to wait for.
+			ub_memory.unmap_imported_regions();
+			if (coordinator_num == 2)
+				measure_round_trip();
+			ub_memory.shutdown(true);
+		} else {
+			measure_round_trip();
+		}
 		close_sockets();
 
 		LOG(INFO) << "Coordinator exits.";
@@ -430,6 +443,22 @@ class Coordinator {
                                 << coordinator_num << " ringbuffers each with " << cxl_ringbuffers[0].get_entry_num() << " entries (each "
                                 << cxl_ringbuffers[0].get_entry_size() << " Bytes)";
                 }
+        }
+
+        void initUBTransport()
+        {
+                const uint32_t owner_region = static_cast<uint32_t>(id);
+                CHECK(!ub_memory.read_root(owner_region,
+                                           UBMPSCRingBuffer::inbox_root_slot));
+                const UBGlobalPtr root = UBMPSCRingBuffer::create(
+                        owner_region, context.cxl_trans_entry_num,
+                        context.cxl_trans_entry_struct_size);
+                ub_memory.publish_root(owner_region,
+                                       UBMPSCRingBuffer::inbox_root_slot, root);
+                ub_inbox = std::make_unique<UBMPSCRingBuffer>(root);
+                LOG(INFO) << "Coordinator " << id << " initializes UB inbox with "
+                          << context.cxl_trans_entry_num << " entries of "
+                          << context.cxl_trans_entry_struct_size << " bytes";
         }
 
         void initCXLEBR()
@@ -666,6 +695,7 @@ class Coordinator {
 	// Useful for transfering messages between partitions for HStore.
 	LockfreeQueue<Message *> out_to_in_queue;
 
-        MPSCRingBuffer *cxl_ringbuffers;
+        MPSCRingBuffer *cxl_ringbuffers = nullptr;
+        std::unique_ptr<UBMPSCRingBuffer> ub_inbox;
 };
 } // namespace star

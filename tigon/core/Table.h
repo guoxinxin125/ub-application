@@ -64,7 +64,23 @@ class ITable {
 
 	virtual MetaDataType *search_metadata(const void *key) = 0;
 
+	// Transactional inserts need to publish a placeholder that is not visible
+	// to ordinary readers yet. Backends without tombstones use normal lookup.
+	virtual MetaDataType *search_metadata_including_invalid(const void *key)
+	{
+		return search_metadata(key);
+	}
+
         virtual void scan(const void *min_key, std::function<bool(const void *, MetaDataType *, void *, bool)> scan_processor) = 0;
+
+        // Ordered backends may expose a bounded scan plus the successor/gap
+        // protection row. The default keeps legacy backends source-compatible.
+        virtual bool scan_range(
+                const void *, const void *, uint64_t,
+                std::function<bool(const void *, MetaDataType *, void *, bool)>)
+        {
+                return false;
+        }
 
 	virtual bool insert(const void *key, const void *value, bool is_placeholder = false) = 0;
 
@@ -74,7 +90,14 @@ class ITable {
                 std::function<bool(const void *prev_key, MetaDataType *prev_meta, void *prev_data, const void *next_key, MetaDataType *next_meta, void *next_data)> update_processor,
                 bool is_placeholder = false) = 0;
 
-        virtual bool remove(const void *key) = 0;
+	virtual bool remove(const void *key) = 0;
+
+	// Remove a transaction-private placeholder. Shared-memory backends may
+	// physically unlink and recycle it because it was never reader-visible.
+	virtual bool discard_placeholder(const void *key)
+	{
+		return remove(key);
+	}
 
         virtual bool remove_and_process_adjacent_tuples(const void *key,
                 std::function<bool(const void *prev_key, void *prev_meta, void *prev_data, const void *cur_key, void *cur_meta, void *cur_data, const void *next_key, void *next_meta, void *next_data)> processor) = 0;

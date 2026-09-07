@@ -13,9 +13,12 @@
 #include "common/CCHashTable.h"
 #include "common/CXLMemory.h"
 #include "common/CXL_EBR.h"
+#include "common/UBMemory.h"
+#include "common/UBTuple.h"
 #include "core/Context.h"
 #include "core/CXLTable.h"
 #include "core/Table.h"
+#include "core/UBTable.h"
 #include "glog/logging.h"
 
 #include "protocol/Pasha/MigrationManager.h"
@@ -317,6 +320,18 @@ class TwoPLPashaHelper {
     public:
 	using MetaDataType = std::atomic<uint64_t>;
 
+        static bool is_ub_metadata(const MetaDataType *meta)
+        {
+                return ub_memory.initialized() &&
+                       ub_memory.contains_address(meta, sizeof(*meta));
+        }
+
+        static bool is_ub_tuple(const char *row)
+        {
+                return ub_memory.initialized() &&
+                       ub_memory.contains_address(row, sizeof(UBTupleHeader));
+        }
+
         TwoPLPashaHelper(std::size_t coordinator_id, Context context, std::vector<std::vector<CXLTableBase *> > &cxl_tbl_vecs)
                 : coordinator_id(coordinator_id)
                 , context(context)
@@ -327,6 +342,12 @@ class TwoPLPashaHelper {
 	uint64_t read(const std::tuple<MetaDataType *, void *> &row, void *dest, std::size_t size, std::atomic<uint64_t> &local_cxl_access)
 	{
                 MetaDataType &meta = *std::get<0>(row);
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        DCHECK(header->valid.load(std::memory_order_acquire) == 1);
+                        std::memcpy(dest, std::get<1>(row), size);
+                        return header->version.load(std::memory_order_acquire);
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t tid_ = 0;
 
@@ -365,6 +386,12 @@ class TwoPLPashaHelper {
         void update(const std::tuple<MetaDataType *, void *> &row, const void *value, std::size_t value_size)
 	{
 		MetaDataType &meta = *std::get<0>(row);
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        DCHECK(header->valid.load(std::memory_order_acquire) == 1);
+                        std::memcpy(std::get<1>(row), value, value_size);
+                        return;
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
 
 		lmeta->lock();
@@ -389,6 +416,12 @@ class TwoPLPashaHelper {
 
         void remote_update(char *row, const void *value, std::size_t value_size)
 	{
+		if (is_ub_tuple(row)) {
+			UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
+                        DCHECK(header->valid.load(std::memory_order_acquire) == 1);
+			std::memcpy(UBTable::value_from_header(header), value, value_size);
+			return;
+		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
                 void *data_ptr = scc_data->data;
@@ -526,6 +559,21 @@ out_unlock_lmeta:
         uint64_t take_read_lock_and_read(const std::tuple<MetaDataType *, void *> &row, void *dest, std::size_t size, bool &success, std::atomic<uint64_t> &local_cxl_access)
 	{
                 MetaDataType &meta = *std::get<0>(row);
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        success = header->lock.try_lock_shared();
+                        if (!success)
+                                return 0;
+                        if (header->valid.load(std::memory_order_acquire) != 1) {
+                                header->lock.unlock_shared();
+                                success = false;
+                                return 0;
+                        }
+                        const uint64_t version =
+                                header->version.load(std::memory_order_acquire);
+                        std::memcpy(dest, std::get<1>(row), size);
+                        return version;
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t old_value = 0, new_value = 0;
                 uint64_t tid = 0;
@@ -624,6 +672,21 @@ out_unlock_lmeta:
 
         uint64_t remote_take_read_lock_and_read(char *row, void *dest, std::size_t size, bool inc_ref_cnt, bool &success)
 	{
+		if (is_ub_tuple(row)) {
+			UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
+			success = header->lock.try_lock_shared();
+			if (!success)
+				return 0;
+			if (header->valid.load(std::memory_order_acquire) != 1) {
+				header->lock.unlock_shared();
+				success = false;
+				return 0;
+			}
+			const uint64_t version =
+				header->version.load(std::memory_order_acquire);
+			std::memcpy(dest, UBTable::value_from_header(header), size);
+			return version;
+		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
                 void *src = scc_data->data;
@@ -710,6 +773,18 @@ out_unlock_lmeta:
 
 	uint64_t write_lock(std::atomic<uint64_t> &meta, void* data_ptr, uint64_t size, bool &success)
 	{
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        success = header->lock.try_lock();
+                        if (!success)
+                                return 0;
+                        if (header->valid.load(std::memory_order_acquire) != 1) {
+                                header->lock.unlock();
+                                success = false;
+                                return 0;
+                        }
+                        return header->version.load(std::memory_order_acquire);
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t old_value = 0, new_value = 0;
                 uint64_t tid = 0;
@@ -793,6 +868,21 @@ out_unlock_lmeta:
         uint64_t take_write_lock_and_read(const std::tuple<MetaDataType *, void *> &row, void *dest, std::size_t size, bool &success, std::atomic<uint64_t> &local_cxl_access)
 	{
                 MetaDataType &meta = *std::get<0>(row);
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        success = header->lock.try_lock();
+                        if (!success)
+                                return 0;
+                        if (header->valid.load(std::memory_order_acquire) != 1) {
+                                header->lock.unlock();
+                                success = false;
+                                return 0;
+                        }
+                        const uint64_t version =
+                                header->version.load(std::memory_order_acquire);
+                        std::memcpy(dest, std::get<1>(row), size);
+                        return version;
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t old_value = 0, new_value = 0;
                 uint64_t tid = 0;
@@ -891,6 +981,21 @@ out_unlock_lmeta:
 
         uint64_t remote_take_write_lock_and_read(char *row, void *dest, std::size_t size, bool inc_ref_cnt, bool &success)
 	{
+		if (is_ub_tuple(row)) {
+			UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
+			success = header->lock.try_lock();
+			if (!success)
+				return 0;
+                        if (header->valid.load(std::memory_order_acquire) != 1) {
+				header->lock.unlock();
+				success = false;
+				return 0;
+			}
+			const uint64_t version =
+				header->version.load(std::memory_order_acquire);
+			std::memcpy(dest, UBTable::value_from_header(header), size);
+			return version;
+		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
                 void *src = scc_data->data;
@@ -977,6 +1082,10 @@ out_unlock_lmeta:
 
 	static void read_lock_release(std::atomic<uint64_t> &meta)
 	{
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader::from_version(&meta)->lock.unlock_shared();
+                        return;
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t old_value = 0, new_value = 0;
 
@@ -1002,6 +1111,10 @@ out_unlock_lmeta:
 
         static void remote_read_lock_release(char *row)
 	{
+		if (is_ub_tuple(row)) {
+			reinterpret_cast<UBTupleHeader *>(row)->lock.unlock_shared();
+			return;
+		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
                 uint64_t old_value = 0, new_value = 0;
@@ -1016,6 +1129,10 @@ out_unlock_lmeta:
 
 	static void write_lock_release(std::atomic<uint64_t> &meta)
 	{
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader::from_version(&meta)->lock.unlock();
+                        return;
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t old_value = 0, new_value = 0;
 
@@ -1041,6 +1158,10 @@ out_unlock_lmeta:
 
         static void remote_write_lock_release(char *row)
 	{
+		if (is_ub_tuple(row)) {
+			reinterpret_cast<UBTupleHeader *>(row)->lock.unlock();
+			return;
+		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
                 uint64_t old_value = 0, new_value = 0;
@@ -1054,6 +1175,12 @@ out_unlock_lmeta:
 
 	void write_lock_release(std::atomic<uint64_t> &meta, uint64_t size, uint64_t new_value)
 	{
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        header->version.store(new_value, std::memory_order_release);
+                        header->lock.unlock();
+                        return;
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t old_value = 0;
 
@@ -1085,6 +1212,12 @@ out_unlock_lmeta:
 
         void remote_write_lock_release(char *row, uint64_t size, uint64_t new_value)
 	{
+		if (is_ub_tuple(row)) {
+			UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
+			header->version.store(new_value, std::memory_order_release);
+			header->lock.unlock();
+			return;
+		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
                 uint64_t old_value = 0;
@@ -1105,6 +1238,15 @@ out_unlock_lmeta:
 
         void modify_tuple_valid_bit(std::atomic<uint64_t> &meta, bool is_valid, bool is_insert = false)
         {
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        const uint32_t expected = is_insert ? 2U : (is_valid ? 0U : 1U);
+                        DCHECK(header->valid.load(std::memory_order_acquire) == expected);
+                        header->valid.store(is_valid ? 1U : 0U,
+                                            std::memory_order_release);
+                        header->version.fetch_add(1, std::memory_order_release);
+                        return;
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
 
                 lmeta->lock();
@@ -1135,6 +1277,15 @@ out_unlock_lmeta:
 
         void remote_modify_tuple_valid_bit(char *row, bool is_valid, bool is_insert = false)
         {
+                if (is_ub_tuple(row)) {
+                        UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
+                        const uint32_t expected = is_insert ? 2U : (is_valid ? 0U : 1U);
+                        DCHECK(header->valid.load(std::memory_order_acquire) == expected);
+                        header->valid.store(is_valid ? 1U : 0U,
+                                            std::memory_order_release);
+                        header->version.fetch_add(1, std::memory_order_release);
+                        return;
+                }
                 TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
 
@@ -1250,6 +1401,8 @@ out_unlock_lmeta:
         // used for remote scan
         static void decrease_reference_count_via_ptr(void *cxl_row)
         {
+                if (is_ub_tuple(reinterpret_cast<char *>(cxl_row)))
+                        return;
                 TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(cxl_row);
                 TwoPLPashaSharedDataSCC *scc_data = smeta->get_scc_data();
 

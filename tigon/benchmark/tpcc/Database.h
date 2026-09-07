@@ -22,6 +22,7 @@
 #include "core/Macros.h"
 #include "core/Partitioner.h"
 #include "core/Table.h"
+#include "core/UBBPlusTreeAdapter.h"
 #include <glog/logging.h>
 
 #include "common/CXLMemory.h"
@@ -170,7 +171,9 @@ class Database {
 
 		for (auto partitionID = 0u; partitionID < partitionNum; partitionID++) {
 			auto warehouseTableID = warehouse::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_warehouse_vec.push_back(std::make_unique<TableUBBPlusTree<warehouse::key, warehouse::value, warehouse::KeyComparator, warehouse::ValueComparator> >(warehouseTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_warehouse_vec.push_back(
 					std::make_unique<TableBTreeOLC<warehouse::key, warehouse::value, warehouse::KeyComparator, warehouse::ValueComparator, MetaInitFuncSundial> >(warehouseTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -197,7 +200,9 @@ class Database {
 			}
 
 			auto districtTableID = district::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_district_vec.push_back(std::make_unique<TableUBBPlusTree<district::key, district::value, district::KeyComparator, district::ValueComparator> >(districtTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_district_vec.push_back(
 					std::make_unique<TableBTreeOLC<district::key, district::value, district::KeyComparator, district::ValueComparator, MetaInitFuncSundial> >(districtTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -224,7 +229,9 @@ class Database {
 			}
 
 			auto customerTableID = customer::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_customer_vec.push_back(std::make_unique<TableUBBPlusTree<customer::key, customer::value, customer::KeyComparator, customer::ValueComparator> >(customerTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_customer_vec.push_back(
 					std::make_unique<TableBTreeOLC<customer::key, customer::value, customer::KeyComparator, customer::ValueComparator, MetaInitFuncSundial> >(customerTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -251,7 +258,9 @@ class Database {
 			}
 
 			auto customerNameIdxTableID = customer_name_idx::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_customer_name_idx_vec.push_back(std::make_unique<TableUBBPlusTree<customer_name_idx::key, customer_name_idx::value, customer_name_idx::KeyComparator, customer_name_idx::ValueComparator> >(customerNameIdxTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_customer_name_idx_vec.push_back(
 					std::make_unique<TableHashMap<997, customer_name_idx::key, customer_name_idx::value, customer_name_idx::KeyComparator, customer_name_idx::ValueComparator, MetaInitFuncSundial> >(
 						customerNameIdxTableID, partitionID));
@@ -273,7 +282,9 @@ class Database {
 			}
 
 			auto historyTableID = history::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_history_vec.push_back(std::make_unique<TableUBBPlusTree<history::key, history::value, history::KeyComparator, history::ValueComparator> >(historyTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_history_vec.push_back(
 					std::make_unique<TableBTreeOLC<history::key, history::value, history::KeyComparator, history::ValueComparator, MetaInitFuncSundial> >(historyTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -300,7 +311,9 @@ class Database {
 			}
 
 			auto newOrderTableID = new_order::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_new_order_vec.push_back(std::make_unique<TableUBBPlusTree<new_order::key, new_order::value, new_order::KeyComparator, new_order::ValueComparator> >(newOrderTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_new_order_vec.push_back(
 					std::make_unique<TableBTreeOLC<new_order::key, new_order::value, new_order::KeyComparator, new_order::ValueComparator, MetaInitFuncSundial> >(newOrderTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -328,7 +341,9 @@ class Database {
 			}
 
 			auto orderTableID = order::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_order_vec.push_back(std::make_unique<TableUBBPlusTree<order::key, order::value, order::KeyComparator, order::ValueComparator> >(orderTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_order_vec.push_back(
 					std::make_unique<TableBTreeOLC<order::key, order::value, order::KeyComparator, order::ValueComparator, MetaInitFuncSundial> >(orderTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -354,7 +369,9 @@ class Database {
 			}
 
                         auto orderCustTableID = order_customer::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_order_cust_vec.push_back(std::make_unique<TableUBBPlusTree<order_customer::key, order_customer::value, order_customer::KeyComparator, order_customer::ValueComparator> >(orderCustTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_order_cust_vec.push_back(
 					std::make_unique<TableBTreeOLC<order_customer::key, order_customer::value, order_customer::KeyComparator, order_customer::ValueComparator, MetaInitFuncSundial> >(orderCustTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -380,7 +397,9 @@ class Database {
 			}
 
 			auto orderLineTableID = order_line::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_order_line_vec.push_back(std::make_unique<TableUBBPlusTree<order_line::key, order_line::value, order_line::KeyComparator, order_line::ValueComparator> >(orderLineTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_order_line_vec.push_back(
 					std::make_unique<TableBTreeOLC<order_line::key, order_line::value, order_line::KeyComparator, order_line::ValueComparator, MetaInitFuncSundial> >(orderLineTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -408,7 +427,9 @@ class Database {
 			}
 
 			auto stockTableID = stock::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_stock_vec.push_back(std::make_unique<TableUBBPlusTree<stock::key, stock::value, stock::KeyComparator, stock::ValueComparator> >(stockTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_stock_vec.push_back(
 					std::make_unique<TableBTreeOLC<stock::key, stock::value, stock::KeyComparator, stock::ValueComparator, MetaInitFuncSundial> >(stockTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
@@ -434,7 +455,9 @@ class Database {
 		}
 
 		auto itemTableID = item::tableID;
-		if (context.protocol == "Sundial") {
+		if (context.shared_memory_backend == "ub") {
+			tbl_item_vec.push_back(std::make_unique<TableUBBPlusTree<item::key, item::value, item::KeyComparator, item::ValueComparator> >(itemTableID, 0, context.ub_index_buckets));
+		} else if (context.protocol == "Sundial") {
 			tbl_item_vec.push_back(std::make_unique<TableBTreeOLC<item::key, item::value, item::KeyComparator, item::ValueComparator, MetaInitFuncSundial> >(itemTableID, 0));
                 } else if (context.protocol == "SundialPasha") {
 			tbl_item_vec.push_back(std::make_unique<TableBTreeOLC<item::key, item::value, item::KeyComparator, item::ValueComparator, MetaInitFuncSundialPasha> >(itemTableID, 0));
@@ -499,7 +522,8 @@ class Database {
 			   [this](std::size_t partitionID) { orderLineInit(partitionID); },
 			   partitionNum, threadsNum, partitioner.get());
 		initTables(
-			"item", [this](std::size_t partitionID) { itemInit(partitionID); }, 1, 1, nullptr);
+			"item", [this](std::size_t partitionID) { itemInit(partitionID); }, 1, 1,
+			context.shared_memory_backend == "ub" ? partitioner.get() : nullptr);
 		initTables(
 			"stock", [this](std::size_t partitionID) { stockInit(partitionID); }, partitionNum, threadsNum, partitioner.get());
 	}

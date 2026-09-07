@@ -11,6 +11,7 @@
 #include "common/Socket.h"
 #include "common/MPSCRingBuffer.h"
 #include "common/CXLTransport.h"
+#include "common/UBMPSCRingBuffer.h"
 #include "core/ControlMessage.h"
 #include "core/Worker.h"
 #include <atomic>
@@ -23,7 +24,8 @@ namespace star
 class IncomingDispatcher {
     public:
 	IncomingDispatcher(std::size_t cid, std::size_t group_id, std::size_t io_thread_num, std::vector<Socket> &sockets,
-			   MPSCRingBuffer *cxl_ringbuffers, const std::vector<std::shared_ptr<Worker> > &workers, LockfreeQueue<Message *> &coordinator_queue,
+			   MPSCRingBuffer *cxl_ringbuffers, UBMPSCRingBuffer *ub_inbox,
+			   const std::vector<std::shared_ptr<Worker> > &workers, LockfreeQueue<Message *> &coordinator_queue,
 			   LockfreeQueue<Message *> &out_to_in_queue, std::atomic<bool> &stopFlag, Context context)
 		: coord_id(cid)
 		, group_id(group_id)
@@ -34,10 +36,14 @@ class IncomingDispatcher {
 		, out_to_in_queue(out_to_in_queue)
 		, stopFlag(stopFlag)
 		, context(context)
+		, ub_inbox(ub_inbox)
 	{
 		LOG(INFO) << "IncomingDispatcher " << group_id << " coord_id " << coord_id;
 
-                if (context.use_cxl_transport == false)
+                if (context.use_ub_transport) {
+                        CHECK(ub_inbox != nullptr && ub_inbox->valid());
+                        ub_receive_buffer.resize(ub_inbox->payload_size());
+                } else if (context.use_cxl_transport == false)
                         for (auto i = 0u; i < sockets.size(); i++)
                                 buffered_readers.emplace_back(sockets[i]);
                 else
@@ -167,6 +173,20 @@ class IncomingDispatcher {
 	std::unique_ptr<Message> fetchMessageFromCoordinator(uint64_t remote_coordinator_id)
 	{
 		std::unique_ptr<Message> message = NULL;
+		if (context.use_ub_transport) {
+			const uint64_t length = ub_inbox->try_dequeue(
+				ub_receive_buffer.data(), ub_receive_buffer.size());
+			if (length == 0)
+				return nullptr;
+			CHECK(length >= Message::get_prefix_size());
+			const auto header = *reinterpret_cast<const Message::header_type *>(
+				ub_receive_buffer.data());
+			CHECK(Message::get_message_length(header) == length);
+			message = std::make_unique<Message>();
+			message->resize(length);
+			std::memcpy(message->get_raw_ptr(), ub_receive_buffer.data(), length);
+			return message;
+		}
 
                 if (context.use_cxl_transport == false)
                         message = buffered_readers[remote_coordinator_id].next_message();
@@ -189,6 +209,8 @@ class IncomingDispatcher {
 	Percentile<uint64_t> internal_message_recv_latency;
 	std::atomic<bool> &stopFlag;
 	Context context;
+	UBMPSCRingBuffer *ub_inbox;
+	std::vector<char> ub_receive_buffer;
 };
 
 class OutgoingDispatcher {
@@ -207,6 +229,8 @@ class OutgoingDispatcher {
 		, stopFlag(stopFlag)
 		, context(context)
 	{
+		if (context.use_ub_transport)
+			ub_queues.resize(context.coordinator_num);
 		LOG(INFO) << "OutgoingDispatcher " << group_id << " coord_id " << coordinator_id;
 	}
 
@@ -293,7 +317,21 @@ class OutgoingDispatcher {
 		auto message_length = message->get_message_length();
 
                 // CXL transport or network transport
-                if (context.use_cxl_transport == false) {
+		if (context.use_ub_transport) {
+			CHECK(message_length <= context.cxl_trans_entry_struct_size)
+				<< "UB queue message is larger than its fixed payload";
+			if (!ub_queues[dest_node_id]) {
+				UBGlobalPtr root;
+				while (!(root = ub_memory.read_root(
+					static_cast<uint32_t>(dest_node_id),
+					UBMPSCRingBuffer::inbox_root_slot)))
+					std::this_thread::yield();
+				ub_queues[dest_node_id] =
+					std::make_unique<UBMPSCRingBuffer>(root);
+			}
+			ub_queues[dest_node_id]->enqueue(message->get_raw_ptr(),
+				message_length);
+                } else if (context.use_cxl_transport == false) {
 		        sockets[dest_node_id].write_n_bytes(message->get_raw_ptr(), message_length);
                 } else {
                         cxl_transport->send(message);
@@ -335,6 +373,14 @@ class OutgoingDispatcher {
 		for (size_t i = 0; i < messages_by_coordinator.size(); ++i) {
 			if (messages_by_coordinator[i].size() == 0)
 				continue;
+			if (context.use_ub_transport) {
+				for (auto *message : messages_by_coordinator[i]) {
+					sendMessage(message);
+					network_msg_cnt++;
+				}
+				network_msg_group_size.add(messages_by_coordinator[i].size());
+				continue;
+			}
 			auto gen_time = messages_by_coordinator[i][0]->get_gen_time();
 
 			if (messages_by_coordinator[i].size() == 1) {
@@ -422,6 +468,7 @@ class OutgoingDispatcher {
 	Percentile<uint64_t> gen_to_queue_latency;
 	std::atomic<bool> &stopFlag;
 	Context context;
+	std::vector<std::unique_ptr<UBMPSCRingBuffer> > ub_queues;
 };
 
 } // namespace star

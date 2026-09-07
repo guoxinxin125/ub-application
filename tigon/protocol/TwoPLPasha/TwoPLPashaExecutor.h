@@ -40,6 +40,14 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
 		: base_type(coordinator_id, id, db, context, worker_status, n_complete_workers, n_started_workers)
 	{
                 if (id == 0) {
+                        if (context.shared_memory_backend == "ub") {
+                                static std::vector<std::vector<CXLTableBase *> > empty_cxl_tables;
+                                twopl_pasha_global_helper =
+                                        new TwoPLPashaHelper(coordinator_id, context,
+                                                             empty_cxl_tables);
+                                DCHECK(twopl_pasha_global_helper != nullptr);
+                                return;
+                        }
                         // create or retrieve the CXL tables
                         std::vector<std::vector<CXLTableBase *> > &cxl_tbl_vecs = db.create_or_retrieve_cxl_tables(context);
 
@@ -70,7 +78,10 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
                         // commit metadata init
                         twopl_pasha_global_helper->commit_pasha_metadata_init();
                 } else {
-                        twopl_pasha_global_helper->wait_for_pasha_metadata_init();
+                        if (context.shared_memory_backend != "ub")
+                                twopl_pasha_global_helper->wait_for_pasha_metadata_init();
+                        else
+                                DCHECK(twopl_pasha_global_helper != nullptr);
                 }
 	}
 
@@ -82,6 +93,50 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
 							bool local_index_read, bool write_lock, std::tuple<star::ITable::MetaDataType *, void *> &cached_local_row,
                                                         char *&cached_migrated_row, bool &success, bool &remote) -> uint64_t {
                         ITable *table = this->db.find_table(table_id, partition_id);
+
+			if (this->context.shared_memory_backend == "ub" && !local_index_read) {
+				auto row = table->search(key);
+				if (std::get<0>(row) == nullptr || std::get<1>(row) == nullptr) {
+					success = false;
+					remote = false;
+					return 0;
+				}
+				const bool owner_local =
+					this->partitioner->has_master_partition(partition_id);
+				uint64_t version = 0;
+				remote = false;
+				if (owner_local) {
+					this->n_local_access.fetch_add(1);
+					cached_local_row = row;
+					if (write_lock) {
+						version = twopl_pasha_global_helper->take_write_lock_and_read(
+							row, value, table->value_size(), success,
+							this->n_local_cxl_access);
+					} else {
+						version = twopl_pasha_global_helper->take_read_lock_and_read(
+							row, value, table->value_size(), success,
+							this->n_local_cxl_access);
+					}
+				} else {
+					this->n_remote_access.fetch_add(1);
+					txn.distributed_transaction = true;
+					txn.remote_hosts_involved.insert(
+						this->partitioner->master_coordinator(partition_id));
+					UBTupleHeader *header =
+						UBTupleHeader::from_version(std::get<0>(row));
+					cached_migrated_row = reinterpret_cast<char *>(header);
+					if (write_lock) {
+						version = twopl_pasha_global_helper->remote_take_write_lock_and_read(
+							cached_migrated_row, value, table->value_size(), false,
+							success);
+					} else {
+						version = twopl_pasha_global_helper->remote_take_read_lock_and_read(
+							cached_migrated_row, value, table->value_size(), false,
+							success);
+					}
+				}
+				return success ? version : 0;
+			}
 
 			if (local_index_read) {
 				success = true;
@@ -180,6 +235,48 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
                                 std::vector<ITable::row_entity> &scan_results = *reinterpret_cast<std::vector<ITable::row_entity> *>(results);
                                 auto value_size = table->value_size();
                                 bool local_scan = false;
+
+                                if (this->context.shared_memory_backend == "ub") {
+                                        bool scan_success = true;
+                                        auto ub_scan_processor = [&](
+                                                const void *key,
+                                                std::atomic<uint64_t> *meta_ptr,
+                                                void *data_ptr,
+                                                bool protection_row) -> bool {
+                                                bool lock_success = false;
+                                                if (type == TwoPLPashaRWKey::SCAN_FOR_READ) {
+                                                        twopl_pasha_global_helper->read_lock(
+                                                                *meta_ptr, data_ptr,
+                                                                table->value_size(), lock_success);
+                                                } else {
+                                                        twopl_pasha_global_helper->write_lock(
+                                                                *meta_ptr, data_ptr,
+                                                                table->value_size(), lock_success);
+                                                }
+                                                if (!lock_success) {
+                                                        scan_success = false;
+                                                        return false;
+                                                }
+                                                ITable::row_entity row(
+                                                        key, table->key_size(), meta_ptr,
+                                                        data_ptr, table->value_size());
+                                                if (protection_row)
+                                                        next_row_entity = row;
+                                                else
+                                                        scan_results.push_back(row);
+                                                return true;
+                                        };
+                                        scan_success = table->scan_range(
+                                                min_key, max_key, limit,
+                                                ub_scan_processor) && scan_success;
+                                        migration_required = false;
+                                        if (!this->partitioner->has_master_partition(partition_id)) {
+                                                txn.distributed_transaction = true;
+                                                txn.remote_hosts_involved.insert(
+                                                        this->partitioner->master_coordinator(partition_id));
+                                        }
+                                        return scan_success;
+                                }
 
                                 if (this->partitioner->has_master_partition(partition_id) ||
                                 (this->partitioner->is_partition_replicated_on(partition_id, this->coordinator_id) && this->context.read_on_replica)) {
@@ -398,6 +495,39 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
                                                         const void *key, void *value, bool require_lock_next_key, ITable::row_entity &next_row_entity) -> bool {
                                 ITable *table = this->db.find_table(table_id, partition_id);
                                 auto value_size = table->value_size();
+                                if (this->context.shared_memory_backend == "ub") {
+                                        bool inserted = false;
+                                        if (require_lock_next_key) {
+                                                auto next_key_processor = [&](
+                                                        const void *next_key,
+                                                        std::atomic<uint64_t> *next_meta,
+                                                        void *next_data) -> bool {
+                                                        bool lock_success = false;
+                                                        twopl_pasha_global_helper->write_lock(
+                                                                *next_meta, next_data,
+                                                                table->value_size(), lock_success);
+                                                        if (lock_success) {
+                                                                next_row_entity = ITable::row_entity(
+                                                                        next_key, table->key_size(),
+                                                                        next_meta, next_data,
+                                                                        table->value_size());
+                                                        }
+                                                        return lock_success;
+                                                };
+                                                inserted = table->insert_lock_next_key(
+                                                        key, value, next_key_processor, true);
+                                        } else {
+                                                inserted = table->insert(key, value, true);
+                                        }
+                                        if (!inserted)
+                                                txn.abort_insert = true;
+                                        if (!this->partitioner->has_master_partition(partition_id)) {
+                                                txn.distributed_transaction = true;
+                                                txn.remote_hosts_involved.insert(
+                                                        this->partitioner->master_coordinator(partition_id));
+                                        }
+                                        return inserted;
+                                }
                                 bool local_insert = false;
 
                                 if (this->partitioner->has_master_partition(partition_id) ||
@@ -423,6 +553,25 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
                         txn.deleteRequestHandler = [this, &txn](std::size_t table_id, std::size_t partition_id, uint32_t key_offset, const void *key) -> bool {
                                 ITable *table = this->db.find_table(table_id, partition_id);
                                 auto value_size = table->value_size();
+                                if (this->context.shared_memory_backend == "ub") {
+                                        auto row = table->search(key);
+                                        if (std::get<0>(row) == nullptr) {
+                                                txn.abort_delete = true;
+                                                return false;
+                                        }
+                                        bool lock_success = false;
+                                        twopl_pasha_global_helper->write_lock(
+                                                *std::get<0>(row), std::get<1>(row),
+                                                table->value_size(), lock_success);
+                                        if (!lock_success)
+                                                txn.abort_delete = true;
+                                        if (!this->partitioner->has_master_partition(partition_id)) {
+                                                txn.distributed_transaction = true;
+                                                txn.remote_hosts_involved.insert(
+                                                        this->partitioner->master_coordinator(partition_id));
+                                        }
+                                        return lock_success;
+                                }
                                 bool local_delete = false;
 
                                 if (this->partitioner->has_master_partition(partition_id) ||

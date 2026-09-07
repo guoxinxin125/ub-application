@@ -3,6 +3,8 @@
 #include "core/Macros.h"
 #include "common/WALLogger.h"
 #include "common/CXLMemory.h"
+#include "common/UBMemory.h"
+#include "core/UBBTreeCatalog.h"
 
 DEFINE_string(query, "rmw", "ycsb query, mixed, rmw, scan");
 DEFINE_bool(lotus_sp_parallel_exec_commit, false, "parallel execution and commit for Lotus");
@@ -81,8 +83,19 @@ int main(int argc, char *argv[])
 	}
 
         check_context(context);
+	if (context.shared_memory_backend == "ub") {
+		CHECK(FLAGS_query == "rmw" || FLAGS_query == "insert" ||
+		      FLAGS_query == "delete" || FLAGS_query == "scan" ||
+		      FLAGS_query == "mixed")
+			<< "unsupported native UB YCSB query";
+	}
 
 	star::ycsb::Database db;
+	if (context.shared_memory_backend == "ub") {
+		star::ub_memory.initialize(context);
+		star::UBBTreeCatalog::initialize(
+			static_cast<uint32_t>(context.coordinator_id));
+	}
 	db.initialize(context);
 
 	do_tid_check = false;

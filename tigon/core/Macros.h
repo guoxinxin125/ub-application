@@ -76,6 +76,19 @@ DEFINE_bool(use_output_thread, false, "do you want an output thread?");
 DEFINE_uint64(cxl_trans_entry_struct_size, 8192, "size of enrty in a MPSC ringbuffer");
 DEFINE_uint64(cxl_trans_entry_num, 4096, "number of entries per MPSC ringbuffer");
 
+DEFINE_string(shared_memory_backend, "cxl", "shared memory backend (cxl, ub)");
+DEFINE_string(ub_memory_mode, "one-sided", "UB mapping mode (one-sided, nocache)");
+DEFINE_string(ub_region_prefix, "tigon_ub", "prefix for per-coordinator UB regions");
+DEFINE_uint64(ub_region_mb, 4096, "size in MiB of each coordinator-owned UB region");
+DEFINE_string(ub_provider_host, "", "UBSM provider host for this coordinator's region");
+DEFINE_uint32(ub_provider_socket, UINT32_MAX, "UBSM provider socket id");
+DEFINE_uint32(ub_provider_numa, UINT32_MAX, "UBSM provider NUMA id");
+DEFINE_uint32(ub_provider_port, UINT32_MAX, "UBSM provider port id");
+DEFINE_int32(ub_map_timeout, 120, "seconds to wait for every peer UB region");
+DEFINE_bool(use_ub_transport, false, "place Tigon message queues in UB memory");
+DEFINE_uint64(ub_index_buckets, 65536,
+              "deprecated UB index size hint (B+ Tree grows from the region allocator)");
+
 DEFINE_bool(enable_migration_optimization, true, "enable data migration optimization");
 DEFINE_string(migration_policy, "Eagerly", "Pasha data migration policy");
 DEFINE_string(when_to_move_out, "Reactive", "When to move data out");
@@ -148,6 +161,17 @@ DEFINE_string(pre_migrate, "None", "what tuples to pre-migrate?");
         context.use_output_thread = FLAGS_use_output_thread;                                    \
         context.cxl_trans_entry_struct_size = FLAGS_cxl_trans_entry_struct_size;                \
         context.cxl_trans_entry_num = FLAGS_cxl_trans_entry_num;                                \
+        context.shared_memory_backend = FLAGS_shared_memory_backend;                            \
+        context.ub_memory_mode = FLAGS_ub_memory_mode;                                          \
+        context.ub_region_prefix = FLAGS_ub_region_prefix;                                      \
+        context.ub_region_size = FLAGS_ub_region_mb * 1024ULL * 1024ULL;                        \
+        context.ub_provider_host = FLAGS_ub_provider_host;                                      \
+        context.ub_provider_socket = FLAGS_ub_provider_socket;                                  \
+        context.ub_provider_numa = FLAGS_ub_provider_numa;                                      \
+        context.ub_provider_port = FLAGS_ub_provider_port;                                      \
+        context.ub_map_timeout_seconds = FLAGS_ub_map_timeout;                                  \
+        context.use_ub_transport = FLAGS_use_ub_transport;                                      \
+        context.ub_index_buckets = FLAGS_ub_index_buckets;                                      \
         context.enable_migration_optimization = FLAGS_enable_migration_optimization;            \
         context.migration_policy = FLAGS_migration_policy;                                      \
         context.when_to_move_out = FLAGS_when_to_move_out;                                      \
@@ -159,4 +183,5 @@ DEFINE_string(pre_migrate, "None", "what tuples to pre-migrate?");
         context.time_to_run = FLAGS_time_to_run;                                                \
         context.time_to_warmup = FLAGS_time_to_warmup;                                          \
         context.pre_migrate = FLAGS_pre_migrate;                                                \
+	context.configure_shared_memory_backend();                                                \
 	context.set_star_partitioner();

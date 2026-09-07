@@ -78,7 +78,10 @@ template <class Workload, class Protocol> class Executor : public Worker {
 	{
 		LOG(INFO) << "Executor " << id << " starts.";
 
-                cxl_memory.init_cxlalloc_for_given_thread(context.worker_num + 1, id + 1, context.coordinator_num, context.coordinator_id);
+                if (context.shared_memory_backend != "ub") {
+                        cxl_memory.init_cxlalloc_for_given_thread(context.worker_num + 1,
+                                id + 1, context.coordinator_num, context.coordinator_id);
+                }
 
                 // init per-thread EBR metadata
                 if (global_ebr_meta != nullptr) {
@@ -128,7 +131,8 @@ template <class Workload, class Protocol> class Executor : public Worker {
 					setupHandlers(*transaction);
 				}
 
-                                global_ebr_meta->enter_critical_section();
+                                if (global_ebr_meta != nullptr)
+                                        global_ebr_meta->enter_critical_section();
 				auto result = transaction->execute(id);
 				if (result == TransactionResult::READY_TO_COMMIT) {
 					bool commit;
@@ -221,7 +225,8 @@ template <class Workload, class Protocol> class Executor : public Worker {
 		process_request();
 		n_complete_workers.fetch_add(1);
 
-                global_ebr_meta->print_statistics();
+                if (global_ebr_meta != nullptr)
+                        global_ebr_meta->print_statistics();
 
 		LOG(INFO) << "Executor " << id << " exits.";
 	}

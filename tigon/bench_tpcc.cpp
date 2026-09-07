@@ -2,6 +2,8 @@
 #include "core/Coordinator.h"
 #include "core/Macros.h"
 #include "common/CXLMemory.h"
+#include "common/UBMemory.h"
+#include "core/UBBTreeCatalog.h"
 
 
 DEFINE_bool(operation_replication, false, "use operation replication");
@@ -51,6 +53,12 @@ int main(int argc, char *argv[])
 	context.paymentCrossPartitionProbability = FLAGS_payment_dist;
 
         check_context(context);
+
+        if (context.shared_memory_backend == "ub") {
+                star::ub_memory.initialize(context);
+                star::UBBTreeCatalog::initialize(
+                        static_cast<uint32_t>(context.coordinator_id));
+        }
 
 	star::tpcc::Database db;
 	db.initialize(context);

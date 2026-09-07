@@ -5,6 +5,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -15,6 +17,29 @@ namespace star
 {
 class Context {
     public:
+	void configure_shared_memory_backend()
+	{
+		if (shared_memory_backend == "cxl") {
+			CHECK(use_ub_transport == false)
+				<< "UB message queues require shared_memory_backend=ub";
+			return;
+		}
+		CHECK(shared_memory_backend == "ub");
+		CHECK(protocol == "TwoPLPasha");
+		CHECK(use_cxl_transport == false);
+		CHECK(coordinator_num == 1 || coordinator_num == 2)
+			<< "the current UB shutdown barrier supports one or two coordinators";
+		CHECK(io_thread_num == 1 || use_ub_transport == false);
+		enable_migration_optimization = false;
+		enable_scc = false;
+                CHECK(enable_phantom_detection == true)
+                        << "UB B+ Tree range/insert paths require next-key protection";
+		// The normal outgoing dispatcher copies messages into the remote UB inbox.
+		use_output_thread = true;
+		migration_policy = "None";
+		pre_migrate = "None";
+	}
+
 	void set_star_partitioner()
 	{
 		if (protocol != "Star") {
@@ -102,6 +127,21 @@ class Context {
         bool use_output_thread = false;
         uint64_t cxl_trans_entry_struct_size = 8192;
         uint64_t cxl_trans_entry_num = 4096;
+
+        // Shared-memory backend. "cxl" keeps the original implementation;
+        // "ub" uses one UBS Memory region owned by each coordinator.
+        std::string shared_memory_backend = "cxl";
+        std::string ub_memory_mode = "one-sided";
+        std::string ub_region_prefix = "tigon_ub";
+        uint64_t ub_region_size = 4ULL * 1024 * 1024 * 1024;
+        std::string ub_provider_host;
+        uint32_t ub_provider_socket = std::numeric_limits<uint32_t>::max();
+        uint32_t ub_provider_numa = std::numeric_limits<uint32_t>::max();
+        uint32_t ub_provider_port = std::numeric_limits<uint32_t>::max();
+        int ub_map_timeout_seconds = 120;
+        bool use_ub_transport = false;
+        // Retained for command-line compatibility; the UB B+ Tree grows on demand.
+        uint64_t ub_index_buckets = 65536;
 
         // Pasha migration policy
         bool enable_migration_optimization = true;

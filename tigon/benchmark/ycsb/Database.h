@@ -22,6 +22,7 @@
 
 #include "common/CXLMemory.h"
 #include "core/CXLTable.h"
+#include "core/UBBPlusTreeAdapter.h"
 
 namespace star
 {
@@ -98,7 +99,12 @@ class Database {
 
 		for (auto partitionID = 0u; partitionID < partitionNum; partitionID++) {
 			auto ycsbTableID = ycsb::tableID;
-			if (context.protocol == "Sundial") {
+			if (context.shared_memory_backend == "ub") {
+				tbl_ycsb_vec.push_back(
+					std::make_unique<TableUBBPlusTree<ycsb::key, ycsb::value,
+						ycsb::KeyComparator, ycsb::ValueComparator> >(
+							ycsbTableID, partitionID, context.ub_index_buckets));
+			} else if (context.protocol == "Sundial") {
 				tbl_ycsb_vec.push_back(
 					std::make_unique<TableBTreeOLC<ycsb::key, ycsb::value, ycsb::KeyComparator, ycsb::ValueComparator, MetaInitFuncSundial> >(ycsbTableID, partitionID));
                         } else if (context.protocol == "SundialPasha") {
