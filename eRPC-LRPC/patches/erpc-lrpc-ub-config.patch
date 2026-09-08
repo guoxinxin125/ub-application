@@ -1,0 +1,32 @@
+diff --git a/hello_world/common.h b/hello_world/common.h
+--- a/hello_world/common.h
++++ b/hello_world/common.h
+@@ -1,8 +1,14 @@
+ #include <stdio.h>
++#include <cstdlib>
+ #include "rpc.h"
+ 
+-static const std::string kServerHostname = "10.0.0.2";
+-static const std::string kClientHostname = "10.0.0.1";
++static std::string lrpc_env(const char *name, const char *fallback) {
++  const char *value = std::getenv(name);
++  return value == nullptr || value[0] == '\0' ? fallback : value;
++}
++
++static const std::string kServerHostname = lrpc_env("ERPC_SERVER_HOST", "10.0.0.2");
++static const std::string kClientHostname = lrpc_env("ERPC_CLIENT_HOST", "10.0.0.1");
+ 
+ static constexpr uint16_t kUDPPort = 31850;
+ static constexpr uint8_t kReqType = 1;
+diff --git a/src/transport_impl/fake/fake_transport.cc b/src/transport_impl/fake/fake_transport.cc
+--- a/src/transport_impl/fake/fake_transport.cc
++++ b/src/transport_impl/fake/fake_transport.cc
+@@ -23,6 +23,7 @@ FakeTransport::FakeTransport(uint16_t, uint8_t rpc_id, uint8_t phy_port,
+   dereg_mr_func_ = [](mem_reg_info) {};
+   const char *role = std::getenv("ERPC_LRPC_ROLE");
+   caller_ = role != nullptr && std::strcmp(role, "caller") == 0;
+-  if (caller_ && lrpc_bind(&lrpc_, "/dev/ub_lrpc0", 1, 1) != 0)
++  const char *device = std::getenv("ERPC_LRPC_DEVICE");
++  if (caller_ && lrpc_bind(&lrpc_, device == nullptr ? "/dev/ub_lrpc0" : device, 1, 1) != 0)
+     throw std::runtime_error("eRPC LRPC transport: bind failed");
+ }

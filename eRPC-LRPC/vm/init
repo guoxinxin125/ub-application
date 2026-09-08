@@ -1,0 +1,75 @@
+#!/bin/busybox sh
+set -eu
+
+/bin/busybox mount -t devtmpfs devtmpfs /dev
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sysfs /sys
+/bin/busybox mkdir -p /tmp /mnt/huge /sys/kernel/debug
+/bin/busybox mount -t debugfs debugfs /sys/kernel/debug || true
+
+cache_mode=1
+case " $(/bin/busybox cat /proc/cmdline) " in
+	*" lrpc.cache=cached "*) cache_mode=0 ;;
+	*" lrpc.cache=noncached "*) cache_mode=1 ;;
+esac
+/bin/busybox insmod /ub_lrpc.ko cache_mode="$cache_mode"
+
+# Confirm at runtime that /dev/ub_lrpc0 belongs to the QEMU ivshmem PCI
+# function and record the third PCI resource (BAR2) used by ub_lrpc_mmap().
+ub_lrpc_device=/sys/class/misc/ub_lrpc0/device
+ub_lrpc_device_path=$(/bin/busybox readlink -f "$ub_lrpc_device" 2>/dev/null || true)
+ub_lrpc_vendor=$(/bin/busybox cat "$ub_lrpc_device/vendor" 2>/dev/null || true)
+ub_lrpc_device_id=$(/bin/busybox cat "$ub_lrpc_device/device" 2>/dev/null || true)
+ub_lrpc_driver=$(/bin/busybox readlink -f "$ub_lrpc_device/driver" 2>/dev/null || true)
+ub_lrpc_bar2=$(/bin/busybox sed -n '3p' "$ub_lrpc_device/resource" 2>/dev/null || true)
+echo "UB_LRPC_DEVICE_PATH ${ub_lrpc_device_path:-unavailable}"
+echo "UB_LRPC_PCI_ID vendor=${ub_lrpc_vendor:-unavailable} device=${ub_lrpc_device_id:-unavailable}"
+echo "UB_LRPC_DRIVER ${ub_lrpc_driver:-unavailable}"
+echo "UB_LRPC_BAR2_RESOURCE ${ub_lrpc_bar2:-unavailable}"
+/bin/busybox mount -t hugetlbfs nodev /mnt/huge
+
+role=caller
+case " $(/bin/busybox cat /proc/cmdline) " in
+	*" lrpc.role=publisher "*) role=publisher ;;
+esac
+
+if [ "$role" = publisher ]; then
+	/bin/busybox ip link set lo up
+	/bin/busybox ip link set eth0 up
+	/bin/busybox ip addr add 10.0.0.2/24 dev eth0
+	/lrpc-publisher
+	echo "LRPC_PUBLISHER_IDLE (eRPC management plane only)"
+	ERPC_LRPC_ROLE=server /upstream-erpc-server
+else
+	/bin/busybox ip link set lo up
+	/bin/busybox ip link set eth0 up
+	/bin/busybox ip addr add 10.0.0.1/24 dev eth0
+	LRPC_SHADOW_CPU=1 /lrpc-shadow &
+	LRPC_SHADOW_CPU=1 /lrpc-nested-shadow leaf &
+	/bin/busybox sleep 1
+	LRPC_SHADOW_CPU=1 /lrpc-nested-shadow middle &
+	LRPC_SHADOW_CPU=1 /deathstar-grpc-lrpc shadow &
+	/bin/busybox sleep 1
+	if ! /lrpc-bar-latency; then
+		echo "ERPC_LRPC_FAIL: BAR2 load-latency benchmark"
+		/bin/busybox poweroff -f
+	fi
+	if ! /deathstar-grpc-lrpc; then
+		echo "ERPC_LRPC_FAIL: DeathStarBench Geo gRPC over LRPC"
+		/bin/busybox poweroff -f
+	fi
+	if ! /lrpc-nested-client; then
+		echo "ERPC_LRPC_FAIL: nested shadow chain"
+		/bin/busybox poweroff -f
+	fi
+	if ! /erpc-lrpc-client; then
+		echo "ERPC_LRPC_FAIL: compatibility smoke test"
+		/bin/busybox poweroff -f
+	fi
+	if ERPC_LRPC_ROLE=caller /upstream-erpc-client; then
+		echo "ERPC_LRPC_BENCHMARK_COMPLETE"
+	else
+		echo "ERPC_LRPC_FAIL: upstream eRPC client"
+	fi
+	/bin/busybox poweroff -f
+fi

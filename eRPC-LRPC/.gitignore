@@ -1,0 +1,15 @@
+/build/
+/vm/rootfs/
+/vm/initramfs.cpio.gz
+/vm/shared-memory.bin
+/vm/bzImage
+/third_party/linux/
+/third_party/eRPC/
+/third_party/DeathStarBench/
+/kernel/*.o
+/kernel/*.ko
+/kernel/*.mod
+/kernel/*.mod.c
+/kernel/Module.symvers
+/kernel/modules.order
+/kernel/.*.cmd

@@ -1,0 +1,303 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b8ef849..d72dd26 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 2.8)
+-project(eRPC)
++project(eRPC C CXX ASM)
+ 
+ include(CMakeDependentOption)
+ 
+@@ -43,12 +43,14 @@ add_subdirectory(third_party/gflags)
+ include_directories(SYSTEM third_party/asio/include)
+ 
+ # Add additional compilation flags only after adding subprojects
+-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -march=native -Wall -Wextra -Werror -pedantic")
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -Werror -pedantic")
+ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-conversion -Wold-style-cast -Wno-unused-function")
+ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-nested-anon-types -Wno-keyword-macro -Wno-deprecated-declarations")
+ 
+ include_directories(${CMAKE_SOURCE_DIR}/src)
+ include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/third_party)
++include_directories(${CMAKE_SOURCE_DIR}/../../include)
++include_directories(${CMAKE_SOURCE_DIR}/../../include/uapi)
+ 
+ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
+ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
+@@ -145,6 +147,8 @@ set(SOURCES
+   src/transport_impl/raw/raw_transport.cc
+   src/transport_impl/raw/raw_transport_datapath.cc
+   src/transport_impl/fake/fake_transport.cc
++  ../../lib/lrpc.c
++  ../../lib/switch_stack.S
+   src/util/huge_alloc.cc
+   src/util/numautils.cc
+   src/util/tls_registry.cc)
+diff --git a/hello_world/client.cc b/hello_world/client.cc
+index 39a2b18..25a553a 100644
+--- a/hello_world/client.cc
++++ b/hello_world/client.cc
+@@ -1,12 +1,31 @@
+ #include "common.h"
++#include <algorithm>
++#include <chrono>
++#include <vector>
++
+ erpc::Rpc<erpc::CTransport> *rpc;
+ erpc::MsgBuffer req;
+ erpc::MsgBuffer resp;
+ 
+-void cont_func(void *, void *) { printf("%s\n", resp.buf_); }
++static bool done;
++static bool response_ok;
++void cont_func(void *, void *) {
++  uint64_t value;
++  memcpy(&value, resp.buf_, sizeof(value));
++  response_ok = value == 142;
++  done = true;
++}
+ 
+ void sm_handler(int, erpc::SmEventType, erpc::SmErrType, void *) {}
+ 
++static bool issue_request(int session_num) {
++  done = false;
++  response_ok = false;
++  rpc->enqueue_request(session_num, kReqType, &req, &resp, cont_func, nullptr);
++  for (size_t i = 0; i < 100000 && !done; i++) rpc->run_event_loop_once();
++  return done && response_ok;
++}
++
+ int main() {
+   std::string client_uri = kClientHostname + ":" + std::to_string(kUDPPort);
+   erpc::Nexus nexus(client_uri);
+@@ -21,8 +40,38 @@ int main() {
+   req = rpc->alloc_msg_buffer_or_die(kMsgSize);
+   resp = rpc->alloc_msg_buffer_or_die(kMsgSize);
+ 
+-  rpc->enqueue_request(session_num, kReqType, &req, &resp, cont_func, nullptr);
+-  rpc->run_event_loop(100);
++  uint64_t values[2] = {20, 22};
++  memcpy(req.buf_, values, sizeof(values));
++
++  if (!issue_request(session_num)) return 2;
++  printf("UPSTREAM_ERPC_LRPC_RESULT value=142\n");
++
++  constexpr size_t kWarmup = 100;
++  constexpr size_t kSamples = 1000;
++  for (size_t i = 0; i < kWarmup; i++)
++    if (!issue_request(session_num)) return 3;
++
++  std::vector<uint64_t> ns;
++  ns.reserve(kSamples);
++  uint64_t total = 0;
++  for (size_t i = 0; i < kSamples; i++) {
++    auto begin = std::chrono::steady_clock::now();
++    if (!issue_request(session_num)) return 4;
++    auto end = std::chrono::steady_clock::now();
++    uint64_t sample = static_cast<uint64_t>(
++        std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin)
++            .count());
++    ns.push_back(sample);
++    total += sample;
++  }
++  std::sort(ns.begin(), ns.end());
++  printf("UPSTREAM_ERPC_LRPC_LATENCY samples=%zu warmup=%zu min_ns=%lu "
++         "p50_ns=%lu p99_ns=%lu max_ns=%lu avg_ns=%.1f\n",
++         kSamples, kWarmup, ns.front(), ns[kSamples / 2],
++         ns[(kSamples * 99) / 100], ns.back(),
++         static_cast<double>(total) / kSamples);
++  printf("UPSTREAM_ERPC_LRPC_PASS\n");
+ 
+   delete rpc;
++  return 0;
+ }
+diff --git a/hello_world/common.h b/hello_world/common.h
+index bea2668..89471a8 100644
+--- a/hello_world/common.h
++++ b/hello_world/common.h
+@@ -1,9 +1,9 @@
+ #include <stdio.h>
+ #include "rpc.h"
+ 
+-static const std::string kServerHostname = "win-erpc1";
+-static const std::string kClientHostname = "win-erpc-2";
++static const std::string kServerHostname = "10.0.0.2";
++static const std::string kClientHostname = "10.0.0.1";
+ 
+ static constexpr uint16_t kUDPPort = 31850;
+-static constexpr uint8_t kReqType = 2;
++static constexpr uint8_t kReqType = 1;
+ static constexpr size_t kMsgSize = 16;
+diff --git a/hello_world/server.cc b/hello_world/server.cc
+index e1df608..f4195cf 100644
+--- a/hello_world/server.cc
++++ b/hello_world/server.cc
+@@ -2,6 +2,7 @@
+ erpc::Rpc<erpc::CTransport> *rpc;
+ 
+ void req_handler(erpc::ReqHandle *req_handle, void *) {
++  puts("ERROR_REMOTE_CPU_HANDLER_RAN");
+   auto &resp = req_handle->pre_resp_msgbuf_;
+   rpc->resize_msg_buffer(&resp, kMsgSize);
+   sprintf(reinterpret_cast<char *>(resp.buf_), "hello");
+@@ -14,5 +15,5 @@ int main() {
+   nexus.register_req_func(kReqType, req_handler);
+ 
+   rpc = new erpc::Rpc<erpc::CTransport>(&nexus, nullptr, 0, nullptr);
+-  rpc->run_event_loop(100000);
++  rpc->run_event_loop(1000000);
+ }
+diff --git a/src/transport_impl/fake/fake_transport.cc b/src/transport_impl/fake/fake_transport.cc
+index 8b95ba0..9120e25 100644
+--- a/src/transport_impl/fake/fake_transport.cc
++++ b/src/transport_impl/fake/fake_transport.cc
+@@ -1,11 +1,80 @@
+ #ifdef ERPC_FAKE
+ #include "fake_transport.h"
++
+ #include <cstdlib>
++#include <cstddef>
++#include <cstring>
++#include <stdexcept>
++
++#include "util/huge_alloc.h"
+ 
+ namespace erpc {
+ 
+ constexpr size_t FakeTransport::kMaxDataPerPkt;
+ 
+-}  // namespace erpc
++FakeTransport::FakeTransport(uint16_t, uint8_t rpc_id, uint8_t phy_port,
++                             size_t numa_node, FILE *trace_file)
++    : Transport(TransportType::kFake, rpc_id, phy_port, numa_node, trace_file) {
++  reg_mr_func_ = [](void *, size_t) {
++    return mem_reg_info(nullptr, UINT32_MAX);
++  };
++  dereg_mr_func_ = [](mem_reg_info) {};
++  const char *role = std::getenv("ERPC_LRPC_ROLE");
++  caller_ = role != nullptr && std::strcmp(role, "caller") == 0;
++  if (caller_ && lrpc_bind(&lrpc_, "/dev/ub_lrpc0", 1, 1) != 0)
++    throw std::runtime_error("eRPC LRPC transport: bind failed");
++}
++
++FakeTransport::~FakeTransport() {
++  if (caller_) lrpc_close(&lrpc_);
++}
++
++void FakeTransport::init_hugepage_structures(HugeAlloc *huge_alloc,
++                                              uint8_t **rx_ring) {
++  huge_alloc_ = huge_alloc;
++  rx_ring_ = rx_ring;
++  Buffer extent = huge_alloc->alloc_raw(kNumRxRingEntries * kMTU,
++                                        DoRegister::kFalse);
++  if (extent.buf_ == nullptr)
++    throw std::runtime_error("eRPC LRPC transport: RX ring allocation failed");
++  for (size_t i = 0; i < kNumRxRingEntries; i++)
++    rx_ring_[i] = extent.buf_ + i * kMTU;
++}
+ 
++void FakeTransport::tx_burst(const tx_burst_item_t *items, size_t num_pkts) {
++  if (!caller_) return;
++  for (size_t i = 0; i < num_pkts; i++) {
++    const tx_burst_item_t &item = items[i];
++    if (item.pkt_idx_ != 0) continue;
++    const pkthdr_t *req = item.msg_buffer_->get_pkthdr_0();
++    if (!req->is_req() || req->msg_size_ > LRPC_PAYLOAD_MAX) continue;
++
++    lrpc_astack call;
++    std::memset(&call, 0, offsetof(lrpc_astack, payload));
++    call.abi = LRPC_ASTACK_ABI;
++    call.procedure_id = req->req_type_;
++    call.request_size = req->msg_size_;
++    std::memcpy(call.payload, item.msg_buffer_->buf_, req->msg_size_);
++    if (lrpc_invoke(&lrpc_, &call) != 0 || call.status != 0) continue;
++
++    uint8_t *dst = rx_ring_[rx_tail_];
++    auto *resp = reinterpret_cast<pkthdr_t *>(dst);
++    std::memcpy(resp, req, sizeof(*resp));
++    resp->msg_size_ = call.response_size;
++    resp->dest_session_num_ = 0;  // Validation client creates session zero.
++    resp->pkt_type_ = PktType::kResp;
++    resp->pkt_num_ = 0;
++    std::memcpy(dst + sizeof(*resp), call.payload, call.response_size);
++    rx_tail_ = (rx_tail_ + 1) % kNumRxRingEntries;
++    pending_++;
++  }
++}
++
++size_t FakeTransport::rx_burst() {
++  size_t ret = pending_;
++  pending_ = 0;
++  return ret;
++}
++
++}  // namespace erpc
+ #endif
+diff --git a/src/transport_impl/fake/fake_transport.h b/src/transport_impl/fake/fake_transport.h
+index 435a71b..d03bd73 100644
+--- a/src/transport_impl/fake/fake_transport.h
++++ b/src/transport_impl/fake/fake_transport.h
+@@ -1,13 +1,13 @@
+ /**
+  * @file fake_transport.h
+- * @brief Implementation of a dummy transport to test compilation on machines
+- * that lack verbs and DPDK.
++ * @brief UB-LRPC transport used by the QEMU validation build.
+  */
+ #pragma once
+ 
+ #ifdef ERPC_FAKE
+ 
+ #include "transport.h"
++#include <lrpc/lrpc.h>
+ 
+ namespace erpc {
+ 
+@@ -20,24 +20,31 @@ class FakeTransport : public Transport {
+   static constexpr size_t kMaxDataPerPkt = (kMTU - sizeof(pkthdr_t));
+ 
+   FakeTransport(uint16_t, uint8_t rpc_id, uint8_t phy_port, size_t numa_node,
+-                FILE *trace_file)
+-      : Transport(TransportType::kRaw, rpc_id, phy_port, numa_node,
+-                  trace_file) {}
+-
+-  inline void init_hugepage_structures(HugeAlloc *, uint8_t **) {}
+-  inline void fill_local_routing_info(routing_info_t *) const {}
+-
+-  inline bool resolve_remote_routing_info(routing_info_t *) { return false; }
+-  inline size_t get_bandwidth() const { return 0; }
+-
+-  static std::string routing_info_str(routing_info_t *) { return ""; }
+-
+-  void tx_burst(const tx_burst_item_t *, size_t) {}
++                FILE *trace_file);
++  ~FakeTransport();
++
++  void init_hugepage_structures(HugeAlloc *huge_alloc, uint8_t **rx_ring);
++  inline void fill_local_routing_info(routing_info_t *rinfo) const {
++    memset(rinfo, 0, sizeof(*rinfo));
++  }
++  inline bool resolve_remote_routing_info(routing_info_t *) const {
++    return true;
++  }
++  inline size_t get_bandwidth() const { return 100ull * 1000 * 1000 * 1000; }
++  static std::string routing_info_str(routing_info_t *) { return "[UB-LRPC]"; }
++
++  void tx_burst(const tx_burst_item_t *items, size_t num_pkts);
+   void tx_flush() {}
+-  size_t rx_burst() { return 0; }
++  size_t rx_burst();
+   void post_recvs(size_t) {}
++
++ private:
++  lrpc_handle lrpc_{};
++  bool caller_ = false;
++  uint8_t **rx_ring_ = nullptr;
++  size_t rx_tail_ = 0;
++  size_t pending_ = 0;
+ };
+ 
+ }  // namespace erpc
+-
+ #endif
