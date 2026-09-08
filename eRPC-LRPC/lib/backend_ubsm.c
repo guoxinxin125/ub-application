@@ -20,7 +20,14 @@ _Static_assert(LRPC_UBSM_DATA_OFFSET +
 
 static int lrpc_ubsm_initialize(struct lrpc_ubsm_region *region)
 {
-	ubsmem_options_t options = {0};
+	/*
+	 * The current UBS Memory SDK defines ubsmem_options_t as an empty
+	 * GNU C struct.  A C initializer such as {0} therefore tries to
+	 * initialize a non-existent first member and fails with
+	 * "excess elements in struct initializer".  The SDK initializer is
+	 * the supported way to prepare this opaque options object.
+	 */
+	ubsmem_options_t options;
 	int ret;
 
 	ret = ubsmem_set_logger_level(3);
