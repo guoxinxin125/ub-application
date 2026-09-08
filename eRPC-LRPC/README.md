@@ -162,7 +162,27 @@ kernel.org 和 Go module 源；若 UB 机器不能联网，可在联网机器准
 ```sh
 # UB 真机不需要下载用于 QEMU 的 Linux 6.6.155 源码
 LRPC_FETCH_LINUX=0 sh scripts/fetch-deps.sh
+
+# 用仓库中已完成 AArch64 适配的版本替换第三方 eRPC 的 math_utils.h；
+# 该脚本会检查源文件包含 __builtin_clz 且不包含 x86 专用的 bsrl。
+sh scripts/replace-erpc-math-utils.sh
+
 sh scripts/build-ub-upstream-erpc.sh
+sh scripts/build-ub-grpc.sh
+```
+
+若适配后的 `math_utils.h` 不在默认的 `../eRPC/src/util/`，可显式指定：
+
+```sh
+ERPC_MATH_UTILS_SOURCE=/path/to/adapted/math_utils.h \
+    sh scripts/replace-erpc-math-utils.sh
+```
+
+如果 `third_party/eRPC` 已经被手工修改，而这里只需要补拉
+DeathStarBench Geo 依赖，可跳过 eRPC 的获取和 patch 状态检查：
+
+```sh
+LRPC_FETCH_LINUX=0 LRPC_FETCH_ERPC=0 sh scripts/fetch-deps.sh
 sh scripts/build-ub-grpc.sh
 ```
 
