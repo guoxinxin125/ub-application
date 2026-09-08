@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+fetch_linux=${LRPC_FETCH_LINUX:-1}
 mkdir -p "$root/third_party"
 
 if [ ! -d "$root/third_party/eRPC" ]; then
@@ -26,9 +27,10 @@ elif ! git -C "$root/third_party/eRPC" apply --reverse --check \
 	echo "eRPC tree has an unexpected UB configuration patch state" >&2
 	exit 1
 fi
-if [ ! -d "$root/third_party/linux" ]; then
+if [ "$fetch_linux" != 0 ] && [ ! -d "$root/third_party/linux" ]; then
 	tmp=${TMPDIR:-/tmp}/linux-6.6.155.tar.xz
-	curl -fsSL https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.155.tar.xz -o "$tmp"
+	linux_url=${LRPC_LINUX_URL:-https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.155.tar.xz}
+	curl -fsSL "$linux_url" -o "$tmp"
 	tar -xJf "$tmp" -C "$root/third_party"
 	mv "$root/third_party/linux-6.6.155" "$root/third_party/linux"
 fi
@@ -41,4 +43,6 @@ if [ ! -d "$root/third_party/DeathStarBench" ]; then
 fi
 cp "$root/demo/deathstar-grpc/geo-proto.go.mod" \
 	"$root/third_party/DeathStarBench/hotelReservation/services/geo/proto/go.mod"
-sh "$root/scripts/configure-linux.sh"
+if [ "$fetch_linux" != 0 ]; then
+	sh "$root/scripts/configure-linux.sh"
+fi

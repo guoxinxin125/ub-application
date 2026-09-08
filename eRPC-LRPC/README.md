@@ -160,7 +160,8 @@ kernel.org 和 Go module 源；若 UB 机器不能联网，可在联网机器准
 `third_party/` 与 Go module cache 后再复制过去。
 
 ```sh
-sh scripts/fetch-deps.sh
+# UB 真机不需要下载用于 QEMU 的 Linux 6.6.155 源码
+LRPC_FETCH_LINUX=0 sh scripts/fetch-deps.sh
 sh scripts/build-ub-upstream-erpc.sh
 sh scripts/build-ub-grpc.sh
 ```
