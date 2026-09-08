@@ -36,6 +36,15 @@ elif ! git -C "$root/third_party/eRPC" apply --reverse --check \
 	echo "eRPC tree has an unexpected AArch64 utility patch state" >&2
 	exit 1
 fi
+if git -C "$root/third_party/eRPC" apply --check \
+	"$root/patches/erpc-aarch64-math.patch" 2>/dev/null; then
+	git -C "$root/third_party/eRPC" apply \
+		"$root/patches/erpc-aarch64-math.patch"
+elif ! git -C "$root/third_party/eRPC" apply --reverse --check \
+	"$root/patches/erpc-aarch64-math.patch" 2>/dev/null; then
+	echo "eRPC tree has an unexpected AArch64 math patch state" >&2
+	exit 1
+fi
 if [ "$fetch_linux" != 0 ] && [ ! -d "$root/third_party/linux" ]; then
 	tmp=${TMPDIR:-/tmp}/linux-6.6.155.tar.xz
 	linux_url=${LRPC_LINUX_URL:-https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.155.tar.xz}
