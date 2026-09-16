@@ -1,6 +1,29 @@
+#include <cstdint>
 #include <thread>
 
 #include "client.h"
+#include "../post_consume.h"
+
+namespace {
+
+ImportedSharedPost consume_timeline_post(
+    AppRpc *rpc, const PostStorageReadCXLResp &reference_resp) {
+    my_assert(reference_resp.count <= 1);
+    if (reference_resp.count == 0) {
+        return ImportedSharedPost{};
+    }
+    ImportedSharedPost imported =
+        import_shared_post(rpc, reference_resp.post);
+    try {
+        sn_consume::retain(sn_consume::native_post(imported.buffer.buf_, imported.size));
+    } catch (...) {
+        release_imported_post(rpc, imported);
+        throw;
+    }
+    return imported;
+}
+
+}  // namespace
 
 
 
@@ -56,7 +79,6 @@ void compose_post_write_resp_handler(erpc::ReqHandle *req_handler, void *_contex
     ctx->rpc_->resize_msg_buffer(&req_handler->pre_resp_msgbuf_, 0);
 
     ctx->queue_store->PushNextReq();
-    __sync_synchronize();
 
     ctx->rpc_->enqueue_response(req_handler, &req_handler->pre_resp_msgbuf_);
 
@@ -75,23 +97,20 @@ void user_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
     ctx->rpc_->resize_msg_buffer(&req_handler->pre_resp_msgbuf_, 0);
 
 
+    auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
+    const PostStorageReadCXLResp &reference_resp = req->req_control;
+    ImportedSharedPost imported =
+        consume_timeline_post(ctx->rpc_, reference_resp);
+
+    // All effective fields have been consumed, before reference cleanup.
     hdr_record_value_atomic(latency_user_timeline_hist_,
         static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
 
-    auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
-    PostStorageReadCXLResp reference_resp = req->req_control;
-    for (size_t i = 0; i < reference_resp.count; i++) {
-        ImportedSharedPost imported =
-            import_shared_post(ctx->rpc_, reference_resp.posts[i]);
-        my_assert(imported.size == sizeof(PostData));
-        PostData post_data;
-        std::memcpy(&post_data, imported.buffer.buf_, sizeof(post_data));
-        [[maybe_unused]] int64_t dummy_id = post_data.post_id;
+    if (imported.buffer.buf_ != nullptr) {
         release_imported_post(ctx->rpc_, imported);
     }
 
     ctx->queue_store->PushNextReq();
-    __sync_synchronize();
     ctx->rpc_->enqueue_response(req_handler, &req_handler->pre_resp_msgbuf_);
 
 }
@@ -108,23 +127,20 @@ void home_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
 
     ctx->rpc_->resize_msg_buffer(&req_handler->pre_resp_msgbuf_, 0);
 
+    auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
+    const PostStorageReadCXLResp &reference_resp = req->req_control;
+    ImportedSharedPost imported =
+        consume_timeline_post(ctx->rpc_, reference_resp);
+
+    // All effective fields have been consumed, before reference cleanup.
     hdr_record_value_atomic(latency_home_timeline_hist_,
         static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
 
-    auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
-    PostStorageReadCXLResp reference_resp = req->req_control;
-    for (size_t i = 0; i < reference_resp.count; i++) {
-        ImportedSharedPost imported =
-            import_shared_post(ctx->rpc_, reference_resp.posts[i]);
-        my_assert(imported.size == sizeof(PostData));
-        PostData post_data;
-        std::memcpy(&post_data, imported.buffer.buf_, sizeof(post_data));
-        [[maybe_unused]] int64_t dummy_id = post_data.post_id;
+    if (imported.buffer.buf_ != nullptr) {
         release_imported_post(ctx->rpc_, imported);
     }
 
     ctx->queue_store->PushNextReq();
-    __sync_synchronize();
 
     ctx->rpc_->enqueue_response(req_handler, &req_handler->pre_resp_msgbuf_);
 
@@ -161,7 +177,6 @@ void callback_rmem_param(void *_context, void *_tag) {
     // CXL path does not require RMEM handshake payload. Some services may reply with non-zero
     // status for RPC_RMEM_PARAM, so we must not abort here.
     if (resp->resp_common.status != 0) {
-        __sync_synchronize();
         rmems_init_number++;
         return;
     }
@@ -175,13 +190,11 @@ void callback_rmem_param(void *_context, void *_tag) {
 
     if (resp->resp_control.data_length == 0) {
         // CXL shared memory doesn't need rmem connection
-        __sync_synchronize();
         rmems_init_number++;
     } else {
         social_network::RmemParam rmem_param;
         // CXL shared memory doesn't need rmem connection
         // This callback is not needed for CXL transport
-        __sync_synchronize();
         rmems_init_number++;
     }
 }
@@ -190,7 +203,6 @@ void handler_rmem_param(ClientContext *ctx, REQ_MSG req_msg) {
 #if defined(ERPC_CXL) || defined(ERPC_UB)
     _unused(req_msg);
     // Shared-memory transports do not need RMEM connection negotiation.
-    __sync_synchronize();
     rmems_init_number++;
     return;
 #else
@@ -209,8 +221,24 @@ void callback_common(void *_context, void *_tag) {
     auto *req = reinterpret_cast<CommonReq *>(
         ctx->req_msgbuf[req_id % kAppMaxBuffer].buf_);
     const auto req_type = req->type;
-    my_assert(ctx->resp_msgbuf[req_id % kAppMaxBuffer].get_data_size() == 0,
-              "data size not match");
+    erpc::MsgBuffer &resp_msgbuf =
+        ctx->resp_msgbuf[req_id % kAppMaxBuffer];
+
+    if (req_type == RPC_TYPE::RPC_POST_STORAGE_WRITE_REQ) {
+        my_assert(resp_msgbuf.get_data_size() ==
+                  sizeof(RPCMsgResp<CommonRPCResp>),
+                  "data size not match");
+        hdr_record_value_atomic(
+            latency_write_hist_,
+            static_cast<int64_t>(
+                timers[ctx->client_id_][req_id % kAppMaxBuffer].toc() * 10));
+        ctx->compose_post_req_queue->push(
+            ctx->req_msgbuf[req_id % kAppMaxBuffer]);
+        ctx->queue_store->PushNextReq();
+        return;
+    }
+
+    my_assert(resp_msgbuf.get_data_size() == 0, "data size not match");
 
     switch (req_type) {
     case RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ:
@@ -306,24 +334,30 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     connect_sessions(ctx);
 
-    using FUNC_HANDLER = std::function<void(ClientContext *, REQ_MSG)>;
-
-
-    std::map<RPC_TYPE, FUNC_HANDLER > handlers{
-            {RPC_TYPE::RPC_PING, handler_ping},
-            {RPC_TYPE::RPC_RMEM_PARAM, handler_rmem_param},
-            {RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ, handler_compose_post_write_req},
-            {RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, handler_user_timeline_read_req},
-            {RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ, handler_home_timeline_read_req},
-    };
-
     while (true) {
-        unsigned size = ctx->queue_store->GetReqSize();
-        __sync_synchronize();
-        for (unsigned i = 0; i < size; i++) {
-            REQ_MSG req_msg = ctx->queue_store->PopReq();
-
-            handlers[req_msg.req_type](ctx, req_msg);
+        REQ_MSG req_msg{};
+        for (size_t i = 0;
+             i < kAppMaxBuffer && ctx->queue_store->TryPopReq(req_msg);
+             i++) {
+            switch (req_msg.req_type) {
+                case RPC_TYPE::RPC_PING:
+                    handler_ping(ctx, req_msg);
+                    break;
+                case RPC_TYPE::RPC_RMEM_PARAM:
+                    handler_rmem_param(ctx, req_msg);
+                    break;
+                case RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ:
+                    handler_compose_post_write_req(ctx, req_msg);
+                    break;
+                case RPC_TYPE::RPC_USER_TIMELINE_READ_REQ:
+                    handler_user_timeline_read_req(ctx, req_msg);
+                    break;
+                case RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ:
+                    handler_home_timeline_read_req(ctx, req_msg);
+                    break;
+                default:
+                    my_assert(false);
+            }
         }
         ctx->rpc_->run_event_loop_once();
         if (unlikely(ctrl_c_pressed)) {

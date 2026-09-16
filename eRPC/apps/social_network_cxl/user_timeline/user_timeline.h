@@ -2,6 +2,7 @@
 #include "../social_network_commons.h"
 #include <social_network.pb.h>
 #include "../spinlock_mutex.h"
+#include <iterator>
 #include <hdr_histogram.h>
 #include <future>
 #include <map>
@@ -74,7 +75,7 @@ public:
     spinlock_mutex init_mutex;
     bool is_pinged{false};
     uint32_t ping_req_number{0};
-    bool mongodb_init_finished{false};
+    std::atomic<bool> mongodb_init_finished{false};
 
     void reset_stat()
     {
@@ -176,12 +177,13 @@ void read_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_
         is_fwd = false;
     }
 
-    if(user_timeline_map.find(req->req_control.user_id) == user_timeline_map.end()){
+    auto timeline_it = user_timeline_map.find(req->req_control.user_id);
+    if(timeline_it == user_timeline_map.end()){
 //        // printf("user id %ld not exist\n", req->req_control.user_id);
         is_fwd = false;
     }
-    std::set<int64_t> &post_ids = user_timeline_map[req->req_control.user_id];
-    if(req->req_control.start > static_cast<int>(post_ids.size())){
+    if (is_fwd && req->req_control.start >=
+                      static_cast<int>(timeline_it->second.size())) {
 //        for(size_t tmp: post_ids){
 //            // printf("%ld ", tmp);
 //        }
@@ -191,30 +193,20 @@ void read_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_
 
     if(!is_fwd){
 //        // printf("don't fwd, req number is %u\n", req->req_common.req_number);
-        erpc::MsgBuffer resp_buf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<CommonRPCReq>));
-        new (resp_buf.buf_) RPCMsgReq<CommonRPCReq>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP, req->req_common.req_number, {0});
-        __sync_synchronize();
+        erpc::MsgBuffer resp_buf = rpc_->alloc_msg_buffer_or_die(
+            sizeof(RPCMsgReq<PostStorageReadCXLResp>));
+        new (resp_buf.buf_) RPCMsgReq<PostStorageReadCXLResp>(
+            RPC_TYPE::RPC_USER_TIMELINE_READ_RESP,
+            req->req_common.req_number, {});
         consumer_back->push(resp_buf);
         return;
     }
 
     erpc::MsgBuffer fwd_req = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageReadCXLReq>));
     auto* fwd_req_msg = new (fwd_req.buf_) RPCMsgReq<PostStorageReadCXLReq>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ, req->req_common.req_number, {});
-    fwd_req_msg->req_control.rpc_type = static_cast<uint32_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_REQ);
-    fwd_req_msg->req_control.count = 0;
-
-    int now_index = 0;
-    for(int64_t post_id : post_ids){
-        if(req->req_control.start<=now_index && now_index<req->req_control.stop){
-            fwd_req_msg->req_control.post_ids[fwd_req_msg->req_control.count++] = post_id;
-        }
-        now_index++;
-        if(now_index==req->req_control.stop){
-            break;
-        }
-    }
-    
-    __sync_synchronize();
+    auto post_it = timeline_it->second.begin();
+    std::advance(post_it, req->req_control.start);
+    fwd_req_msg->req_control.post_id = *post_it;
     consumer_fwd->push(fwd_req);
 }
 

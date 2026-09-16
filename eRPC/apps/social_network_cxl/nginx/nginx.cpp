@@ -96,7 +96,6 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context)
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
     ctx->forward_spsc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
-    __sync_synchronize();
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
 }
@@ -125,7 +124,6 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context)
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
     ctx->backward_spsc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
-    __sync_synchronize();
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
 }
@@ -289,50 +287,35 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     connect_sessions(ctx);
 
-    using FUNC_HANDLER = std::function<void(ClientContext *, erpc::MsgBuffer)>;
-    std::map<RPC_TYPE ,FUNC_HANDLER > handlers{
-            {RPC_TYPE::RPC_PING, handler_ping},
-            {RPC_TYPE::RPC_PING_RESP, handler_ping_resp},
-            {RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ, handler_common_req},
-            {RPC_TYPE::RPC_COMPOSE_POST_WRITE_RESP, handler_common_resp},
-            {RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, handler_common_req},
-            {RPC_TYPE::RPC_USER_TIMELINE_READ_RESP, handler_common_resp},
-            {RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ, handler_common_req},
-            {RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP, handler_common_resp},
-    };
-
     while (true)
     {
-        unsigned size = ctx->forward_spsc_queue->was_size();
-        if (size > 0) {
-            // printf("[nginx] client_thread: forward_spsc_queue size=%u\n", size);
-        }
-
-        for (unsigned i = 0; i < size; i++)
-        {
-            erpc::MsgBuffer req_msg = ctx->forward_spsc_queue->pop();
-            __sync_synchronize();
-
+        erpc::MsgBuffer req_msg;
+        for (size_t i = 0;
+             i < kAppMaxBuffer &&
+             ctx->forward_spsc_queue->try_pop(req_msg);
+             i++) {
             const auto req_type = static_cast<RPC_TYPE>(req_msg.get_hdr_req_type());
             my_assert(req_type == RPC_TYPE::RPC_PING || req_type == RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ
                             || req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_REQ || req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ);
-            handlers[req_type](ctx, req_msg);
+            if (req_type == RPC_TYPE::RPC_PING) {
+                handler_ping(ctx, req_msg);
+            } else {
+                handler_common_req(ctx, req_msg);
+            }
         }
 
-        size = ctx->backward_spsc_queue->was_size();
-        if (size > 0) {
-            // printf("[nginx] client_thread: backward_spsc_queue size=%u\n", size);
-        }
-
-        for (unsigned i = 0; i < size; i++)
-        {
-            erpc::MsgBuffer req_msg = ctx->backward_spsc_queue->pop();
-            __sync_synchronize();
-
+        for (size_t i = 0;
+             i < kAppMaxBuffer &&
+             ctx->backward_spsc_queue->try_pop(req_msg);
+             i++) {
             const auto req_type = static_cast<RPC_TYPE>(req_msg.get_hdr_req_type());
             my_assert(req_type == RPC_TYPE::RPC_PING_RESP || req_type == RPC_TYPE::RPC_COMPOSE_POST_WRITE_RESP ||
                             req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_RESP || req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP);
-            handlers[req_type](ctx, req_msg);
+            if (req_type == RPC_TYPE::RPC_PING_RESP) {
+                handler_ping_resp(ctx, req_msg);
+            } else {
+                handler_common_resp(ctx, req_msg);
+            }
         }
         ctx->rpc_->run_event_loop_once();
         if (unlikely(ctrl_c_pressed))

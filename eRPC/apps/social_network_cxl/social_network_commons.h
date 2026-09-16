@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <nlohmann/json.hpp>
 #include <csignal>
 #include <cstdio>

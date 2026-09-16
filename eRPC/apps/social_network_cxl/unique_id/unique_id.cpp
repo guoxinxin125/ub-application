@@ -121,24 +121,18 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     connect_sessions(ctx);
 
-    using FUNC_HANDLER = std::function<void(ClientContext *, erpc::MsgBuffer)>;
-
-
-    std::map<RPC_TYPE ,FUNC_HANDLER > handlers{
-            {RPC_TYPE::RPC_PING_RESP, handler_ping_resp},
-    };
-
     while (true)
     {
-        unsigned size = ctx->backward_spsc_queue->was_size();
-        for (unsigned i = 0; i < size; i++)
-        {
-            erpc::MsgBuffer req_msg = ctx->backward_spsc_queue->pop();
+        erpc::MsgBuffer req_msg;
+        for (size_t i = 0;
+             i < kAppMaxBuffer &&
+             ctx->backward_spsc_queue->try_pop(req_msg);
+             i++) {
             auto *req = reinterpret_cast<CommonReq *>(req_msg.buf_);
             if (req->type != RPC_TYPE::RPC_PING_RESP)
                 // printf("req->type=%u\n", static_cast<uint32_t>(req->type));
             my_assert(req->type == RPC_TYPE::RPC_PING_RESP, "only ping_resp and tc_resp in backward queue");
-            handlers[req->type](ctx, req_msg);
+            handler_ping_resp(ctx, req_msg);
         }
         ctx->rpc_->run_event_loop_once();
         if (unlikely(ctrl_c_pressed))
@@ -187,10 +181,10 @@ void worker_thread_func(size_t thread_id, SPSC_QUEUE *producer, SPSC_QUEUE *cons
     _unused(server_rpc_);
     while (true)
     {
-        unsigned size = producer->was_size();
-        for (unsigned i = 0; i < size; i++)
-        {
-            erpc::MsgBuffer req_msg = producer->pop();
+        erpc::MsgBuffer req_msg;
+        for (size_t i = 0;
+             i < kAppMaxBuffer && producer->try_pop(req_msg);
+             i++) {
 
             auto *req = reinterpret_cast<CommonReq *>(req_msg.buf_);
             my_assert(req->type == RPC_TYPE::RPC_PING, "req type error");

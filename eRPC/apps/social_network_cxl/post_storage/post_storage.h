@@ -16,19 +16,6 @@ size_t write_total_size_per_thread;
 
 bool write_to_mongodb;
 
-class StorageHandler {
-public:
-    uint32_t req_number{};
-    uint32_t rpc_type{};
-    bool is_read{};
-    std::vector<int64_t> post_ids;
-    std::vector<SharedPostBuffer> buffers;
-    social_network::PostStorageReadResp resp;
-};
-using STORAGE_QUEUE = atomic_queue::AtomicQueueB2<StorageHandler*, std::allocator<StorageHandler*>, true, false, false>;
-
-std::vector<STORAGE_QUEUE *> storage_queues;
-
 class ClientContext : public BasicContext {
 public:
     ClientContext(size_t cid, size_t sid, size_t rid) : client_id_(cid), server_sender_id_(sid), server_receiver_id_(rid) {
@@ -90,14 +77,10 @@ public:
         for (size_t i = 0; i < FLAGS_server_num; i++) {
             server_contexts_.push_back(new ServerContext(i));
         }
-        for (size_t i = 0; i < FLAGS_server_num; i++) {
-            storage_queues.push_back(new STORAGE_QUEUE(kAppMaxBuffer));
-        }
     }
     ~AppContext() {
         for (auto &ctx : client_contexts_) delete ctx;
         for (auto &ctx : server_contexts_) delete ctx;
-        for (auto &q : storage_queues) delete q;
     }
 
     std::vector<ClientContext *> client_contexts_;

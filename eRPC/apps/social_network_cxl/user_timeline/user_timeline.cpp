@@ -48,7 +48,7 @@ void ping_handler(erpc::ReqHandle *req_handle, void *_context)
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, sizeof(RPCMsgResp<PingRPCResp>));
 
     ctx->init_mutex.lock();
-    if(ctx->mongodb_init_finished){
+    if(ctx->mongodb_init_finished.load(std::memory_order_acquire)){
         ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
         
     } else {
@@ -65,9 +65,10 @@ void user_timeline_write_req_handler(erpc::ReqHandle *req_handle, void *_context
     auto *ctx = static_cast<ServerContext *>(_context);
     ctx->stat_req_user_timeline_write_req_tot++;
 
-    ctx->init_mutex.lock();
-    my_assert(ctx->mongodb_init_finished);
-    ctx->init_mutex.unlock();
+    if (unlikely(!ctx->mongodb_init_finished.load(
+            std::memory_order_acquire))) {
+        throw std::runtime_error("user_timeline: MongoDB is not initialized");
+    }
 
     auto *req_msgbuf = req_handle->get_req_msgbuf();
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
@@ -83,7 +84,6 @@ void user_timeline_write_req_handler(erpc::ReqHandle *req_handle, void *_context
 //    }
 
     ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
-    __sync_synchronize();
     
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
@@ -95,9 +95,10 @@ void user_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
     auto *ctx = static_cast<ServerContext *>(_context);
     ctx->stat_req_user_timeline_read_req_tot++;
 
-    ctx->init_mutex.lock();
-    my_assert(ctx->mongodb_init_finished);
-    ctx->init_mutex.unlock();
+    if (unlikely(!ctx->mongodb_init_finished.load(
+            std::memory_order_acquire))) {
+        throw std::runtime_error("user_timeline: MongoDB is not initialized");
+    }
 
     auto *req_msgbuf = req_handle->get_req_msgbuf();
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
@@ -113,7 +114,6 @@ void user_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
 //    }
 
     ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
-    __sync_synchronize();
     
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
@@ -125,16 +125,16 @@ void post_storage_read_resp_handler(erpc::ReqHandle *req_handle, void *_context)
     auto *ctx = static_cast<ServerContext *>(_context);
     ctx->stat_req_post_storage_read_resp_tot++;
 
-    ctx->init_mutex.lock();
-    my_assert(ctx->mongodb_init_finished);
-    ctx->init_mutex.unlock();
+    if (unlikely(!ctx->mongodb_init_finished.load(
+            std::memory_order_acquire))) {
+        throw std::runtime_error("user_timeline: MongoDB is not initialized");
+    }
 
     auto *req_msgbuf = req_handle->get_req_msgbuf();
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
     ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
-    __sync_synchronize();
     
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
@@ -258,10 +258,23 @@ void callback_post_storage_read_req(void *_context, void *_tag)
     erpc::MsgBuffer &req_msgbuf = ctx->req_forward_msgbuf[req_id];
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[req_id];
 
-    my_assert(resp_msgbuf.get_data_size() == 0);
+    my_assert(resp_msgbuf.get_data_size() ==
+              sizeof(RPCMsgResp<PostStorageReadCXLResp>));
+    auto *resp = reinterpret_cast<RPCMsgResp<PostStorageReadCXLResp> *>(
+        resp_msgbuf.buf_);
+
+    erpc::MsgBuffer result = ctx->rpc_->alloc_msg_buffer_or_die(
+        sizeof(RPCMsgReq<PostStorageReadCXLResp>));
+    new (result.buf_) RPCMsgReq<PostStorageReadCXLResp>(
+        RPC_TYPE::RPC_USER_TIMELINE_READ_RESP,
+        resp->resp_common.req_number, resp->resp_control);
+    result.set_hdr_req_type(
+        static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP));
+    result.set_hdr_req_num(resp->resp_common.req_number);
 
     release_msgbuf(ctx->rpc_, req_msgbuf);
     req_msgbuf.buf_ = nullptr;
+    ctx->backward_mpmc_queue->push(result);
 }
 
 void handler_post_storage_read_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
@@ -300,44 +313,46 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     for(auto & i : ctx->resp_forward_msgbuf)
     {
-        i = rpc.alloc_msg_buffer_or_die(sizeof(RPCMsgResp<CommonRPCResp>));
+        i = rpc.alloc_msg_buffer_or_die(
+            sizeof(RPCMsgResp<PostStorageReadCXLResp>));
     }
 
     connect_sessions(ctx);
 
-    using FUNC_HANDLER = std::function<void(ClientContext *, erpc::MsgBuffer)>;
-
-    std::map<RPC_TYPE ,FUNC_HANDLER > handlers{
-            {RPC_TYPE::RPC_PING_RESP, handler_ping_resp},
-            {RPC_TYPE::RPC_USER_TIMELINE_WRITE_RESP, handler_user_timeline_write_resp},
-            {RPC_TYPE::RPC_USER_TIMELINE_READ_RESP, handler_user_timeline_read_resp},
-            {RPC_TYPE::RPC_POST_STORAGE_READ_REQ, handler_post_storage_read_req}
-    };
-
     while (true)
     {
-        unsigned size = ctx->forward_mpmc_queue->was_size();
-
-        for (unsigned i = 0; i < size; i++)
-        {
-            erpc::MsgBuffer req_msg = ctx->forward_mpmc_queue->pop();
-            __sync_synchronize();
+        erpc::MsgBuffer req_msg;
+        for (size_t i = 0;
+             i < kAppMaxBuffer &&
+             ctx->forward_mpmc_queue->try_pop(req_msg);
+             i++) {
             auto *req = reinterpret_cast<CommonReq *>(req_msg.buf_);
             my_assert(req->type == RPC_TYPE::RPC_POST_STORAGE_READ_REQ);
-            handlers[req->type](ctx, req_msg);
+            handler_post_storage_read_req(ctx, req_msg);
         }
 
-        size = ctx->backward_mpmc_queue->was_size();
-        for (unsigned i = 0; i < size; i++)
-        {
-            erpc::MsgBuffer req_msg = ctx->backward_mpmc_queue->pop();
-            __sync_synchronize();
+        for (size_t i = 0;
+             i < kAppMaxBuffer &&
+             ctx->backward_mpmc_queue->try_pop(req_msg);
+             i++) {
             auto *req = reinterpret_cast<CommonReq *>(req_msg.buf_);
 
             my_assert(req->type == RPC_TYPE::RPC_PING_RESP || req->type == RPC_TYPE::RPC_USER_TIMELINE_WRITE_RESP ||
                             req->type == RPC_TYPE::RPC_USER_TIMELINE_READ_RESP
                             );
-            handlers[req->type](ctx, req_msg);
+            switch (req->type) {
+                case RPC_TYPE::RPC_PING_RESP:
+                    handler_ping_resp(ctx, req_msg);
+                    break;
+                case RPC_TYPE::RPC_USER_TIMELINE_WRITE_RESP:
+                    handler_user_timeline_write_resp(ctx, req_msg);
+                    break;
+                case RPC_TYPE::RPC_USER_TIMELINE_READ_RESP:
+                    handler_user_timeline_read_resp(ctx, req_msg);
+                    break;
+                default:
+                    my_assert(false);
+            }
         }
         ctx->rpc_->run_event_loop_once();
         if (unlikely(ctrl_c_pressed))
@@ -386,15 +401,10 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
     _unused(rpc_);
     while (true)
     {
-        unsigned size = producer->was_size();
-        if (size > 0) {
-            // printf("[user_timeline] worker_thread_func: processing %u messages\n", size);
-        }
-
-        for (unsigned i = 0; i < size; i++)
-        {
-            erpc::MsgBuffer req_msg = producer->pop();
-            __sync_synchronize();
+        erpc::MsgBuffer req_msg;
+        for (size_t i = 0;
+             i < kAppMaxBuffer && producer->try_pop(req_msg);
+             i++) {
 
             auto *req = reinterpret_cast<CommonReq *>(req_msg.buf_);
             // printf("[user_timeline] worker_thread_func: got msg type=%u\n", static_cast<uint32_t>(req->type));
@@ -412,13 +422,11 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
                 erpc::MsgBuffer local = prepare_forward_msgbuf(rpc_, req_msg);
                 auto *local_req = reinterpret_cast<CommonReq *>(local.buf_);
                 local_req->type = RPC_TYPE::RPC_USER_TIMELINE_READ_RESP;
-                __sync_synchronize();
                 consumer_back->push(local);
             } else {
                 erpc::MsgBuffer local = prepare_forward_msgbuf(rpc_, req_msg);
                 auto *local_req = reinterpret_cast<CommonReq *>(local.buf_);
                 local_req->type = RPC_TYPE::RPC_PING_RESP;
-                __sync_synchronize();
                 consumer_back->push(local);
             }
         }
@@ -493,7 +501,7 @@ void mongodb_init(AppContext *ctx){
         }
 
 
-        item->mongodb_init_finished = true;
+        item->mongodb_init_finished.store(true, std::memory_order_release);
         item->init_mutex.unlock();
     }
 

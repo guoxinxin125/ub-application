@@ -24,7 +24,7 @@ std::unordered_map<int64_t, std::vector<int64_t>> user_home_timeline_map;
 
 std::queue<int64_t> post_ids_queue;
 
-static int64_t per_read_posts = 3;
+static int64_t per_read_posts = 1;
 
 class ClientContext : public BasicContext
 {
@@ -79,7 +79,7 @@ public:
     spinlock_mutex init_mutex;
     bool is_pinged{false};
     uint32_t ping_req_number{0};
-    bool mongodb_init_finished{false};
+    std::atomic<bool> mongodb_init_finished{false};
 
     void reset_stat()
     {
@@ -236,27 +236,23 @@ void read_home_time_line_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *cons
 //    if(!user_home_timeline_map.contains(req->req_control.user_id)){
 //        is_fwd = false;
 //    } 
-    std::vector<int64_t> post_ids;
-    if (!post_ids_queue.empty()) {
-        int64_t num = std::min((int64_t)per_read_posts, (int64_t)post_ids_queue.size());
-        while(num--){
-            int64_t tmp = post_ids_queue.front();
-            post_ids.push_back(tmp);
-            post_ids_queue.pop();
-            post_ids_queue.push(tmp);
-        }
-    }
-
-    if(req->req_control.start_idx >= static_cast<int>(post_ids.size())){
+    int64_t post_id = 0;
+    if (post_ids_queue.empty() || req->req_control.start_idx != 0) {
         is_fwd = false;
+    } else {
+        post_id = post_ids_queue.front();
+        post_ids_queue.pop();
+        post_ids_queue.push(post_id);
     }
 
     if(!is_fwd){
-        erpc::MsgBuffer resp_buf = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<CommonRPCReq>));
-        new (resp_buf.buf_) RPCMsgReq<CommonRPCReq>(RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP, req->req_common.req_number, {0});
+        erpc::MsgBuffer resp_buf = rpc_->alloc_msg_buffer_or_die(
+            sizeof(RPCMsgReq<PostStorageReadCXLResp>));
+        new (resp_buf.buf_) RPCMsgReq<PostStorageReadCXLResp>(
+            RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP,
+            req->req_common.req_number, {});
         resp_buf.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP));
         resp_buf.set_hdr_req_num(req->req_common.req_number);
-        __sync_synchronize();
         consumer_back->push(resp_buf);
         return;
     }
@@ -265,21 +261,7 @@ void read_home_time_line_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *cons
     auto* fwd_req_msg = new (fwd_req.buf_) RPCMsgReq<PostStorageReadCXLReq>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ, req->req_common.req_number, {});
     fwd_req.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ));
     fwd_req.set_hdr_req_num(req->req_common.req_number);
-    fwd_req_msg->req_control.rpc_type = static_cast<uint32_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ);
-    fwd_req_msg->req_control.count = 0;
-
-    int now_index = 0;
-    for(int64_t & post_id : post_ids){
-        if(req->req_control.start_idx<=now_index && now_index<req->req_control.stop_idx){
-            fwd_req_msg->req_control.post_ids[fwd_req_msg->req_control.count++] = post_id;
-        }
-        now_index++;
-        if(now_index==req->req_control.stop_idx){
-            break;
-        }
-    }
-
-    __sync_synchronize();
+    fwd_req_msg->req_control.post_id = post_id;
     consumer_fwd->push(fwd_req);
 }
 
@@ -287,6 +269,7 @@ void write_home_timeline_and_return(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consum
     auto* req = static_cast<RPCMsgReq<PostStorageWriteCXLReq> *>(buf_);
     PostData post;
     std::memcpy(&post, &req->req_control.post, sizeof(post));
+    validate_post_data(post);
     const PostData *cxl_post_ptr = &post;
     my_assert(cxl_post_ptr->mentions_count <= SN_MAX_MENTIONS);
 
@@ -307,6 +290,5 @@ void write_home_timeline_and_return(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consum
     new (resp_buf.buf_) RPCMsgReq<CommonRPCReq>(RPC_TYPE::RPC_HOME_TIMELINE_WRITE_RESP, req->req_common.req_number, {0});
     resp_buf.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_WRITE_RESP));
     resp_buf.set_hdr_req_num(req->req_common.req_number);
-    __sync_synchronize();
     consumer_back->push(resp_buf);
 }

@@ -161,9 +161,7 @@ public:
 
 class PostStorageReadCXLReq {
 public:
-    uint32_t rpc_type;
-    uint32_t count;
-    int64_t post_ids[64];
+    int64_t post_id;
 };
 
 class PostStorageReadCXLResp {
@@ -175,15 +173,27 @@ public:
         uint64_t payload_length;
     };
 
-    size_t count;
-    SharedPostHandle posts[64];
+    uint32_t count;
+    SharedPostHandle post;
 };
 
 class UserMentionRPCResp {
 public:
     uint32_t count;
     int64_t user_ids[SN_MAX_MENTIONS];
+    uint32_t username_lengths[SN_MAX_MENTIONS];
+    char usernames[SN_MAX_MENTIONS][SN_USERNAME_LEN];
+};
+
+class UrlShortenRPCResp {
+public:
+    uint32_t count;
+    PostUrlData urls[SN_MAX_URLS];
 };
 
 static_assert(sizeof(PostStorageReadCXLResp::SharedPostHandle) == 32,
               "shared post handle wire layout changed");
+static_assert(sizeof(PostStorageReadCXLReq) == 8,
+              "single-post read request wire layout changed");
+static_assert(sizeof(PostStorageReadCXLResp) == 40,
+              "single-post read response wire layout changed");
