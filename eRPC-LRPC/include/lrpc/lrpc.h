@@ -58,6 +58,10 @@ int lrpc_shadow_run(const char *device, uint32_t procedure_id,
 typedef long (*lrpc_shadow_handler_fn)(struct lrpc_astack *call);
 int lrpc_shadow_serve(const char *device, uint32_t procedure_id,
 		      uint64_t expected_epoch, lrpc_shadow_handler_fn handler);
+int lrpc_shadow_serve_with_data(const char *device, uint32_t procedure_id,
+				uint64_t expected_epoch,
+				lrpc_shadow_handler_fn handler,
+				void *service_data);
 int lrpc_shadow_serve_current_stack(const char *device, uint32_t procedure_id,
 				    uint64_t expected_epoch,
 				    lrpc_shadow_handler_fn handler);

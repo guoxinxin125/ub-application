@@ -7,6 +7,10 @@
 
 #include <lrpc/lrpc_ubsm.h>
 
+extern const unsigned char lrpc_ub_add_image_start[];
+extern const unsigned char lrpc_ub_add_image_entry[];
+extern const unsigned char lrpc_ub_add_image_end[];
+
 static volatile sig_atomic_t stop_requested;
 
 static void request_stop(int signo)
@@ -22,7 +26,10 @@ int main(int argc, char **argv)
 	struct lrpc_ubsm_provider provider;
 	struct lrpc_ubsm_region region;
 	struct lrpc_ubsm_metadata *meta;
+	struct lrpc_ubsm_service services[4];
 	const uint32_t procedures[] = {1, 2, 3, 4};
+	size_t code_size;
+	size_t entry_offset;
 	int ret;
 
 	if (argc < 2 || argc > 3) {
@@ -50,6 +57,24 @@ int main(int argc, char **argv)
 		(void)lrpc_ubsm_close(&region, 1);
 		return 1;
 	}
+	code_size = (size_t)((uintptr_t)lrpc_ub_add_image_end -
+			     (uintptr_t)lrpc_ub_add_image_start);
+	entry_offset = (size_t)((uintptr_t)lrpc_ub_add_image_entry -
+				(uintptr_t)lrpc_ub_add_image_start);
+	if (!code_size || code_size > LRPC_UBSM_CODE_SLOT_SIZE ||
+	    entry_offset >= code_size) {
+		(void)lrpc_ubsm_close(&region, 1);
+		return 1;
+	}
+	memset(services, 0, sizeof(services));
+	for (size_t i = 0; i < sizeof(services) / sizeof(services[0]); i++) {
+		services[i].procedure_id = procedures[i];
+		services[i].flags = LRPC_UBSM_PROC_LOCAL_CODE;
+	}
+	services[0].flags = LRPC_UBSM_PROC_PUBLISHED_CODE;
+	services[0].code = lrpc_ub_add_image_start;
+	services[0].code_size = code_size;
+	services[0].code_entry_offset = entry_offset;
 	for (size_t i = 0; i < sizeof(procedures) / sizeof(procedures[0]); i++) {
 		volatile uint64_t *service_value = lrpc_ubsm_at(
 			&region, LRPC_UBSM_DATA_OFFSET +
@@ -63,8 +88,8 @@ int main(int argc, char **argv)
 		}
 		__atomic_store_n(service_value, 100, __ATOMIC_RELAXED);
 	}
-	ret = lrpc_ubsm_publish(&region, 1, procedures,
-				sizeof(procedures) / sizeof(procedures[0]));
+	ret = lrpc_ubsm_publish_services(&region, 1, services,
+				 sizeof(services) / sizeof(services[0]));
 	if (ret) {
 		fprintf(stderr, "UB_LRPC_OWNER_FAIL publish error=%d\n", ret);
 		(void)lrpc_ubsm_close(&region, 1);
@@ -78,7 +103,11 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	printf("UB_LRPC_OWNER_READY name=%s provider=%s epoch=1 procs=1,2,3,4 "
-	       "value=100 pid=%d\n", name, provider_host, getpid());
+	       "value=100 pid=%d proc1_code_offset=%llu code_bytes=%llu "
+	       "code_hash=0x%llx\n", name, provider_host, getpid(),
+	       (unsigned long long)meta->proc[0].code_offset,
+	       (unsigned long long)meta->proc[0].code_size,
+	       (unsigned long long)meta->proc[0].code_hash);
 	printf("UB_LRPC_OWNER_IDLE stop shadow first, then send SIGINT here\n");
 	fflush(stdout);
 	while (!stop_requested)

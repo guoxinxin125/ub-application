@@ -1,0 +1,11 @@
+#ifndef ERPC_LRPC_ABI_OFFSETS_H
+#define ERPC_LRPC_ABI_OFFSETS_H
+
+/* Keep these constants in sync with struct lrpc_astack. */
+#define LRPC_ASTACK_REQUEST_SIZE_OFFSET 16
+#define LRPC_ASTACK_RESPONSE_SIZE_OFFSET 24
+#define LRPC_ASTACK_STATUS_OFFSET 32
+#define LRPC_ASTACK_SERVICE_DATA_OFFSET 64
+#define LRPC_ASTACK_PAYLOAD_OFFSET 96
+
+#endif

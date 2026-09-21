@@ -5,7 +5,15 @@ preserves the original x86/QEMU prototype. `ubsm` adds the real-UB AArch64
 path: multi-procedure metadata, nested calls, eRPC compatibility, and a
 gRPC-Go/DeathStarBench Geo demo. The caller/shadow handoff and A-stack stay on
 the importing host; service data is owned by the remote UB host and imported
-only by shadows. See the real-UB commands below and `docs/ub-bringup.md`.
+only by shadows. In the minimal procedure-1 demo, B also publishes an AArch64
+PIC code image; A copies and verifies it into a local RX mapping before the
+shadow executes it. See the real-UB commands below and `docs/ub-bringup.md`.
+
+The procedure-1 image is deliberately packaged into B's owner executable and
+published during owner startup. A does not scrape arbitrary pages from B's
+running `.text` mapping. The image is a restricted leaf handler with no dynamic
+linker relocations, process-local globals, PLT/GOT calls, or absolute pointers;
+remote state is passed separately through `lrpc_astack.service_data`.
 
 ```sh
 # Existing x86/QEMU build
@@ -119,8 +127,11 @@ shadow 的 importing host。两台机器必须先跑通
 `tests/ubs-mem-two-node`，且 `ubsmd`、UBS Engine、OBMM 与动态库均正常。
 当前共享对象固定使用
 `UBSM_FLAG_ONLY_IMPORT_NONCACHE | UBSM_FLAG_WR_DELAY_COMP`：B 端映射可缓存，
-A 端导入映射为 non-cache。UB 共享区只保存元数据和 service data；A-stack、
-E-stack 与 AArch64 代码都在 A 本地，不请求 `PROT_EXEC` 的 UB 映射。
+A 端导入映射为 non-cache。UB 共享区保存元数据、service data，以及 procedure
+1 的 AArch64 PIC code image。A 在连接时把该 image 复制到本地匿名页，校验
+hash、同步指令缓存，再将页面从 RW 改为 RX。A-stack、E-stack 和最终执行的
+代码副本都在 A 本地，UB 映射本身不请求 `PROT_EXEC`。procedure 2/3/4
+暂时仍使用预编译的 `LOCAL_CODE` handler。
 
 ### 1. 编译全部 UB 程序
 
@@ -201,7 +212,7 @@ file build-ub/lrpc-ub-client \
 ### 2. 公共启动与清理顺序
 
 B 端先创建名为 `lrpc_ub_demo` 的 4 MiB UBS Memory 对象，并发布 epoch 1、
-procedure 1/2/3/4：
+procedure 1/2/3/4；其中 procedure 1 同时发布 PIC code image：
 
 ```sh
 cd ~/ub-application/eRPC-LRPC
@@ -228,11 +239,18 @@ sudo rmmod ub_lrpc_ctl
 ### 3. 测试一：最小 UB LRPC（procedure 1）
 
 B 上保持 owner 运行。A 的终端 1 启动 shadow，它会导入 procedure 1 的
-远端 service data：
+远端 code image 和 service data，将代码复制到本地 RX 页后执行：
 
 ```sh
 LRPC_SHADOW_CPU=1 ./build-ub/lrpc-ub-shadow \
     lrpc_ub_demo /dev/ub_lrpc_ctl
+```
+
+shadow 应先打印代码本地化证据；其中 `remote_offset` 是 B 发布的 UB code
+slot，`local_entry` 是 A 的本地 RX 地址：
+
+```text
+UB_LRPC_CODE_LOCALIZED proc=1 remote_offset=... bytes=... hash=0x... local_entry=0x... permissions=rx remote_value=100
 ```
 
 A 的终端 2 运行 caller：
@@ -357,7 +375,9 @@ DEATHSTAR_GRPC_LRPC_PASS
 ### 8. 当前验证边界
 
 这些 UB 程序已把 AArch64 汇编选择、UBSM 创建/导入、non-cache flag、
-多 procedure 元数据、epoch 检查、级联 handoff、eRPC API 和 gRPC-Go demo
-接到同一代码树中；`LRPC_BACKEND=ivshmem` 的 x86/QEMU 路径保持独立。
+procedure 1 的 B 端代码发布与 A 端 RW-to-RX 本地化、多 procedure 元数据、
+epoch/hash 检查、级联 handoff、eRPC API 和 gRPC-Go demo 接到同一代码树中；
+`LRPC_BACKEND=ivshmem` 的 x86/QEMU 路径保持独立。当前只有 procedure 1
+使用发布代码；procedure 2/3/4 仍是 A 端预编译 handler。
 但源码静态检查或 x86 配置成功不能替代真机结论：最终仍需在两台 AArch64
 UB 主机上完成编译、模块加载、功能输出、远端 load latency 与端到端延迟测试。

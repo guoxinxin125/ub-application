@@ -12,6 +12,23 @@
 #include <unistd.h>
 
 #include <lrpc/lrpc.h>
+#include <lrpc/lrpc_abi_offsets.h>
+
+typedef char lrpc_request_size_offset_check[
+	offsetof(struct lrpc_astack, request_size) ==
+	LRPC_ASTACK_REQUEST_SIZE_OFFSET ? 1 : -1];
+typedef char lrpc_response_size_offset_check[
+	offsetof(struct lrpc_astack, response_size) ==
+	LRPC_ASTACK_RESPONSE_SIZE_OFFSET ? 1 : -1];
+typedef char lrpc_status_offset_check[
+	offsetof(struct lrpc_astack, status) ==
+	LRPC_ASTACK_STATUS_OFFSET ? 1 : -1];
+typedef char lrpc_service_data_offset_check[
+	offsetof(struct lrpc_astack, service_data) ==
+	LRPC_ASTACK_SERVICE_DATA_OFFSET ? 1 : -1];
+typedef char lrpc_payload_offset_check[
+	offsetof(struct lrpc_astack, payload) ==
+	LRPC_ASTACK_PAYLOAD_OFFSET ? 1 : -1];
 
 static void *map_region(int fd, uint64_t off, size_t len, int prot)
 {
@@ -278,7 +295,7 @@ out:
 static int lrpc_shadow_serve_impl(const char *device, uint32_t procedure_id,
 				  uint64_t expected_epoch,
 				  lrpc_shadow_handler_fn handler,
-				  int switch_stack)
+				  int switch_stack, void *service_data)
 {
 	struct ub_lrpc_set_role role = { .role = UB_LRPC_ROLE_SHADOW };
 	struct ub_lrpc_bind bind = { .procedure_id = procedure_id,
@@ -323,6 +340,8 @@ static int lrpc_shadow_serve_impl(const char *device, uint32_t procedure_id,
 			goto out;
 		shared->shadow_pid = (uint64_t)getpid();
 		shared->caller_cpu_in_service = (uint64_t)sched_getcpu();
+		if (service_data)
+			shared->service_data = (uint64_t)(uintptr_t)service_data;
 		__sync_synchronize();
 		if (switch_stack)
 			handoff.result = (int)lrpc_call_on_stack(
@@ -348,7 +367,20 @@ int lrpc_shadow_serve(const char *device, uint32_t procedure_id,
 		      uint64_t expected_epoch, lrpc_shadow_handler_fn handler)
 {
 	return lrpc_shadow_serve_impl(device, procedure_id, expected_epoch,
-				      handler, 1);
+				      handler, 1, NULL);
+}
+
+int lrpc_shadow_serve_with_data(const char *device, uint32_t procedure_id,
+				uint64_t expected_epoch,
+				lrpc_shadow_handler_fn handler,
+				void *service_data)
+{
+	if (!service_data) {
+		errno = EINVAL;
+		return -1;
+	}
+	return lrpc_shadow_serve_impl(device, procedure_id, expected_epoch,
+				      handler, 1, service_data);
 }
 
 int lrpc_shadow_serve_current_stack(const char *device, uint32_t procedure_id,
@@ -356,7 +388,7 @@ int lrpc_shadow_serve_current_stack(const char *device, uint32_t procedure_id,
 				    lrpc_shadow_handler_fn handler)
 {
 	return lrpc_shadow_serve_impl(device, procedure_id, expected_epoch,
-				      handler, 0);
+				      handler, 0, NULL);
 }
 
 void lrpc_close(struct lrpc_handle *h)

@@ -91,6 +91,7 @@ else()
         set_target_properties(${UB_TARGET} PROPERTIES
             BUILD_RPATH "${UBSM_LIBRARY_DIR}")
     endforeach()
+    target_sources(lrpc-ub-owner PRIVATE demo/ub/published_service_aarch64.S)
 
     add_executable(lrpc-ub-nested-shadow demo/ub/nested_shadow.c)
     target_link_libraries(lrpc-ub-nested-shadow PRIVATE lrpc)

@@ -2,9 +2,16 @@
 
 This backend keeps the existing x86 ivshmem prototype intact. The real-UB
 variant runs the caller and shadow on the importing AArch64 host, stores their
-shared A-stack in local memory owned by `ub_lrpc_ctl.ko`, executes a locally
-compiled AArch64 handler, and lets only the shadow map the remote UBS Memory
-object.
+shared A-stack in local memory owned by `ub_lrpc_ctl.ko`, and lets only the
+shadow map the remote UBS Memory object. For procedure 1, B publishes a
+restricted AArch64 PIC handler image; A copies and verifies it into a local RX
+mapping before executing it against B-owned service data.
+
+The owner executable contains this deliberately packaged image and copies it
+into its UB code slot during startup. This prototype does not discover or copy
+arbitrary code pages from B's live process. Published code must be a restricted
+PIC leaf image without external relocations or process-local pointers; B-owned
+data is supplied through the fixed A-stack ABI instead.
 
 ## Prerequisites
 
@@ -19,7 +26,8 @@ UBSM_FLAG_ONLY_IMPORT_NONCACHE | UBSM_FLAG_WR_DELAY_COMP
 
 The provider mapping is cacheable and the importing shadow mapping is
 non-cacheable. The public SDK is only asked for one whole-object mapping at
-offset zero and is never asked for `PROT_EXEC`.
+offset zero and is never asked for `PROT_EXEC`. The local code mapping follows
+W^X: it is created RW for the copy and changed to RX before invocation.
 
 ## Build on the AArch64 UB hosts
 
@@ -71,6 +79,7 @@ In another terminal on host A, invoke the service:
 Expected result:
 
 ```text
+UB_LRPC_CODE_LOCALIZED proc=1 remote_offset=... bytes=... hash=0x... local_entry=0x... permissions=rx remote_value=100
 UB_LRPC_RESULT value=142 ...
 UB_LRPC_PASS
 ```
@@ -83,8 +92,9 @@ the final unmap and deallocation. If a process crashes, use the existing
 
 The backend now also contains the phase 6-8 multi-procedure, nested-call, eRPC,
 and gRPC-Go demos. Their complete per-program commands are in `README.md`.
-They still do not execute code from UBS Memory, use a remote A-stack, provide
-concurrent callers per procedure, or automate cross-host readiness. The owner
-must be ready before an importing shadow starts. The x86 ivshmem/QEMU build
-remains available with `-DLRPC_BACKEND=ivshmem` and continues to use the
-original PCI driver and demos.
+Procedure 1 localizes B-published code; procedures 2-4 still use precompiled
+local handlers. The prototype does not use a remote A-stack, provide concurrent
+callers per procedure, load general ELF/shared-library code, or automate
+cross-host readiness. The owner must be ready before an importing shadow
+starts. The x86 ivshmem/QEMU build remains available with
+`-DLRPC_BACKEND=ivshmem` and continues to use the original PCI driver and demos.
