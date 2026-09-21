@@ -1,4 +1,14 @@
 /build/
+/build-tools/
+__pycache__/
+/build-ub*/
+/kernel/ub-domain/*.o
+/kernel/ub-domain/*.ko
+/kernel/ub-domain/*.mod
+/kernel/ub-domain/*.mod.c
+/kernel/ub-domain/Module.symvers
+/kernel/ub-domain/modules.order
+/kernel/ub-domain/.*.cmd
 /vm/rootfs/
 /vm/initramfs.cpio.gz
 /vm/shared-memory.bin

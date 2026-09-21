@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "erpc_compat.h"
+#include "remote_app_bench.h"
 
 #ifdef LRPC_BACKEND_UBSM
 #define LRPC_DEFAULT_DEVICE "/dev/ub_lrpc_ctl"
@@ -62,7 +63,9 @@ int main(int argc, char **argv)
 	}
 	puts("CALLER_ISOLATION_PASS");
 #endif
+	uint64_t first_begin = ra_bench_clock(CLOCK_MONOTONIC_RAW);
 	rpc.enqueue_request(0, 1, &req, &resp, continuation, nullptr);
+	uint64_t first_elapsed = ra_bench_clock(CLOCK_MONOTONIC_RAW) - first_begin;
 
 	printf(ERPC_RESULT_MARKER " value=%llu rc=%d bytes=%zu "
 	       "cpu=%llu/%llu/%llu done=%d caller_pid=%llu shadow_pid=%llu\n",
@@ -77,12 +80,26 @@ int main(int argc, char **argv)
 	    rpc.last_cpu_before() != rpc.last_cpu_after() ||
 	    rpc.last_caller_pid() == rpc.last_shadow_pid())
 		return 2;
+	ra_bench_first_call("direct", first_elapsed);
 	puts(ERPC_PASS_MARKER);
 
 	constexpr size_t samples = 1000;
-	uint64_t total_user = 0, total_dispatch = 0, total_service = 0;
-	uint64_t total_resume = 0, total_kernel = 0;
+	uint64_t total_elapsed = 0, total_outside_kernel = 0;
+	uint64_t total_dispatch = 0, total_service = 0, total_resume = 0;
+	struct ra_bench_warm warm;
+	struct ra_bench_audit audit;
+	memset(&audit, 0, sizeof(audit));
+	const char *backend = getenv("LRPC_EXECUTION_BACKEND");
+	bool audit_enabled = backend && !strcmp(backend, "remote-domain");
+	ra_bench_warm_begin(&warm, "direct");
+	while (ra_bench_warm_more(&warm)) {
+		done = false;
+		resp.data_size_ = 0;
+		rpc.enqueue_request(0, 1, &req, &resp, continuation, nullptr);
+		if (!done || rpc.last_rc() || response != 142 || resp.data_size_ != 8) return 7;
+	}
 	for (size_t i = 0; i < 100 + samples; i++) {
+		if (i == 100 && audit_enabled) ra_bench_audit_begin(&audit);
 		done = false;
 		resp.data_size_ = 0;
 		auto begin = std::chrono::steady_clock::now();
@@ -98,17 +115,27 @@ int main(int argc, char **argv)
 		uint64_t dispatch = rpc.shadow_dispatch_ns() - rpc.call_enter_ns();
 		uint64_t service = rpc.shadow_return_ns() - rpc.shadow_dispatch_ns();
 		uint64_t resume = rpc.caller_resume_ns() - rpc.shadow_return_ns();
-		total_user += user_ns;
+		uint64_t kernel_ns = rpc.caller_resume_ns() - rpc.call_enter_ns();
+		/* The four kernel timestamps do not cover request preparation or
+		 * shared A-stack accesses immediately before and after ioctl(CALL). */
+		total_elapsed += user_ns;
+		total_outside_kernel += user_ns > kernel_ns ? user_ns - kernel_ns : 0;
 		total_dispatch += dispatch;
 		total_service += service;
 		total_resume += resume;
-		total_kernel += rpc.caller_resume_ns() - rpc.call_enter_ns();
 	}
-	printf(BREAKDOWN_MARKER " samples=%zu total_ns=%llu user_ioctl_ns=%llu "
+	if (audit_enabled) ra_bench_audit_end(&audit, "direct", "baseline");
+	if (backend && !strcmp(backend, "ub-remote-domain")) {
+		printf("UB_DOMAIN_ERPC_API_LATENCY samples=%zu avg_ns=%llu breakdown=unavailable\n",
+		       samples, (unsigned long long)(total_elapsed / samples));
+		return 0;
+	}
+	printf(BREAKDOWN_MARKER " samples=%zu total_ns=%llu "
+	       "outside_kernel_timestamps_ns=%llu "
 	       "call_to_shadow_ns=%llu shadow_user_service_ns=%llu "
 	       "return_to_caller_ns=%llu\n", samples,
-	       (unsigned long long)(total_user / samples),
-	       (unsigned long long)((total_user - total_kernel) / samples),
+	       (unsigned long long)(total_elapsed / samples),
+	       (unsigned long long)(total_outside_kernel / samples),
 	       (unsigned long long)(total_dispatch / samples),
 	       (unsigned long long)(total_service / samples),
 	       (unsigned long long)(total_resume / samples));

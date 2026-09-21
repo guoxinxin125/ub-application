@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <time.h>
 
 #include <lrpc/lrpc.h>
@@ -70,12 +71,13 @@ int main(void)
 	struct lrpc_handle handle;
 	struct ub_lrpc_info info;
 	volatile uint8_t *bar;
+	void *remote_bench = MAP_FAILED;
 	uint32_t *order;
 	uint64_t samples[SAMPLE_COUNT];
 	uint64_t total_ns = 0;
 	uint32_t state = 0x4c525043U;
 	uint32_t index;
-	size_t lines = UB_LRPC_ASTACK_SLOT_SIZE / CACHE_LINE_SIZE;
+	size_t lines = UB_LRPC_REMOTE_BENCH_SLOT_SIZE / CACHE_LINE_SIZE;
 
 	if (lrpc_bind(&handle, "/dev/ub_lrpc0", 1, 1)) {
 		fprintf(stderr, "bar_latency: bind: %s\n", strerror(errno));
@@ -87,9 +89,19 @@ int main(void)
 		lrpc_close(&handle);
 		return 1;
 	}
+	remote_bench = mmap(NULL, UB_LRPC_REMOTE_BENCH_SLOT_SIZE,
+			    PROT_READ | PROT_WRITE, MAP_SHARED, handle.fd,
+			    UB_LRPC_REMOTE_BENCH_OFFSET);
+	if (remote_bench == MAP_FAILED) {
+		fprintf(stderr, "bar_latency: remote benchmark mmap: %s\n",
+			strerror(errno));
+		lrpc_close(&handle);
+		return 1;
+	}
 	order = malloc(lines * sizeof(*order));
 	if (!order) {
 		perror("bar_latency: malloc");
+		munmap(remote_bench, UB_LRPC_REMOTE_BENCH_SLOT_SIZE);
 		lrpc_close(&handle);
 		return 1;
 	}
@@ -102,7 +114,7 @@ int main(void)
 		order[other] = tmp;
 	}
 
-	bar = handle.astack_map;
+	bar = remote_bench;
 	for (size_t i = 0; i < lines; i++) {
 		volatile uint32_t *entry = (volatile uint32_t *)(
 			bar + (size_t)order[i] * CACHE_LINE_SIZE);
@@ -124,11 +136,14 @@ int main(void)
 		total_ns += samples[sample];
 	}
 	qsort(samples, SAMPLE_COUNT, sizeof(samples[0]), compare_u64);
-	printf("BAR_LOAD_LATENCY mode=%s bar_start=0x%llx working_set=%zu "
+	printf("BAR_LOAD_LATENCY mode=%s bar_start=0x%llx bench_offset=0x%llx "
+	       "working_set=%zu "
 	       "samples=%u loads_per_sample=%u min_ns=%.2f p50_ns=%.2f "
 	       "p99_ns=%.2f avg_ns=%.2f checksum=%u\n",
 	       info.cache_mode == UB_LRPC_CACHE_NONCACHED ? "noncached" : "cached",
-	       (unsigned long long)info.bar_start, lines * CACHE_LINE_SIZE,
+	       (unsigned long long)info.bar_start,
+	       (unsigned long long)UB_LRPC_REMOTE_BENCH_OFFSET,
+	       lines * CACHE_LINE_SIZE,
 	       SAMPLE_COUNT, LOADS_PER_SAMPLE,
 	       (double)samples[0] / LOADS_PER_SAMPLE,
 	       (double)samples[SAMPLE_COUNT / 2] / LOADS_PER_SAMPLE,
@@ -136,6 +151,7 @@ int main(void)
 	       (double)total_ns / (SAMPLE_COUNT * LOADS_PER_SAMPLE), index);
 	puts("BAR_LOAD_LATENCY_PASS");
 	free(order);
+	munmap(remote_bench, UB_LRPC_REMOTE_BENCH_SLOT_SIZE);
 	lrpc_close(&handle);
 	return 0;
 }

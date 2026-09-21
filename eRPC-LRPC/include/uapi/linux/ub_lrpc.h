@@ -4,22 +4,34 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-#define UB_LRPC_ABI_VERSION 1
+#define UB_LRPC_ABI_VERSION 3
 #define UB_LRPC_MAGIC 0x4350524c4255ULL /* "UBLRPC" */
 #define UB_LRPC_MAX_PROCS 16
+
+#define UB_LRPC_PROC_PUBLISHED_CODE (1U << 0)
 
 #define UB_LRPC_CACHE_CACHED    0
 #define UB_LRPC_CACHE_NONCACHED 1
 
-/* ivshmem BAR2 layout. All offsets are page aligned. */
+/* ivshmem BAR2 layout plus the synthetic local mmap offset below. */
 #define UB_LRPC_META_OFFSET   0x00000000ULL
 #define UB_LRPC_META_SIZE     0x00001000ULL
 #define UB_LRPC_CODE_OFFSET   0x00001000ULL
 #define UB_LRPC_CODE_SIZE     0x00100000ULL
-#define UB_LRPC_ASTACK_OFFSET 0x00101000ULL
+#define UB_LRPC_REMOTE_BENCH_OFFSET 0x00101000ULL
+#define UB_LRPC_REMOTE_BENCH_SIZE   0x00100000ULL
+#define UB_LRPC_DATA_OFFSET   0x00201000ULL
+
+/*
+ * A-stacks are A-local shared memory, not part of BAR2.  The ivshmem driver
+ * uses this synthetic mmap offset to select its driver-allocated WB pages.
+ * The UB control driver may return a backend-specific offset instead.
+ */
+#define UB_LRPC_ASTACK_OFFSET 0x100000000ULL
 #define UB_LRPC_ASTACK_SIZE   0x00100000ULL
 #define UB_LRPC_ASTACK_SLOT_SIZE (UB_LRPC_ASTACK_SIZE / UB_LRPC_MAX_PROCS)
-#define UB_LRPC_DATA_OFFSET   0x00201000ULL
+#define UB_LRPC_REMOTE_BENCH_SLOT_SIZE \
+	(UB_LRPC_REMOTE_BENCH_SIZE / UB_LRPC_MAX_PROCS)
 
 enum ub_lrpc_role {
 	UB_LRPC_ROLE_NONE = 0,
@@ -33,6 +45,7 @@ struct ub_lrpc_proc_desc {
 	__u32 flags;
 	__u64 code_offset;
 	__u64 code_size;
+	__u64 code_hash;
 	__u64 astack_size;
 };
 
@@ -68,6 +81,8 @@ struct ub_lrpc_bind {
 	__u64 entry_offset;
 	__u64 astack_size;
 	__u64 astack_offset;
+	__u64 code_size;
+	__u64 code_hash;
 };
 
 struct ub_lrpc_info {

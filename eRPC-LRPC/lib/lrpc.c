@@ -13,6 +13,10 @@
 
 #include <lrpc/lrpc.h>
 #include <lrpc/lrpc_abi_offsets.h>
+#include "remote_app_backend.h"
+#ifdef LRPC_UB_DOMAIN
+#include "ub_domain_client.h"
+#endif
 
 typedef char lrpc_request_size_offset_check[
 	offsetof(struct lrpc_astack, request_size) ==
@@ -34,6 +38,91 @@ static void *map_region(int fd, uint64_t off, size_t len, int prot)
 {
 	void *p = mmap(NULL, len, prot, MAP_SHARED, fd, (off_t)off);
 	return p == MAP_FAILED ? NULL : p;
+}
+
+static uint64_t lrpc_code_hash(const void *data, size_t size)
+{
+	const uint8_t *bytes = data;
+	uint64_t hash = UINT64_C(14695981039346656037);
+
+	for (size_t i = 0; i < size; i++) {
+		hash ^= bytes[i];
+		hash *= UINT64_C(1099511628211);
+	}
+	return hash;
+}
+
+static int lrpc_localize_code(int fd, const struct ub_lrpc_bind *bind,
+			      void **local_code_out,
+			      size_t *local_mapping_size_out)
+{
+	void *remote_code = NULL;
+	void *remote_exec;
+	void *local_code = MAP_FAILED;
+	size_t mapping_size;
+	long page_size;
+	int saved_errno;
+
+	if (!bind || !local_code_out || !local_mapping_size_out ||
+	    !bind->code_size || bind->entry_offset > UB_LRPC_CODE_SIZE ||
+	    bind->code_size > UB_LRPC_CODE_SIZE - bind->entry_offset) {
+		errno = EPROTO;
+		return -1;
+	}
+	page_size = sysconf(_SC_PAGESIZE);
+	if (page_size <= 0 ||
+	    bind->code_size > SIZE_MAX - ((size_t)page_size - 1)) {
+		errno = EOVERFLOW;
+		return -1;
+	}
+	mapping_size = ((size_t)bind->code_size + (size_t)page_size - 1) &
+		~((size_t)page_size - 1);
+
+	/* Enforce that BAR2 is only a temporary read-only transport source. */
+	remote_exec = mmap(NULL, UB_LRPC_CODE_SIZE, PROT_READ | PROT_EXEC,
+			   MAP_SHARED, fd, (off_t)UB_LRPC_CODE_OFFSET);
+	if (remote_exec != MAP_FAILED) {
+		munmap(remote_exec, UB_LRPC_CODE_SIZE);
+		errno = EPROTO;
+		return -1;
+	}
+	if (errno != EPERM && errno != EACCES)
+		return -1;
+	remote_code = map_region(fd, UB_LRPC_CODE_OFFSET, UB_LRPC_CODE_SIZE,
+				 PROT_READ);
+	if (!remote_code)
+		return -1;
+	local_code = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (local_code == MAP_FAILED)
+		goto fail;
+	memcpy(local_code, (const uint8_t *)remote_code + bind->entry_offset,
+	       (size_t)bind->code_size);
+	if (lrpc_code_hash(local_code, (size_t)bind->code_size) !=
+	    bind->code_hash) {
+		errno = EBADMSG;
+		goto fail;
+	}
+	if (munmap(remote_code, UB_LRPC_CODE_SIZE))
+		goto fail;
+	remote_code = NULL;
+	__builtin___clear_cache((char *)local_code,
+				(char *)local_code + bind->code_size);
+	if (mprotect(local_code, mapping_size, PROT_READ | PROT_EXEC))
+		goto fail;
+
+	*local_code_out = local_code;
+	*local_mapping_size_out = mapping_size;
+	return 0;
+
+fail:
+	saved_errno = errno;
+	if (local_code != MAP_FAILED)
+		munmap(local_code, mapping_size);
+	if (remote_code)
+		munmap(remote_code, UB_LRPC_CODE_SIZE);
+	errno = saved_errno;
+	return -1;
 }
 
 int lrpc_publish(int fd, const void *code, size_t code_size,
@@ -73,8 +162,10 @@ int lrpc_publish_services(int fd, const void *code, size_t code_size,
 	pub.num_procs = (uint32_t)count;
 	for (size_t i = 0; i < count; i++) {
 		pub.proc[i].procedure_id = procedure_ids[i];
+		pub.proc[i].flags = UB_LRPC_PROC_PUBLISHED_CODE;
 		pub.proc[i].code_offset = 0;
 		pub.proc[i].code_size = code_size;
+		pub.proc[i].code_hash = lrpc_code_hash(code, code_size);
 		pub.proc[i].astack_size = sizeof(struct lrpc_astack);
 	}
 	return ioctl(fd, UB_LRPC_IOC_PUBLISH, &pub);
@@ -88,6 +179,20 @@ int lrpc_bind(struct lrpc_handle *h, const char *device,
 		.expected_epoch = expected_epoch };
 	struct ub_lrpc_info info;
 	cpu_set_t set;
+
+	if (getenv("LRPC_EXECUTION_BACKEND") &&
+	    !strcmp(getenv("LRPC_EXECUTION_BACKEND"), "ub-remote-domain")) {
+#ifdef LRPC_UB_DOMAIN
+		return ud_lrpc_bind(h, procedure_id, expected_epoch);
+#else
+		errno = ENOTSUP;
+		return -1;
+#endif
+	}
+	if (h && ra_backend_requested()) {
+		if (expected_epoch != 1) { errno = ESTALE; return -1; }
+		return ra_backend_bind(h, procedure_id);
+	}
 
 	if (!h || !device) {
 		errno = EINVAL;
@@ -141,6 +246,12 @@ int lrpc_invoke(struct lrpc_handle *h, struct lrpc_astack *call)
 {
 	struct lrpc_astack *shared = NULL;
 	struct ub_lrpc_handoff handoff;
+#ifdef LRPC_UB_DOMAIN
+	if (h && h->fd >= 0 && h->astack_offset == UD_HANDLE_MARKER)
+		return ud_lrpc_invoke(h, call);
+#endif
+	if (h && h->fd >= 0 && h->astack_offset == UINT64_MAX)
+		return ra_backend_invoke(h, call);
 
 	if (!h || !call || !h->astack_map) {
 		errno = EINVAL;
@@ -226,7 +337,8 @@ int lrpc_shadow_run(const char *device, uint32_t procedure_id,
 	struct ub_lrpc_info info;
 	struct ub_lrpc_handoff handoff;
 	struct lrpc_astack *shared = NULL;
-	void *code = NULL, *data = NULL, *estack = MAP_FAILED;
+	void *local_code = NULL, *data = NULL, *estack = MAP_FAILED;
+	size_t local_code_mapping_size = 0;
 	size_t estack_size = 256 * 1024;
 	cpu_set_t set;
 	const char *cpu_env;
@@ -250,15 +362,24 @@ int lrpc_shadow_run(const char *device, uint32_t procedure_id,
 	memset(&info, 0, sizeof(info));
 	if (ioctl(fd, UB_LRPC_IOC_INFO, &info))
 		goto out;
-	code = map_region(fd, UB_LRPC_CODE_OFFSET, UB_LRPC_CODE_SIZE,
-			  PROT_READ | PROT_EXEC);// BAR2中的远端代码，BAR2 共享内存
-	shared = map_region(fd, bind.astack_offset, UB_LRPC_ASTACK_SLOT_SIZE,
-			    PROT_READ | PROT_WRITE); // 当前 procedure 的共享 A-stack，BAR2 共享内存
-	data = map_region(fd, UB_LRPC_DATA_OFFSET, 4096, PROT_READ | PROT_WRITE); // shadow 可访问的 service data，BAR2 共享内存
-	estack = mmap(NULL, estack_size, PROT_READ | PROT_WRITE, 
-		      MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0); // shadow 执行服务代码时使用的私有栈，shadow本地内存
-	if (!code || !shared || !data || estack == MAP_FAILED)
+	if (lrpc_localize_code(fd, &bind, &local_code,
+			       &local_code_mapping_size))
 		goto out;
+	shared = map_region(fd, bind.astack_offset, UB_LRPC_ASTACK_SLOT_SIZE,
+			    PROT_READ | PROT_WRITE);
+	data = map_region(fd, UB_LRPC_DATA_OFFSET, 4096,
+			  PROT_READ | PROT_WRITE);
+	estack = mmap(NULL, estack_size, PROT_READ | PROT_WRITE,
+		      MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+	if (!shared || !data || estack == MAP_FAILED)
+		goto out;
+	printf("LRPC_CODE_LOCALIZED proc=%u remote_offset=%llu bytes=%llu "
+	       "hash=0x%llx local_entry=%p permissions=rx remote_exec=denied "
+	       "remote_unmapped=1\n",
+	       procedure_id, (unsigned long long)bind.entry_offset,
+	       (unsigned long long)bind.code_size,
+	       (unsigned long long)bind.code_hash, local_code);
+	fflush(stdout);
 	if (ioctl(fd, UB_LRPC_IOC_REGISTER_SHADOW))
 		goto out;
 	printf("LRPC_SHADOW_REGISTERED pid=%d cpu=%d mm=separate\n",
@@ -268,11 +389,11 @@ int lrpc_shadow_run(const char *device, uint32_t procedure_id,
 		memset(&handoff, 0, sizeof(handoff));
 		if (ioctl(fd, UB_LRPC_IOC_WAIT_CALL, &handoff))
 			goto out;
-		shared->service_data = (uint64_t)(uintptr_t)data; // shadow 地址空间中的用户虚拟地址
+		shared->service_data = (uint64_t)(uintptr_t)data;
 		shared->shadow_pid = (uint64_t)getpid();
 		__sync_synchronize();
 		handoff.result = (int)lrpc_call_on_stack(
-			(uint8_t *)code + bind.entry_offset, shared,
+			local_code, shared,
 			(uint8_t *)estack + estack_size);
 		__sync_synchronize();
 		if (ioctl(fd, UB_LRPC_IOC_RETURN, &handoff))
@@ -285,8 +406,8 @@ out:
 		munmap(data, 4096);
 	if (shared)
 		munmap(shared, UB_LRPC_ASTACK_SLOT_SIZE);
-	if (code)
-		munmap(code, UB_LRPC_CODE_SIZE);
+	if (local_code)
+		munmap(local_code, local_code_mapping_size);
 	if (fd >= 0)
 		close(fd);
 	return ret;
@@ -395,6 +516,12 @@ void lrpc_close(struct lrpc_handle *h)
 {
 	if (!h)
 		return;
+#ifdef LRPC_UB_DOMAIN
+	if (h->astack_offset == UD_HANDLE_MARKER) {
+		ud_lrpc_close(h);
+		return;
+	}
+#endif
 	if (h->astack_map)
 		munmap(h->astack_map, UB_LRPC_ASTACK_SLOT_SIZE);
 	if (h->fd >= 0)

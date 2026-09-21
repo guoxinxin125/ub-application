@@ -129,6 +129,10 @@ static int ub_lrpc_ctl_bind(struct ub_lrpc_ctl_file *ctx,
 	bind->entry_offset = 0;
 	bind->astack_size = UB_LRPC_ASTACK_SLOT_SIZE;
 	bind->astack_offset = (u64)ctx->proc_index * UB_LRPC_ASTACK_SLOT_SIZE;
+	/* The real-UB backend obtains published-code metadata from UBS Memory,
+	 * not from this local handoff device. */
+	bind->code_size = 0;
+	bind->code_hash = 0;
 	return 0;
 }
 

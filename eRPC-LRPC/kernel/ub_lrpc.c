@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * QEMU/ivshmem prototype of an executable remote LRPC memory domain.
+ * QEMU/ivshmem prototype of a published-code LRPC memory domain.
  *
  * The publisher may map the code window writable but never executable.  After
- * PUBLISH, only a registered shadow task can map that window executable and
- * service data; a caller can map only the A-stack. CALL sleeps the caller and
- * wakes a pinned shadow task with a distinct mm_struct, making Linux's normal
- * context switch install the shadow page tables. RETURN reverses the handoff.
+ * PUBLISH, a bound shadow may map that window read-only long enough to copy and
+ * verify its procedure into private local RX memory; the remote mapping itself
+ * is never executable. A-stacks are driver-allocated normal RAM pages shared
+ * only by the bound caller and shadow, and therefore retain the architecture's
+ * default WB page protection in both BAR cache modes. CALL sleeps the caller
+ * and wakes a pinned shadow task with a distinct mm_struct, making Linux's
+ * normal context switch install the shadow page tables. RETURN reverses the
+ * handoff.
  */
 #include <linux/fs.h>
 #include <linux/io.h>
@@ -21,9 +25,23 @@
 #include <linux/uaccess.h>
 #include <linux/ub_lrpc.h>
 
+#ifdef CONFIG_X86
+#include <asm/mtrr.h>
+#include <asm/pgtable_types.h>
+#endif
+
 #define UB_LRPC_PCI_VENDOR 0x1af4
 #define UB_LRPC_PCI_DEVICE 0x1110
 #define UB_LRPC_BAR 2
+
+/*
+ * SeaBIOS programs the QEMU 32-bit PCI MMIO hole as one UC variable MTRR.
+ * BAR2 is allocated inside this range, and an overlapping WB MTRR cannot
+ * override UC.  Cached mode is a QEMU-only experiment, so temporarily remove
+ * this exact firmware range and restore it when the device is released.
+ */
+#define UB_LRPC_QEMU_PCI_HOLE_BASE 0xc0000000UL
+#define UB_LRPC_QEMU_PCI_HOLE_SIZE 0x40000000UL
 
 static unsigned int cache_mode = UB_LRPC_CACHE_NONCACHED;
 module_param(cache_mode, uint, 0444);
@@ -32,6 +50,7 @@ MODULE_PARM_DESC(cache_mode,
 
 struct ub_lrpc_channel {
 	struct mutex handoff_lock;
+	struct page **astack_pages;
 	struct ub_lrpc_file *shadow_owner;
 	struct task_struct *shadow_task;
 	struct task_struct *caller_task;
@@ -48,6 +67,11 @@ struct ub_lrpc_dev {
 	void __iomem *meta;
 	struct miscdevice misc;
 	struct ub_lrpc_channel channel[UB_LRPC_MAX_PROCS];
+	unsigned int astack_npages;
+#ifdef CONFIG_X86
+	int mtrr_reg;
+	bool qemu_pci_uc_removed;
+#endif
 };
 
 /* Per-open file context. */
@@ -65,6 +89,99 @@ static inline bool ub_lrpc_range_ok(struct ub_lrpc_dev *d, u64 off, u64 len)
 {
 	return len && off <= d->bar_size && len <= d->bar_size - off;
 }
+
+static inline bool ub_lrpc_subrange_ok(u64 off, u64 len, u64 start, u64 size)
+{
+	return len && off >= start && off - start <= size &&
+		len <= size - (off - start);
+}
+
+static void ub_lrpc_free_astacks(void *data)
+{
+	struct ub_lrpc_dev *d = data;
+	unsigned int i, page_index;
+
+	for (i = 0; i < UB_LRPC_MAX_PROCS; i++) {
+		if (!d->channel[i].astack_pages)
+			continue;
+		for (page_index = 0; page_index < d->astack_npages;
+		     page_index++)
+			if (d->channel[i].astack_pages[page_index])
+				__free_page(d->channel[i].astack_pages[page_index]);
+	}
+}
+
+static int ub_lrpc_alloc_astacks(struct ub_lrpc_dev *d)
+{
+	unsigned int i, page_index;
+
+	if (UB_LRPC_ASTACK_SLOT_SIZE % PAGE_SIZE)
+		return -EINVAL;
+	d->astack_npages = UB_LRPC_ASTACK_SLOT_SIZE / PAGE_SIZE;
+	for (i = 0; i < UB_LRPC_MAX_PROCS; i++) {
+		d->channel[i].astack_pages = devm_kcalloc(
+			&d->pdev->dev, d->astack_npages,
+			sizeof(*d->channel[i].astack_pages), GFP_KERNEL);
+		if (!d->channel[i].astack_pages)
+			goto no_memory;
+		for (page_index = 0; page_index < d->astack_npages;
+		     page_index++) {
+			d->channel[i].astack_pages[page_index] =
+				alloc_page(GFP_KERNEL | __GFP_ZERO);
+			if (!d->channel[i].astack_pages[page_index])
+				goto no_memory;
+		}
+	}
+	return devm_add_action_or_reset(&d->pdev->dev,
+					ub_lrpc_free_astacks, d);
+
+no_memory:
+	ub_lrpc_free_astacks(d);
+	return -ENOMEM;
+}
+
+#ifdef CONFIG_X86
+/*
+ * x86 encodes WB as the zero cache-mode index: PWT=0, PCD=0, PAT=0.
+ * Merely leaving vm_page_prot unchanged is not an explicit WB request for an
+ * I/O PFN, so clear all PAT cache-selection bits in cached test mode.
+ *
+ * remap_pfn_range() still performs PAT memtype tracking and can reject or
+ * restrict this request if the same physical range already has a conflicting
+ * UC mapping.  The permanently mapped metadata page is a disjoint subrange.
+ */
+static pgprot_t ub_lrpc_pgprot_writeback(pgprot_t prot)
+{
+	return __pgprot(pgprot_val(prot) & ~_PAGE_CACHE_MASK);
+}
+
+static void ub_lrpc_release_mtrr(void *data)
+{
+	struct ub_lrpc_dev *d = data;
+	int ret;
+
+	if (d->mtrr_reg >= 0) {
+		mtrr_del(d->mtrr_reg, (unsigned long)d->bar_start,
+			 (unsigned long)d->bar_size);
+		d->mtrr_reg = -1;
+	}
+
+	if (d->qemu_pci_uc_removed) {
+		ret = mtrr_add(UB_LRPC_QEMU_PCI_HOLE_BASE,
+			       UB_LRPC_QEMU_PCI_HOLE_SIZE,
+			       MTRR_TYPE_UNCACHABLE, true);
+		if (ret < 0)
+			dev_warn(&d->pdev->dev,
+				 "failed to restore QEMU PCI-hole UC MTRR: %d\n",
+				 ret);
+		else
+			dev_info(&d->pdev->dev,
+				 "restored QEMU PCI-hole UC MTRR (reg=%d)\n",
+				 ret);
+		d->qemu_pci_uc_removed = false;
+	}
+}
+#endif
 
 static int ub_lrpc_open(struct inode *inode, struct file *file)
 {
@@ -150,7 +267,8 @@ static long ub_lrpc_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		    pub.image_size > UB_LRPC_CODE_SIZE)
 			return -EINVAL;
 		for (i = 0; i < pub.num_procs; i++) {
-			if (!pub.proc[i].code_size ||
+			if (pub.proc[i].flags != UB_LRPC_PROC_PUBLISHED_CODE ||
+			    !pub.proc[i].code_size ||
 			    pub.proc[i].code_offset > pub.image_size ||
 			    pub.proc[i].code_size >
 				pub.image_size - pub.proc[i].code_offset ||
@@ -209,6 +327,8 @@ static long ub_lrpc_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		bind.astack_size = meta.proc[i].astack_size;
 		bind.astack_offset = UB_LRPC_ASTACK_OFFSET +
 			(u64)i * UB_LRPC_ASTACK_SLOT_SIZE;
+		bind.code_size = meta.proc[i].code_size;
+		bind.code_hash = meta.proc[i].code_hash;
 		return copy_to_user((void __user *)arg, &bind, sizeof(bind)) ?
 			-EFAULT : 0;
 	}
@@ -375,31 +495,60 @@ static int ub_lrpc_mmap(struct file *file, struct vm_area_struct *vma)
 	u64 len = vma->vm_end - vma->vm_start;
 	bool write = vma->vm_flags & VM_WRITE;
 	bool exec = vma->vm_flags & VM_EXEC;
+	u64 expected_astack;
+	unsigned int page_index;
+	int ret;
 
-	if (!PAGE_ALIGNED(off) || !PAGE_ALIGNED(len) ||
-	    !ub_lrpc_range_ok(d, off, len))
+	if (!PAGE_ALIGNED(off) || !PAGE_ALIGNED(len) || !len)
 		return -EINVAL;
 
-	if (off >= UB_LRPC_CODE_OFFSET &&
-	    off + len <= UB_LRPC_CODE_OFFSET + UB_LRPC_CODE_SIZE) {
+	/* A-stack mappings are normal A-local RAM.  Do not set VM_IO/VM_PFNMAP
+	 * and do not apply BAR2's UC/WB page-protection policy here. */
+	expected_astack = UB_LRPC_ASTACK_OFFSET +
+		(u64)ctx->proc_index * UB_LRPC_ASTACK_SLOT_SIZE;
+	if (ub_lrpc_subrange_ok(off, len, UB_LRPC_ASTACK_OFFSET,
+				UB_LRPC_ASTACK_SIZE)) {
+		if ((ctx->role != UB_LRPC_ROLE_CALLER &&
+		     ctx->role != UB_LRPC_ROLE_SHADOW) || !ctx->bound || exec ||
+		    off != expected_astack || len > UB_LRPC_ASTACK_SLOT_SIZE)
+			return -EPERM;
+		vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
+		for (page_index = 0; page_index < len / PAGE_SIZE;
+		     page_index++) {
+			ret = vm_insert_page(vma,
+				vma->vm_start + (unsigned long)page_index * PAGE_SIZE,
+				ctx->channel->astack_pages[page_index]);
+			if (ret)
+				return ret;
+		}
+		dev_info_ratelimited(&d->pdev->dev,
+			"A-stack local mmap proc=%u len=%#llx cache_mode=writeback\n",
+			ctx->proc.procedure_id, (unsigned long long)len);
+		return 0;
+	}
+
+	if (!ub_lrpc_range_ok(d, off, len))
+		return -EINVAL;
+
+	if (ub_lrpc_subrange_ok(off, len, UB_LRPC_CODE_OFFSET,
+				UB_LRPC_CODE_SIZE)) {
 		if (ctx->role == UB_LRPC_ROLE_PUBLISHER) {
 			if (!write || exec)
 				return -EPERM;
 		} else if (ctx->role == UB_LRPC_ROLE_SHADOW && ctx->bound) {
-			if (write || !exec)
+			if (write || exec)
 				return -EPERM;
 		} else {
 			return -EPERM;
 		}
-	} else if (off >= UB_LRPC_ASTACK_OFFSET &&
-		   off + len <= UB_LRPC_ASTACK_OFFSET + UB_LRPC_ASTACK_SIZE) {
-		if ((ctx->role != UB_LRPC_ROLE_CALLER &&
-		     ctx->role != UB_LRPC_ROLE_SHADOW) || exec)
-			return -EPERM;
-		if (!ctx->bound ||
-		    off != UB_LRPC_ASTACK_OFFSET +
-			   (u64)ctx->proc_index * UB_LRPC_ASTACK_SLOT_SIZE ||
-		    len > UB_LRPC_ASTACK_SLOT_SIZE)
+	} else if (ub_lrpc_subrange_ok(off, len,
+				       UB_LRPC_REMOTE_BENCH_OFFSET,
+				       UB_LRPC_REMOTE_BENCH_SIZE)) {
+		if (ctx->role != UB_LRPC_ROLE_CALLER || !ctx->bound || exec ||
+		    off != UB_LRPC_REMOTE_BENCH_OFFSET +
+			   (u64)ctx->proc_index *
+				UB_LRPC_REMOTE_BENCH_SLOT_SIZE ||
+		    len > UB_LRPC_REMOTE_BENCH_SLOT_SIZE)
 			return -EPERM;
 	} else if (off >= UB_LRPC_DATA_OFFSET) {
 		if ((ctx->role != UB_LRPC_ROLE_PUBLISHER &&
@@ -410,8 +559,29 @@ static int ub_lrpc_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 
 	vm_flags_set(vma, VM_IO | VM_PFNMAP | VM_DONTEXPAND | VM_DONTDUMP);
-	if (cache_mode == UB_LRPC_CACHE_NONCACHED)
+	if (cache_mode == UB_LRPC_CACHE_NONCACHED) {
 		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	} else {
+#ifdef CONFIG_X86
+		vma->vm_page_prot =
+			ub_lrpc_pgprot_writeback(vma->vm_page_prot);
+#else
+		dev_warn_once(&d->pdev->dev,
+			      "cached mode uses the architecture default page protection\n");
+#endif
+	}
+
+#ifdef CONFIG_X86
+	dev_info_ratelimited(&d->pdev->dev,
+		"mmap off=%#llx len=%#llx cache_mode=%s pgprot=%#lx cache_bits=%#lx\n",
+		(unsigned long long)off, (unsigned long long)len,
+		cache_mode == UB_LRPC_CACHE_NONCACHED ?
+			"noncached" : "writeback",
+		(unsigned long)pgprot_val(vma->vm_page_prot),
+		(unsigned long)(pgprot_val(vma->vm_page_prot) &
+				_PAGE_CACHE_MASK));
+#endif
+
 	return remap_pfn_range(vma, vma->vm_start,
 			       (d->bar_start + off) >> PAGE_SHIFT, len,
 			       vma->vm_page_prot);
@@ -441,6 +611,9 @@ static int ub_lrpc_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!d)
 		return -ENOMEM;
 	d->pdev = pdev;
+#ifdef CONFIG_X86
+	d->mtrr_reg = -1;
+#endif
 	d->bar_start = pci_resource_start(pdev, UB_LRPC_BAR);
 	d->bar_size = pci_resource_len(pdev, UB_LRPC_BAR);
 	if (d->bar_size <= UB_LRPC_DATA_OFFSET)
@@ -450,10 +623,60 @@ static int ub_lrpc_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!devm_request_mem_region(&pdev->dev, d->bar_start, d->bar_size,
 				     "ub_lrpc"))
 		return -EBUSY;
+#ifdef CONFIG_X86
+	/*
+	 * SeaBIOS covers the QEMU PCI hole with one UC variable MTRR.  UC wins
+	 * over an overlapping WB range, so cached mode first removes that exact
+	 * firmware entry.  Other MMIO mappings still request UC through PAT; this
+	 * relaxation is intentionally limited to the disposable QEMU guest.
+	 */
+	if (cache_mode == UB_LRPC_CACHE_CACHED) {
+		if (d->bar_start < UB_LRPC_QEMU_PCI_HOLE_BASE ||
+		    d->bar_start + d->bar_size >
+			UB_LRPC_QEMU_PCI_HOLE_BASE +
+			UB_LRPC_QEMU_PCI_HOLE_SIZE) {
+			dev_err(&pdev->dev,
+				"BAR2 is outside the expected QEMU PCI hole\n");
+			return -ERANGE;
+		}
+
+		ret = mtrr_del(-1, UB_LRPC_QEMU_PCI_HOLE_BASE,
+			       UB_LRPC_QEMU_PCI_HOLE_SIZE);
+		if (ret < 0) {
+			dev_err(&pdev->dev,
+				"failed to remove QEMU PCI-hole UC MTRR: %d\n",
+				ret);
+			return ret;
+		}
+		d->qemu_pci_uc_removed = true;
+		dev_info(&pdev->dev,
+			 "temporarily removed QEMU PCI-hole UC MTRR (reg=%d)\n",
+			 ret);
+
+		ret = devm_add_action_or_reset(&pdev->dev,
+					       ub_lrpc_release_mtrr, d);
+		if (ret)
+			return ret;
+
+		d->mtrr_reg = mtrr_add((unsigned long)d->bar_start,
+				       (unsigned long)d->bar_size,
+				       MTRR_TYPE_WRBACK, true);
+		if (d->mtrr_reg < 0) {
+			dev_err(&pdev->dev,
+				"failed to add WB MTRR for BAR2: %d\n",
+				d->mtrr_reg);
+			return d->mtrr_reg;
+		}
+
+		dev_info(&pdev->dev,
+			 "BAR2 guest MTRR set to write-back in cached test mode (reg=%d)\n",
+			 d->mtrr_reg);
+	}
+#endif
 	/* Keep only the metadata page permanently mapped by the kernel. Mapping
 	 * the complete BAR here would reserve one UC PAT type for all 4 MiB and
 	 * prevent the userspace latency experiment from selecting WB vs UC for
-	 * the code, A-stack, and data subranges. */
+	 * the code, remote benchmark, and data subranges. */
 	d->meta = devm_ioremap(&pdev->dev, d->bar_start, UB_LRPC_META_SIZE);
 	if (!d->meta)
 		return -ENOMEM;
@@ -461,6 +684,9 @@ static int ub_lrpc_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		mutex_init(&d->channel[i].handoff_lock);
 		d->channel[i].shadow_cpu = -1;
 	}
+	ret = ub_lrpc_alloc_astacks(d);
+	if (ret)
+		return ret;
 	d->misc.minor = MISC_DYNAMIC_MINOR;
 	d->misc.name = "ub_lrpc0";
 	d->misc.fops = &ub_lrpc_fops;
@@ -474,6 +700,9 @@ static int ub_lrpc_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		 &d->bar_start, &d->bar_size,
 		 cache_mode == UB_LRPC_CACHE_NONCACHED ? "noncached" : "cached",
 		 d->misc.name);
+	dev_info(&pdev->dev,
+		 "A-stacks use %u driver-allocated local WB pages per channel\n",
+		 d->astack_npages);
 	return 0;
 }
 
@@ -497,6 +726,6 @@ static struct pci_driver ub_lrpc_driver = {
 };
 module_pci_driver(ub_lrpc_driver);
 
-MODULE_DESCRIPTION("Executable ivshmem-backed UB LRPC prototype");
+MODULE_DESCRIPTION("Published-code ivshmem-backed UB LRPC prototype");
 MODULE_AUTHOR("eRPC-LRPC prototype");
 MODULE_LICENSE("GPL");
