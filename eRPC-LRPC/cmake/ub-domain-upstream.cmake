@@ -1,0 +1,26 @@
+# Included after upstream project(eRPC); augment its target without editing it.
+if(CMAKE_VERSION VERSION_LESS 3.19)
+    message(FATAL_ERROR "UB domain upstream integration requires CMake >=3.19")
+endif()
+function(lrpc_attach_ub_domain)
+    get_filename_component(root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)
+    if(NOT TARGET erpc OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        message(FATAL_ERROR "Expected patched eRPC target on ARM64")
+    endif()
+    if(NOT EXISTS "${UBSM_INCLUDE_DIR}/ubs_mem.h" OR NOT EXISTS "${UBSM_LIBRARY}")
+        message(FATAL_ERROR "Set UBSM_INCLUDE_DIR and UBSM_LIBRARY")
+    endif()
+    find_path(OBMM_INCLUDE_DIR NAMES libobmm.h
+        HINTS /usr/local/include /usr/local/ubs_mem/include "${root}/../ubs-mem-master/3rdparty/obmm_ub")
+    find_library(OBMM_LIBRARY NAMES obmm HINTS /usr/local/ubs_mem/lib /usr/local/lib64)
+    if(NOT OBMM_INCLUDE_DIR OR NOT OBMM_LIBRARY)
+        message(FATAL_ERROR "Set OBMM_INCLUDE_DIR and OBMM_LIBRARY")
+    endif()
+    target_sources(erpc PRIVATE "${root}/lib/backend_ubsm.c"
+        "${root}/lib/ubsm_pa.c" "${root}/lib/ub_domain_client.c")
+    target_include_directories(erpc PRIVATE "${UBSM_INCLUDE_DIR}" "${OBMM_INCLUDE_DIR}")
+    target_compile_definitions(erpc PRIVATE LRPC_BACKEND_UBSM=1 LRPC_UB_DOMAIN=1)
+    # Upstream uses the plain (non-PUBLIC/PRIVATE) link signature.
+    target_link_libraries(erpc "${UBSM_LIBRARY}" "${OBMM_LIBRARY}")
+endfunction()
+cmake_language(DEFER CALL lrpc_attach_ub_domain)

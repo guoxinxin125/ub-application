@@ -15,17 +15,63 @@ if [ "$fetch_erpc" != 0 ]; then
 	fi
 	if git -C "$root/third_party/eRPC" apply --check "$root/patches/erpc-lrpc.patch" 2>/dev/null; then
 		git -C "$root/third_party/eRPC" apply "$root/patches/erpc-lrpc.patch"
-	elif ! git -C "$root/third_party/eRPC" apply --reverse --check \
-		"$root/patches/erpc-lrpc.patch" 2>/dev/null; then
+	elif grep -q 'UPSTREAM_ERPC_LRPC_RESULT value=142' \
+		"$root/third_party/eRPC/hello_world/client.cc" &&
+		grep -q '../../lib/lrpc.c' "$root/third_party/eRPC/CMakeLists.txt" &&
+		grep -q 'lrpc_invoke(&lrpc_, &call)' \
+			"$root/third_party/eRPC/src/transport_impl/fake/fake_transport.cc"; then
+		: # Applied; later patches may prevent a reverse-check of this base patch.
+	else
 		echo "eRPC tree is neither clean nor patched as expected" >&2
+		exit 1
+	fi
+	if git -C "$root/third_party/eRPC" apply --check \
+		"$root/patches/erpc-lrpc-timing.patch" 2>/dev/null; then
+		git -C "$root/third_party/eRPC" apply \
+			"$root/patches/erpc-lrpc-timing.patch"
+	elif grep -q 'UPSTREAM_ERPC_LRPC_BREAKDOWN_AVG' \
+		"$root/third_party/eRPC/hello_world/client.cc" &&
+		grep -q 'fake_transport_get_last_lrpc_timing' \
+			"$root/third_party/eRPC/src/transport_impl/fake/fake_transport.cc"; then
+		: # Applied.
+	else
+		echo "eRPC tree has an unexpected timing patch state" >&2
+		exit 1
+	fi
+	if git -C "$root/third_party/eRPC" apply --check \
+		"$root/patches/erpc-lrpc-precondition.patch" 2>/dev/null; then
+		git -C "$root/third_party/eRPC" apply \
+			"$root/patches/erpc-lrpc-precondition.patch"
+	elif grep -q 'ra_bench_warm_begin(&warm, "upstream")' \
+		"$root/third_party/eRPC/hello_world/client.cc" &&
+		grep -q 'ra_bench_audit_end(&audit, "upstream", "baseline")' \
+			"$root/third_party/eRPC/hello_world/client.cc"; then
+		: # Applied.
+	else
+		echo "eRPC tree has an unexpected precondition patch state" >&2
+		exit 1
+	fi
+	if git -C "$root/third_party/eRPC" apply --check \
+		"$root/patches/erpc-lrpc-first-call.patch" 2>/dev/null; then
+		git -C "$root/third_party/eRPC" apply \
+			"$root/patches/erpc-lrpc-first-call.patch"
+	elif grep -q 'ra_bench_first_call("upstream", first_ns)' \
+		"$root/third_party/eRPC/hello_world/client.cc"; then
+		: # Applied.
+	else
+		echo "eRPC tree has an unexpected first-call patch state" >&2
 		exit 1
 	fi
 	if git -C "$root/third_party/eRPC" apply --check \
 		"$root/patches/erpc-lrpc-ub-config.patch" 2>/dev/null; then
 		git -C "$root/third_party/eRPC" apply \
 			"$root/patches/erpc-lrpc-ub-config.patch"
-	elif ! git -C "$root/third_party/eRPC" apply --reverse --check \
-		"$root/patches/erpc-lrpc-ub-config.patch" 2>/dev/null; then
+	elif grep -q 'ERPC_LRPC_DEVICE' \
+		"$root/third_party/eRPC/src/transport_impl/fake/fake_transport.cc" &&
+		grep -q 'lrpc_env("ERPC_SERVER_HOST"' \
+			"$root/third_party/eRPC/hello_world/common.h"; then
+		: # Applied.
+	else
 		echo "eRPC tree has an unexpected UB configuration patch state" >&2
 		exit 1
 	fi
@@ -33,8 +79,11 @@ if [ "$fetch_erpc" != 0 ]; then
 		"$root/patches/erpc-aarch64-util.patch" 2>/dev/null; then
 		git -C "$root/third_party/eRPC" apply \
 			"$root/patches/erpc-aarch64-util.patch"
-	elif ! git -C "$root/third_party/eRPC" apply --reverse --check \
-		"$root/patches/erpc-aarch64-util.patch" 2>/dev/null; then
+	elif grep -q 'defined(__aarch64__)' \
+		"$root/third_party/eRPC/src/util/barrier.h" &&
+		grep -q 'cntvct_el0' "$root/third_party/eRPC/src/util/timer.h"; then
+		: # Applied.
+	else
 		echo "eRPC tree has an unexpected AArch64 utility patch state" >&2
 		exit 1
 	fi

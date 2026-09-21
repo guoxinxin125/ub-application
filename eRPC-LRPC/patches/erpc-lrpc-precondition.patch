@@ -1,0 +1,45 @@
+diff --git a/hello_world/client.cc b/hello_world/client.cc
+index 7adf3ab..c7d42fe 100644
+--- a/hello_world/client.cc
++++ b/hello_world/client.cc
+@@ -3,6 +3,7 @@
+ #include <chrono>
+ #include <vector>
+ 
++#include "lrpc/remote_app_bench.h"
+ #include "transport_impl/fake/fake_transport.h"
+ erpc::Rpc<erpc::CTransport> *rpc;
+ erpc::MsgBuffer req;
+@@ -51,6 +52,12 @@ int main() {
+   if (!issue_request(session_num)) return 2;
+   printf("UPSTREAM_ERPC_LRPC_RESULT value=142\n");
+ 
++  struct ra_bench_warm warm;
++  ra_bench_warm_begin(&warm, "upstream");
++  while (ra_bench_warm_more(&warm)) {
++    if (!issue_request(session_num)) return 5;
++  }
++
+   constexpr size_t kWarmup = 100;
+   constexpr size_t kSamples = 1000;
+   for (size_t i = 0; i < kWarmup; i++)
+@@ -65,6 +72,11 @@ int main() {
+   uint64_t total_call_to_shadow = 0;
+   uint64_t total_shadow_user_service = 0;
+   uint64_t total_return_to_caller = 0;
++  struct ra_bench_audit audit{};
++  const char *backend = getenv("LRPC_EXECUTION_BACKEND");
++  bool audit_enabled = backend != nullptr &&
++                       !strcmp(backend, "remote-domain");
++  if (audit_enabled) ra_bench_audit_begin(&audit);
+   for (size_t i = 0; i < kSamples; i++) {
+     erpc::FakeTransportLrpcTiming timing{};
+     auto begin = std::chrono::steady_clock::now();
+@@ -86,6 +98,7 @@ int main() {
+     total_shadow_user_service += timing.shadow_user_service_ns;
+     total_return_to_caller += timing.return_to_caller_ns;
+   }
++  if (audit_enabled) ra_bench_audit_end(&audit, "upstream", "baseline");
+   std::sort(ns.begin(), ns.end());
+   printf("UPSTREAM_ERPC_LRPC_LATENCY samples=%zu warmup=%zu min_ns=%lu "
+          "p50_ns=%lu p99_ns=%lu max_ns=%lu avg_ns=%.1f\n",

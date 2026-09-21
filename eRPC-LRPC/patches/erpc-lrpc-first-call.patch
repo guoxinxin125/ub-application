@@ -1,0 +1,12 @@
+diff --git a/hello_world/client.cc b/hello_world/client.cc
+--- a/hello_world/client.cc
++++ b/hello_world/client.cc
+@@ -52,5 +52,8 @@ int main() {
++  uint64_t first_begin = ra_bench_clock(CLOCK_MONOTONIC_RAW);
+   if (!issue_request(session_num)) return 2;
++  uint64_t first_ns = ra_bench_clock(CLOCK_MONOTONIC_RAW) - first_begin;
+   printf("UPSTREAM_ERPC_LRPC_RESULT value=142\n");
++  ra_bench_first_call("upstream", first_ns);
+ 
+   struct ra_bench_warm warm;
+   ra_bench_warm_begin(&warm, "upstream");

@@ -1,0 +1,165 @@
+diff --git a/hello_world/client.cc b/hello_world/client.cc
+index 25a553a..7adf3ab 100644
+--- a/hello_world/client.cc
++++ b/hello_world/client.cc
+@@ -3,6 +3,7 @@
+ #include <chrono>
+ #include <vector>
+ 
++#include "transport_impl/fake/fake_transport.h"
+ erpc::Rpc<erpc::CTransport> *rpc;
+ erpc::MsgBuffer req;
+ erpc::MsgBuffer resp;
+@@ -17,12 +18,16 @@ void cont_func(void *, void *) {
+ 
+ void sm_handler(int, erpc::SmEventType, erpc::SmErrType, void *) {}
+ 
+-static bool issue_request(int session_num) {
++static bool issue_request(int session_num,
++                          erpc::FakeTransportLrpcTiming *timing = nullptr) {
+   done = false;
+   response_ok = false;
+   rpc->enqueue_request(session_num, kReqType, &req, &resp, cont_func, nullptr);
+   for (size_t i = 0; i < 100000 && !done; i++) rpc->run_event_loop_once();
+-  return done && response_ok;
++  if (!done || !response_ok) return false;
++  if (timing != nullptr &&
++      !erpc::fake_transport_get_last_lrpc_timing(timing)) return false;
++  return true;
+ }
+ 
+ int main() {
+@@ -53,15 +58,29 @@ int main() {
+   std::vector<uint64_t> ns;
+   ns.reserve(kSamples);
+   uint64_t total = 0;
++  uint64_t total_erpc_outside_lrpc = 0;
++  uint64_t total_lrpc_invoke = 0;
++  uint64_t total_lrpc_outside_kernel = 0;
++  uint64_t total_call_to_shadow = 0;
++  uint64_t total_shadow_user_service = 0;
++  uint64_t total_return_to_caller = 0;
+   for (size_t i = 0; i < kSamples; i++) {
++    erpc::FakeTransportLrpcTiming timing{};
+     auto begin = std::chrono::steady_clock::now();
+-    if (!issue_request(session_num)) return 4;
++    if (!issue_request(session_num, &timing)) return 4;
+     auto end = std::chrono::steady_clock::now();
+     uint64_t sample = static_cast<uint64_t>(
+         std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin)
+             .count());
+     ns.push_back(sample);
+     total += sample;
++    total_erpc_outside_lrpc +=
++        sample > timing.invoke_ns ? sample - timing.invoke_ns : 0;
++    total_lrpc_invoke += timing.invoke_ns;
++    total_lrpc_outside_kernel += timing.outside_kernel_timestamps_ns;
++    total_call_to_shadow += timing.call_to_shadow_ns;
++    total_shadow_user_service += timing.shadow_user_service_ns;
++    total_return_to_caller += timing.return_to_caller_ns;
+   }
+   std::sort(ns.begin(), ns.end());
+   printf("UPSTREAM_ERPC_LRPC_LATENCY samples=%zu warmup=%zu min_ns=%lu "
+@@ -74,5 +93,16 @@ int main() {
+          ns[(kSamples * 99) / 100], ns.back(),
+          static_cast<double>(total) / kSamples);
++  printf("UPSTREAM_ERPC_LRPC_BREAKDOWN_AVG samples=%zu total_ns=%lu "
++         "erpc_outside_lrpc_ns=%lu lrpc_invoke_ns=%lu "
++         "lrpc_outside_kernel_timestamps_ns=%lu call_to_shadow_ns=%lu "
++         "shadow_user_service_ns=%lu return_to_caller_ns=%lu\n",
++         kSamples, total / kSamples,
++         total_erpc_outside_lrpc / kSamples,
++         total_lrpc_invoke / kSamples,
++         total_lrpc_outside_kernel / kSamples,
++         total_call_to_shadow / kSamples,
++         total_shadow_user_service / kSamples,
++         total_return_to_caller / kSamples);
+   printf("UPSTREAM_ERPC_LRPC_PASS\n");
+ 
+   delete rpc;
+diff --git a/src/transport_impl/fake/fake_transport.cc b/src/transport_impl/fake/fake_transport.cc
+index 9120e25..f665aa1 100644
+--- a/src/transport_impl/fake/fake_transport.cc
++++ b/src/transport_impl/fake/fake_transport.cc
+@@ -2,6 +2,7 @@
+ #include "fake_transport.h"
+ 
+ #include <cstdlib>
++#include <chrono>
+ #include <cstddef>
+ #include <cstring>
+ #include <stdexcept>
+@@ -10,6 +11,17 @@
+ 
+ namespace erpc {
+ 
++namespace {
++thread_local FakeTransportLrpcTiming last_lrpc_timing{};
++thread_local bool last_lrpc_timing_valid = false;
++}  // namespace
++
++bool fake_transport_get_last_lrpc_timing(FakeTransportLrpcTiming *timing) {
++  if (timing == nullptr || !last_lrpc_timing_valid) return false;
++  *timing = last_lrpc_timing;
++  return true;
++}
++
+ constexpr size_t FakeTransport::kMaxDataPerPkt;
+ 
+ FakeTransport::FakeTransport(uint16_t, uint8_t rpc_id, uint8_t phy_port,
+@@ -43,7 +55,32 @@ void FakeTransport::tx_burst(const tx_burst_item_t *items, size_t num_pkts) {
+     call.procedure_id = req->req_type_;
+     call.request_size = req->msg_size_;
+     std::memcpy(call.payload, item.msg_buffer_->buf_, req->msg_size_);
+-    if (lrpc_invoke(&lrpc_, &call) != 0 || call.status != 0) continue;
++
++    last_lrpc_timing_valid = false;
++    auto invoke_begin = std::chrono::steady_clock::now();
++    int invoke_rc = lrpc_invoke(&lrpc_, &call);
++    auto invoke_end = std::chrono::steady_clock::now();
++    if (invoke_rc != 0 || call.status != 0) continue;
++    if (call.shadow_dispatch_ns < call.call_enter_ns ||
++        call.shadow_return_ns < call.shadow_dispatch_ns ||
++        call.caller_resume_ns < call.shadow_return_ns) continue;
++
++    uint64_t invoke_ns = static_cast<uint64_t>(
++        std::chrono::duration_cast<std::chrono::nanoseconds>(
++            invoke_end - invoke_begin).count());
++    uint64_t kernel_timestamp_span =
++        call.caller_resume_ns - call.call_enter_ns;
++    last_lrpc_timing.invoke_ns = invoke_ns;
++    last_lrpc_timing.outside_kernel_timestamps_ns =
++        invoke_ns > kernel_timestamp_span ?
++            invoke_ns - kernel_timestamp_span : 0;
++    last_lrpc_timing.call_to_shadow_ns =
++        call.shadow_dispatch_ns - call.call_enter_ns;
++    last_lrpc_timing.shadow_user_service_ns =
++        call.shadow_return_ns - call.shadow_dispatch_ns;
++    last_lrpc_timing.return_to_caller_ns =
++        call.caller_resume_ns - call.shadow_return_ns;
++    last_lrpc_timing_valid = true;
+ 
+     uint8_t *dst = rx_ring_[rx_tail_];
+     auto *resp = reinterpret_cast<pkthdr_t *>(dst);
+diff --git a/src/transport_impl/fake/fake_transport.h b/src/transport_impl/fake/fake_transport.h
+index d03bd73..f91a24e 100644
+--- a/src/transport_impl/fake/fake_transport.h
++++ b/src/transport_impl/fake/fake_transport.h
+@@ -12,5 +12,16 @@
+ 
+ namespace erpc {
+ 
++struct FakeTransportLrpcTiming {
++  uint64_t invoke_ns = 0;
++  uint64_t outside_kernel_timestamps_ns = 0;
++  uint64_t call_to_shadow_ns = 0;
++  uint64_t shadow_user_service_ns = 0;
++  uint64_t return_to_caller_ns = 0;
++};
++
++bool fake_transport_get_last_lrpc_timing(
++    FakeTransportLrpcTiming *timing);
++
+ class FakeTransport : public Transport {
+  public:
+   static constexpr size_t kNumRxRingEntries = 8;
