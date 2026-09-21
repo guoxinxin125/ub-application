@@ -18,12 +18,12 @@
     "enable_numa_effects": true
   },
   "load_balance": {
-    "server_addr": "IP98:31850",
+    "server_addr": "IP99:31850",
     "rpc_id": 0,
     "bind_core_offset": 4
   },
   "client": {
-    "server_addr": "IP98:31851",
+    "server_addr": "IP99:31851",
     "rpc_id": 1,
     "generate_num": 5000,
     "user_num": 0,
@@ -32,44 +32,44 @@
     "bind_core_offset": 0
   },
   "nginx": {
-    "server_addr": "IP98:31852",
+    "server_addr": "IP99:31852",
     "rpc_id": 2,
     "bind_core_offset": 7
   },
   "unique_id": {
-    "server_addr": "IP98:31853",
+    "server_addr": "IP99:31853",
     "rpc_id": 3,
     "bind_core_offset": 14
   },
   "url_shorten": {
-    "server_addr": "IP98:31854",
+    "server_addr": "IP99:31854",
     "rpc_id": 4,
     "bind_core_offset": 18
   },
   "compose_post": {
-    "server_addr": "IP98:31855",
+    "server_addr": "IP99:31855",
     "rpc_id": 5,
     "bind_core_offset": 10
   },
   "user_timeline": {
-    "server_addr": "IP99:31856",
+    "server_addr": "IP98:31856",
     "rpc_id": 6,
     "bind_core_offset": 0
   },
   "home_timeline": {
-    "server_addr": "IP99:31857",
+    "server_addr": "IP98:31857",
     "rpc_id": 7,
     "data_file_path": "./home_timeline.data",
     "per_read_posts": 1,
     "bind_core_offset": 5
   },
   "user_mention": {
-    "server_addr": "IP98:31858",
+    "server_addr": "IP99:31858",
     "rpc_id": 8,
     "bind_core_offset": 26
   },
   "post_storage": {
-    "server_addr": "IP99:31859",
+    "server_addr": "IP98:31859",
     "rpc_id": 9,
     "read_total_size": 4,
     "write_total_size": 4,
@@ -77,7 +77,7 @@
     "bind_core_offset": 10
   },
   "user_service": {
-    "server_addr": "IP98:31860",
+    "server_addr": "IP99:31860",
     "rpc_id": 10,
     "bind_core_offset": 22
   },
@@ -89,7 +89,7 @@
   },
   "user_mongodb": {
     "connections": 100,
-    "addr": "IP99",
+    "addr": "IP98",
     "port": "20011",
     "database": "user"
   },
