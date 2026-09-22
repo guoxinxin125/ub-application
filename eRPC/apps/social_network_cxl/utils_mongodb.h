@@ -1,7 +1,7 @@
 #pragma once
 
-#include <libmongoc-1.0/mongoc.h>
-#include <libbson-1.0/bson.h>
+#include <bson/bson.h>
+#include <mongoc/mongoc.h>
 #include <nlohmann/json.hpp>
 
 #define SERVER_SELECTION_TIMEOUT_MS 300
