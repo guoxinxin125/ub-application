@@ -1,5 +1,6 @@
 #pragma once
 #include "../social_network_commons.h"
+#include "../utils_mongodb.h"
 #include <social_network.pb.h>
 #include "../spinlock_mutex.h"
 #ifdef ERPC_CXL

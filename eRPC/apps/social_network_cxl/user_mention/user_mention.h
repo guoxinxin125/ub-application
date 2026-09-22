@@ -1,6 +1,7 @@
 #pragma once
 #include "atomic_queue/atomic_queue.h"
 #include "../social_network_commons.h"
+#include "../utils_mongodb.h"
 #include <regex>
 #ifdef ERPC_CXL
 #include "../social_network_cxl.h"

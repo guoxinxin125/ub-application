@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+#include <cstdio>
+#include <string>
+
 #include <bson/bson.h>
 #include <mongoc/mongoc.h>
 #include <nlohmann/json.hpp>
