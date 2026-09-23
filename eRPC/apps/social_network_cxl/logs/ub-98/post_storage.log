@@ -1,23 +1,23 @@
-Rpc 9: Created Server session_num = 0 for client [H: 76.53.137.98:31856, R: 26, S: 2] from 76.53.137.98 (rpc 26)
-Rpc 9: Created Server session_num = 1 for client [H: 76.53.137.98:31857, R: 27, S: 2] from 76.53.137.98 (rpc 27)
+Rpc 9: Created Server session_num = 0 for client [H: 76.53.137.98:31857, R: 27, S: 2] from 76.53.137.98 (rpc 27)
+Rpc 9: Created Server session_num = 1 for client [H: 76.53.137.98:31856, R: 26, S: 2] from 76.53.137.98 (rpc 26)
 Rpc 9: Created Server session_num = 2 for client [H: 76.53.137.99:31855, R: 25, S: 7] from 76.53.137.99 (rpc 25)
-Rpc 9: Created Server session_num = 3 for client [H: 76.53.137.99:31851, R: 21, S: 1] from 76.53.137.99 (rpc 21)
 post_storage mongodb init finished. loaded 9424 posts
-UB: endpoint unregister failed: UB machine context: invalid response from ub_manager
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+Rpc 9: Created Server session_num = 3 for client [H: 76.53.137.99:31851, R: 21, S: 1] from 76.53.137.99 (rpc 21)
 post_storage released 10924 stored posts
 UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
-SN_UB_PROFILE thread=16932466735805000712 interval=1 timestamp_overhead_ns=20
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_read_lock calls=3410 avg_ns=43.8 p99_upper_ns=64 max_ns=80
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_read_lookup calls=3410 avg_ns=218.9 p99_upper_ns=512 max_ns=37630
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_read_retain calls=3410 avg_ns=299.7 p99_upper_ns=8192 max_ns=21460
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_read_response calls=3410 avg_ns=153.5 p99_upper_ns=256 max_ns=3640
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_alloc calls=1500 avg_ns=197.6 p99_upper_ns=512 max_ns=16460
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_copy calls=1500 avg_ns=3766.6 p99_upper_ns=32768 max_ns=40920
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_validate calls=1500 avg_ns=35.2 p99_upper_ns=64 max_ns=110
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_map calls=1500 avg_ns=583.7 p99_upper_ns=4096 max_ns=31320
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_lock calls=1500 avg_ns=43.7 p99_upper_ns=64 max_ns=60
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_lookup calls=1500 avg_ns=220.3 p99_upper_ns=1024 max_ns=31010
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_insert calls=1500 avg_ns=165.9 p99_upper_ns=4096 max_ns=16470
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_response calls=1500 avg_ns=1490.5 p99_upper_ns=16384 max_ns=26590
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_response_build calls=1500 avg_ns=594.7 p99_upper_ns=8192 max_ns=14420
-SN_UB_PROFILE thread=16932466735805000712 interval=1 stage=storage_write_response_enqueue calls=1500 avg_ns=789.2 p99_upper_ns=8192 max_ns=13850
+SN_UB_PROFILE thread=10080704473544895523 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_read_lock calls=3410 avg_ns=44.5 p99_upper_ns=64 max_ns=3440
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_read_lookup calls=3410 avg_ns=270.5 p99_upper_ns=1024 max_ns=19130
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_read_retain calls=3410 avg_ns=321.0 p99_upper_ns=16384 max_ns=29860
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_read_response calls=3410 avg_ns=154.4 p99_upper_ns=256 max_ns=10460
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_alloc calls=1500 avg_ns=234.7 p99_upper_ns=512 max_ns=17860
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_copy calls=1500 avg_ns=3836.0 p99_upper_ns=32768 max_ns=46310
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_validate calls=1500 avg_ns=35.2 p99_upper_ns=64 max_ns=250
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_map calls=1500 avg_ns=606.8 p99_upper_ns=4096 max_ns=37610
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_lock calls=1500 avg_ns=43.8 p99_upper_ns=64 max_ns=60
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_lookup calls=1500 avg_ns=218.7 p99_upper_ns=1024 max_ns=18360
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_insert calls=1500 avg_ns=192.7 p99_upper_ns=4096 max_ns=37310
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_response calls=1500 avg_ns=1515.7 p99_upper_ns=16384 max_ns=34230
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_response_build calls=1500 avg_ns=598.5 p99_upper_ns=8192 max_ns=17890
+SN_UB_PROFILE thread=10080704473544895523 interval=1 stage=storage_write_response_enqueue calls=1500 avg_ns=812.1 p99_upper_ns=8192 max_ns=16190

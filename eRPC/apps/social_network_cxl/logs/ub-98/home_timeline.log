@@ -1,22 +1,22 @@
-SN_UB_PROFILE thread=6065422683349754388 interval=1 timestamp_overhead_ns=20
-SN_UB_PROFILE thread=6065422683349754388 interval=1 stage=timeline_queue_handoff calls=2000 avg_ns=645.9 p99_upper_ns=1024 max_ns=2040
-SN_UB_PROFILE thread=6065422683349754388 interval=1 stage=timeline_worker_lookup_queue calls=2000 avg_ns=529.5 p99_upper_ns=1024 max_ns=17870
-SN_UB_PROFILE thread=6065422683349754388 interval=1 stage=timeline_worker_release calls=2000 avg_ns=91.9 p99_upper_ns=128 max_ns=350
-UB: ub_manager rejected endpoint unregister
-SN_UB_PROFILE thread=9653119704284610170 interval=1 timestamp_overhead_ns=20
-SN_UB_PROFILE thread=9653119704284610170 interval=1 stage=timeline_forward_queue_handoff calls=2000 avg_ns=586.6 p99_upper_ns=1024 max_ns=66290
-SN_UB_PROFILE thread=9653119704284610170 interval=1 stage=timeline_tx_prepare calls=2000 avg_ns=54.7 p99_upper_ns=256 max_ns=11400
-SN_UB_PROFILE thread=9653119704284610170 interval=1 stage=timeline_tx_enqueue calls=2000 avg_ns=53.9 p99_upper_ns=512 max_ns=1240
-SN_UB_PROFILE thread=9653119704284610170 interval=1 stage=timeline_storage_rtt calls=2000 avg_ns=2153.6 p99_upper_ns=32768 max_ns=65600
-SN_UB_PROFILE thread=9653119704284610170 interval=1 stage=timeline_callback_build calls=2000 avg_ns=228.3 p99_upper_ns=512 max_ns=550
-SN_UB_PROFILE thread=9653119704284610170 interval=1 stage=timeline_callback_release calls=2000 avg_ns=154.1 p99_upper_ns=256 max_ns=720
-SN_UB_PROFILE thread=9653119704284610170 interval=1 stage=timeline_callback_forward calls=2000 avg_ns=202.0 p99_upper_ns=512 max_ns=137860
+SN_UB_PROFILE thread=11757346321386512090 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=11757346321386512090 interval=1 stage=timeline_queue_handoff calls=2000 avg_ns=659.9 p99_upper_ns=1024 max_ns=14110
+SN_UB_PROFILE thread=11757346321386512090 interval=1 stage=timeline_worker_lookup_queue calls=2000 avg_ns=496.3 p99_upper_ns=1024 max_ns=15660
+SN_UB_PROFILE thread=11757346321386512090 interval=1 stage=timeline_worker_release calls=2000 avg_ns=97.2 p99_upper_ns=128 max_ns=1010
 UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
-SN_UB_PROFILE thread=17519652060188923516 interval=1 timestamp_overhead_ns=20
-SN_UB_PROFILE thread=17519652060188923516 interval=1 stage=timeline_rx_copy calls=2000 avg_ns=552.3 p99_upper_ns=1024 max_ns=920
-SN_UB_PROFILE thread=17519652060188923516 interval=1 stage=timeline_rx_queue calls=2000 avg_ns=574.0 p99_upper_ns=1024 max_ns=890
-SN_UB_PROFILE thread=17519652060188923516 interval=1 stage=timeline_rx_ack calls=2000 avg_ns=706.2 p99_upper_ns=1024 max_ns=16290
+SN_UB_PROFILE thread=2313275184900171277 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=2313275184900171277 interval=1 stage=timeline_forward_queue_handoff calls=2000 avg_ns=584.3 p99_upper_ns=2048 max_ns=75120
+SN_UB_PROFILE thread=2313275184900171277 interval=1 stage=timeline_tx_prepare calls=2000 avg_ns=59.1 p99_upper_ns=256 max_ns=12340
+SN_UB_PROFILE thread=2313275184900171277 interval=1 stage=timeline_tx_enqueue calls=2000 avg_ns=107.0 p99_upper_ns=1024 max_ns=3780
+SN_UB_PROFILE thread=2313275184900171277 interval=1 stage=timeline_storage_rtt calls=2000 avg_ns=2195.9 p99_upper_ns=16384 max_ns=37150
+SN_UB_PROFILE thread=2313275184900171277 interval=1 stage=timeline_callback_build calls=2000 avg_ns=247.0 p99_upper_ns=512 max_ns=6350
+SN_UB_PROFILE thread=2313275184900171277 interval=1 stage=timeline_callback_release calls=2000 avg_ns=152.5 p99_upper_ns=256 max_ns=770
+SN_UB_PROFILE thread=2313275184900171277 interval=1 stage=timeline_callback_forward calls=2000 avg_ns=118.2 p99_upper_ns=512 max_ns=11280
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=15760100409936442343 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=15760100409936442343 interval=1 stage=timeline_rx_copy calls=2000 avg_ns=554.8 p99_upper_ns=1024 max_ns=2800
+SN_UB_PROFILE thread=15760100409936442343 interval=1 stage=timeline_rx_queue calls=2000 avg_ns=592.9 p99_upper_ns=1024 max_ns=14040
+SN_UB_PROFILE thread=15760100409936442343 interval=1 stage=timeline_rx_ack calls=2000 avg_ns=718.0 p99_upper_ns=1024 max_ns=15720
 [home_timeline] mongodb init finished! Total init 9424 posts
-Rpc 7: Created Server session_num = 0 for client [H: 76.53.137.98:31859, R: 29, S: 2] from 76.53.137.98 (rpc 29)
-Rpc 7: Created Server session_num = 1 for client [H: 76.53.137.99:31852, R: 22, S: 2] from 76.53.137.99 (rpc 22)
-Rpc 7: Created Server session_num = 2 for client [H: 76.53.137.99:31855, R: 25, S: 6] from 76.53.137.99 (rpc 25)
+Rpc 7: Created Server session_num = 0 for client [H: 76.53.137.99:31852, R: 22, S: 2] from 76.53.137.99 (rpc 22)
+Rpc 7: Created Server session_num = 1 for client [H: 76.53.137.99:31855, R: 25, S: 6] from 76.53.137.99 (rpc 25)
+Rpc 7: Created Server session_num = 2 for client [H: 76.53.137.98:31859, R: 29, S: 2] from 76.53.137.98 (rpc 29)
