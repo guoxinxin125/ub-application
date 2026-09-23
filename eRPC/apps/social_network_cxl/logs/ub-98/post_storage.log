@@ -1,0 +1,18 @@
+Rpc 9: Created Server session_num = 0 for client [H: 76.53.137.98:31856, R: 26, S: 2] from 76.53.137.98 (rpc 26)
+Rpc 9: Created Server session_num = 1 for client [H: 76.53.137.98:31857, R: 27, S: 2] from 76.53.137.98 (rpc 27)
+post_storage mongodb init finished. loaded 9424 posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+Rpc 9: Created Server session_num = 2 for client [H: 76.53.137.99:31855, R: 25, S: 7] from 76.53.137.99 (rpc 25)
+Rpc 9: Created Server session_num = 3 for client [H: 76.53.137.99:31851, R: 21, S: 1] from 76.53.137.99 (rpc 21)
+post_storage released 10924 stored posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=13967242946581325913 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_read_lock calls=3410 avg_ns=43.6 p99_upper_ns=64 max_ns=80
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_read_lookup calls=3410 avg_ns=273.7 p99_upper_ns=4096 max_ns=19720
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_read_retain calls=3410 avg_ns=404.4 p99_upper_ns=16384 max_ns=29520
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_read_response calls=3410 avg_ns=149.5 p99_upper_ns=256 max_ns=420
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_write_alloc calls=1500 avg_ns=254.3 p99_upper_ns=2048 max_ns=17820
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_write_copy calls=1500 avg_ns=5449.8 p99_upper_ns=32768 max_ns=40810
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_write_validate calls=1500 avg_ns=37.8 p99_upper_ns=128 max_ns=70
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_write_map calls=1500 avg_ns=878.6 p99_upper_ns=16384 max_ns=503480
+SN_UB_PROFILE thread=13967242946581325913 stage=storage_write_response calls=1500 avg_ns=1590.5 p99_upper_ns=32768 max_ns=27290
