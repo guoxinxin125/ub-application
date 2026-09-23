@@ -1,0 +1,29 @@
+TIGON_RUN_META system=ub workload=ycsb run_id=ycsb_scan host_id=0 repetition= mode=one-sided query=scan transport=tcp partitions=2 workers=1 keys=200000 rw_ratio=80 zipf=0 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+[2026-09-23 19:05:28.922 +08:00][ERROR][1367653][281473870581792][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:05:28.922 +08:00][ERROR][1367653][281473870581792][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scan_one-sided_scan_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 19:05:28.922 +08:00][ERROR][1367653][281473870581792][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:05:29.027 +08:00][ERROR][1367653][281473870581792][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:05:29.027 +08:00][ERROR][1367653][281473870581792][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scan_one-sided_scan_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 19:05:29.027 +08:00][ERROR][1367653][281473870581792][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:05:29.131 +08:00][ERROR][1367653][281473870581792][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:05:29.131 +08:00][ERROR][1367653][281473870581792][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scan_one-sided_scan_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 19:05:29.131 +08:00][ERROR][1367653][281473870581792][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+*** Aborted at 1790161535 (unix time) try "date -d @1790161535" if you are using GNU date ***
+PC: @                0x0 (unknown)
+*** SIGSEGV (@0x0) received by PID 1367653 (TID 0xffff6d9de0e0) from PID 0; stack trace: ***
+    @     0xffffbf26cdb8 google::(anonymous namespace)::FailureSignalHandler()
+    @     0xffffbf41e7e0 ([vdso]+0x7df)
+    @     0xffffbe8873f4 pthread_spin_lock
+    @           0x500268 _ZNSt17_Function_handlerIFbPKvPSt6atomicImEPvbEZZN4star18TwoPLPashaExecutorINS7_4ycsb8WorkloadINS7_21TwoPLPashaTransactionEEEE13setupHandlersERSB_ENKUlmmjS1_S1_miS5_RNS7_6ITable10row_entityERbE0_clEmmjS1_S1_miS5_SH_SI_EUlS1_S4_S5_bE_E9_M_invokeERKSt9_Any_dataOS1_OS4_OS5_Ob
+    @           0x4bde78 _ZNSt17_Function_handlerIFbRKN4star11UBBPlusTreeINS0_4ycsb4ycsb3keyENS3_5valueENS3_13KeyComparatorELj15ELj15EE8TupleRefEbEZNS0_16TableUBBPlusTreeIS4_S5_S6_NS3_15ValueComparatorEE10scan_rangeEPKvSG_mSt8functionIFbSG_PSt6atomicImEPvbEEEUlSA_bE_E9_M_invokeERKSt9_Any_dataSA_Ob
+    @           0x542fec star::TableUBBPlusTree<>::scan_range()
+    @           0x56c504 _ZZN4star18TwoPLPashaExecutorINS_4ycsb8WorkloadINS_21TwoPLPashaTransactionEEEE13setupHandlersERS3_ENKUlmmjPKvS8_miPvRNS_6ITable10row_entityERbE0_clEmmjS8_S8_miS9_SC_SD_
+    @           0x4aa71c star::TwoPLPashaTransaction::process_requests()
+    @           0x509af0 star::ycsb::Scan<>::execute()
+    @           0x596510 star::Executor<>::start()
+    @     0xffffbef643cc (unknown)
+    @     0xffffbe8802a4 (unknown)
+    @     0xffffbe8e850c (unknown)
+    @                0x0 (unknown)
+/home/gxx/ub-application/tigon/scripts/run_ub_ycsb_matrix.sh: line 57: 1367653 Segmentation fault      (core dumped) "${runner[@]}" "${command[@]}"
+TIGON_RUN_END run_id=ycsb_scan host_id=0 status=failed exit_code=139

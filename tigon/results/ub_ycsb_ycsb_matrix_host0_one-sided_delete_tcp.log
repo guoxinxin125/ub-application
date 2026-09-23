@@ -1,0 +1,26 @@
+TIGON_RUN_META system=ub workload=ycsb run_id=ycsb_matrix host_id=0 repetition= mode=one-sided query=delete transport=tcp partitions=2 workers=1 keys=200000 rw_ratio=80 zipf=0 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+[2026-09-23 18:42:42.408 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:42.408 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:42.408 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:42:42.514 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:42.514 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:42.515 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:42:42.618 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:42.618 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:42.618 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:42:42.723 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:42.723 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:42.723 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:42:42.827 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:42.827 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:42.827 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:42:42.930 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:42.930 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:42.930 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:42:43.035 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:43.035 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:43.035 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:42:43.138 +08:00][ERROR][1357532][281473829687328][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:42:43.138 +08:00][ERROR][1357532][281473829687328][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_one-sided_delete_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:42:43.138 +08:00][ERROR][1357532][281473829687328][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+TIGON_RUN_END run_id=ycsb_matrix host_id=0 status=ok exit_code=0

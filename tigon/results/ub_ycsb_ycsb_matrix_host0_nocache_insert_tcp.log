@@ -1,0 +1,11 @@
+TIGON_RUN_META system=ub workload=ycsb run_id=ycsb_matrix host_id=0 repetition= mode=nocache query=insert transport=tcp partitions=2 workers=1 keys=200000 rw_ratio=80 zipf=0 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+[2026-09-23 18:45:19.345 +08:00][ERROR][1359069][281473462751264][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:45:19.345 +08:00][ERROR][1359069][281473462751264][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_nocache_insert_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:45:19.345 +08:00][ERROR][1359069][281473462751264][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:45:19.450 +08:00][ERROR][1359069][281473462751264][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:45:19.450 +08:00][ERROR][1359069][281473462751264][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_nocache_insert_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:45:19.450 +08:00][ERROR][1359069][281473462751264][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 18:45:19.553 +08:00][ERROR][1359069][281473462751264][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 18:45:19.553 +08:00][ERROR][1359069][281473462751264][RackMemShm.cpp:322] Failed to mmap, name=ycsb_matrix_nocache_insert_tcp_1, mapSize=536870912, ret=606
+[2026-09-23 18:45:19.553 +08:00][ERROR][1359069][281473462751264][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+TIGON_RUN_END run_id=ycsb_matrix host_id=0 status=ok exit_code=0

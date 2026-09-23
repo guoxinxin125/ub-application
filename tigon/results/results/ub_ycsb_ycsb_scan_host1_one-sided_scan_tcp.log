@@ -1,0 +1,20 @@
+TIGON_RUN_META system=ub workload=ycsb run_id=ycsb_scan host_id=1 repetition= mode=one-sided query=scan transport=tcp partitions=2 workers=1 keys=200000 rw_ratio=80 zipf=0 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+*** Aborted at 1790161525 (unix time) try "date -d @1790161525" if you are using GNU date ***
+PC: @                0x0 (unknown)
+*** SIGSEGV (@0x0) received by PID 1412560 (TID 0xffff54bde0e0) from PID 0; stack trace: ***
+    @     0xffffa637cdb8 google::(anonymous namespace)::FailureSignalHandler()
+    @     0xffffa652f7e0 ([vdso]+0x7df)
+    @     0xffffa5a873f4 pthread_spin_lock
+    @           0x500268 _ZNSt17_Function_handlerIFbPKvPSt6atomicImEPvbEZZN4star18TwoPLPashaExecutorINS7_4ycsb8WorkloadINS7_21TwoPLPashaTransactionEEEE13setupHandlersERSB_ENKUlmmjS1_S1_miS5_RNS7_6ITable10row_entityERbE0_clEmmjS1_S1_miS5_SH_SI_EUlS1_S4_S5_bE_E9_M_invokeERKSt9_Any_dataOS1_OS4_OS5_Ob
+    @           0x4bde78 _ZNSt17_Function_handlerIFbRKN4star11UBBPlusTreeINS0_4ycsb4ycsb3keyENS3_5valueENS3_13KeyComparatorELj15ELj15EE8TupleRefEbEZNS0_16TableUBBPlusTreeIS4_S5_S6_NS3_15ValueComparatorEE10scan_rangeEPKvSG_mSt8functionIFbSG_PSt6atomicImEPvbEEEUlSA_bE_E9_M_invokeERKSt9_Any_dataSA_Ob
+    @           0x542fec star::TableUBBPlusTree<>::scan_range()
+    @           0x56c504 _ZZN4star18TwoPLPashaExecutorINS_4ycsb8WorkloadINS_21TwoPLPashaTransactionEEEE13setupHandlersERS3_ENKUlmmjPKvS8_miPvRNS_6ITable10row_entityERbE0_clEmmjS8_S8_miS9_SC_SD_
+    @           0x4aa71c star::TwoPLPashaTransaction::process_requests()
+    @           0x509af0 star::ycsb::Scan<>::execute()
+    @           0x596510 star::Executor<>::start()
+    @     0xffffa60743cc (unknown)
+    @     0xffffa5a802a4 (unknown)
+    @     0xffffa5ae850c (unknown)
+    @                0x0 (unknown)
+/home/gxx/ub-application/tigon/scripts/run_ub_ycsb_matrix.sh: line 57: 1412560 Segmentation fault      (core dumped) "${runner[@]}" "${command[@]}"
+TIGON_RUN_END run_id=ycsb_scan host_id=1 status=failed exit_code=139

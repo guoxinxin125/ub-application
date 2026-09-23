@@ -1,0 +1,46 @@
+TIGON_RUN_META system=ub workload=ycsb run_id=ycsb_scanub host_id=1 repetition= mode=one-sided query=scan transport=tcp partitions=2 workers=1 keys=200000 rw_ratio=80 zipf=0 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+[2026-09-23 19:32:25.504 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:25.504 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:25.504 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:25.605 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:25.605 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:25.605 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:25.708 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:25.708 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:25.708 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:25.813 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:25.813 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:25.813 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:25.917 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:25.917 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:25.917 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.020 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.020 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.020 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.121 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.121 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.121 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.225 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.225 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.225 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.328 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.328 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.328 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.432 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.432 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.432 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.535 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.535 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.535 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.637 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.637 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.637 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.741 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.741 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.741 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.844 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.844 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.844 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-23 19:32:26.946 +08:00][ERROR][1423284][281473676595232][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-23 19:32:26.946 +08:00][ERROR][1423284][281473676595232][RackMemShm.cpp:322] Failed to mmap, name=ycsb_scanub_one-sided_scan_tcp_0, mapSize=536870912, ret=606
+[2026-09-23 19:32:26.946 +08:00][ERROR][1423284][281473676595232][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606

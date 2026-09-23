@@ -1,0 +1,2 @@
+TIGON_RUN_META system=ub workload=ycsb run_id=ycsb_matrix host_id=0 repetition= mode=nocache query=rmw transport=tcp partitions=2 workers=1 keys=200000 rw_ratio=80 zipf=0 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+TIGON_RUN_END run_id=ycsb_matrix host_id=0 status=ok exit_code=0
