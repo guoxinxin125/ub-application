@@ -1,18 +1,18 @@
 UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
-SN_UB_PROFILE thread=5629062892829000695 interval=1 timestamp_overhead_ns=20
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_forward_queue_handoff calls=3500 avg_ns=567.9 p99_upper_ns=8192 max_ns=56470
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_forward_tx_prepare calls=3500 avg_ns=244.1 p99_upper_ns=512 max_ns=64450
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_forward_tx_enqueue calls=3500 avg_ns=60.7 p99_upper_ns=256 max_ns=40210
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_forward_callback_release calls=3500 avg_ns=137.1 p99_upper_ns=256 max_ns=7020
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_reverse_queue_handoff calls=3500 avg_ns=441.2 p99_upper_ns=1024 max_ns=32380
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_reverse_tx_prepare calls=3500 avg_ns=226.7 p99_upper_ns=1024 max_ns=18940
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_reverse_tx_enqueue calls=3500 avg_ns=50.5 p99_upper_ns=256 max_ns=5560
-SN_UB_PROFILE thread=5629062892829000695 interval=1 stage=proxy_reverse_callback_release calls=3500 avg_ns=155.8 p99_upper_ns=256 max_ns=10800
+SN_UB_PROFILE thread=9679848793537854575 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_forward_queue_handoff calls=3500 avg_ns=539.4 p99_upper_ns=8192 max_ns=41450
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_forward_tx_prepare calls=3500 avg_ns=205.6 p99_upper_ns=512 max_ns=14080
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_forward_tx_enqueue calls=3500 avg_ns=51.7 p99_upper_ns=256 max_ns=11960
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_forward_callback_release calls=3500 avg_ns=144.8 p99_upper_ns=256 max_ns=33740
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_reverse_queue_handoff calls=3500 avg_ns=480.3 p99_upper_ns=1024 max_ns=52170
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_reverse_tx_prepare calls=3500 avg_ns=255.9 p99_upper_ns=1024 max_ns=19050
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_reverse_tx_enqueue calls=3500 avg_ns=50.3 p99_upper_ns=256 max_ns=1250
+SN_UB_PROFILE thread=9679848793537854575 interval=1 stage=proxy_reverse_callback_release calls=3500 avg_ns=153.8 p99_upper_ns=256 max_ns=19220
 UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
-SN_UB_PROFILE thread=10079291597702441251 interval=1 timestamp_overhead_ns=20
-SN_UB_PROFILE thread=10079291597702441251 interval=1 stage=proxy_forward_rx_pin calls=3500 avg_ns=319.0 p99_upper_ns=512 max_ns=112640
-SN_UB_PROFILE thread=10079291597702441251 interval=1 stage=proxy_forward_rx_queue calls=3500 avg_ns=265.8 p99_upper_ns=512 max_ns=71190
-SN_UB_PROFILE thread=10079291597702441251 interval=1 stage=proxy_reverse_rx_pin calls=3500 avg_ns=173.1 p99_upper_ns=256 max_ns=95490
-SN_UB_PROFILE thread=10079291597702441251 interval=1 stage=proxy_reverse_rx_queue calls=3500 avg_ns=242.4 p99_upper_ns=512 max_ns=12570
+SN_UB_PROFILE thread=18226652997588177623 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=18226652997588177623 interval=1 stage=proxy_forward_rx_pin calls=3500 avg_ns=137.9 p99_upper_ns=256 max_ns=63860
+SN_UB_PROFILE thread=18226652997588177623 interval=1 stage=proxy_forward_rx_queue calls=3500 avg_ns=241.8 p99_upper_ns=512 max_ns=14390
+SN_UB_PROFILE thread=18226652997588177623 interval=1 stage=proxy_reverse_rx_pin calls=3500 avg_ns=128.2 p99_upper_ns=256 max_ns=16470
+SN_UB_PROFILE thread=18226652997588177623 interval=1 stage=proxy_reverse_rx_queue calls=3500 avg_ns=242.4 p99_upper_ns=512 max_ns=14360
 Rpc 0: Created Server session_num = 0 for client [H: 76.53.137.99:31852, R: 22, S: 3] from 76.53.137.99 (rpc 22)
 Rpc 0: Created Server session_num = 1 for client [H: 76.53.137.99:31851, R: 21, S: 0] from 76.53.137.99 (rpc 21)
