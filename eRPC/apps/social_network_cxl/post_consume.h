@@ -44,14 +44,23 @@ inline uint64_t native_post(const void *data, size_t size) {
 
   const uint64_t fields_start = sn_profile::start();
   Checksum sum;
+  uint64_t phase_start = sn_profile::start();
   sum.integer(static_cast<uint64_t>(h.post_id));
   sum.integer(static_cast<uint64_t>(h.req_id));
   sum.integer(static_cast<uint64_t>(h.timestamp));
   sum.integer(static_cast<uint64_t>(static_cast<int64_t>(h.type)));
   sum.integer(static_cast<uint64_t>(h.creator_id));
-  sum.bytes(p + offsetof(PostData, creator_username), h.username_length);
-  sum.bytes(p + offsetof(PostData, text), h.text_length);
+  sn_profile::record(sn_profile::Stage::kClientFieldsScalars, phase_start);
 
+  phase_start = sn_profile::start();
+  sum.bytes(p + offsetof(PostData, creator_username), h.username_length);
+  sn_profile::record(sn_profile::Stage::kClientFieldsUsername, phase_start);
+
+  phase_start = sn_profile::start();
+  sum.bytes(p + offsetof(PostData, text), h.text_length);
+  sn_profile::record(sn_profile::Stage::kClientFieldsText, phase_start);
+
+  phase_start = sn_profile::start();
   sum.integer(h.media_count);
   for (size_t i = 0; i < h.media_count; ++i) {
     const uint16_t length = h.media_type_lengths[i];
@@ -62,7 +71,9 @@ inline uint64_t native_post(const void *data, size_t size) {
     sum.bytes(p + offsetof(PostData, media_types) + i * SN_MEDIA_TYPE_LEN,
               length);
   }
+  sn_profile::record(sn_profile::Stage::kClientFieldsMedia, phase_start);
 
+  phase_start = sn_profile::start();
   sum.integer(h.mentions_count);
   for (size_t i = 0; i < h.mentions_count; ++i) {
     const uint16_t length = h.mention_name_lengths[i];
@@ -74,7 +85,9 @@ inline uint64_t native_post(const void *data, size_t size) {
     sum.bytes(p + offsetof(PostData, mentions_usernames) + i * SN_USERNAME_LEN,
               length);
   }
+  sn_profile::record(sn_profile::Stage::kClientFieldsMentions, phase_start);
 
+  phase_start = sn_profile::start();
   sum.integer(h.urls_count);
   for (size_t i = 0; i < h.urls_count; ++i) {
     if (h.shortened_url_lengths[i] >= SN_SHORT_URL_LEN ||
@@ -85,6 +98,8 @@ inline uint64_t native_post(const void *data, size_t size) {
     sum.bytes(p + offsetof(PostData, expanded_urls) + i * SN_EXPANDED_URL_LEN,
               h.expanded_url_lengths[i]);
   }
+  sn_profile::record(sn_profile::Stage::kClientFieldsUrls, phase_start);
+
   const uint64_t value = sum.value();
   sn_profile::record(sn_profile::Stage::kClientFields, fields_start);
   return value;
