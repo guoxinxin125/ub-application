@@ -12,8 +12,10 @@ ImportedSharedPost consume_timeline_post(
     if (reference_resp.count == 0) {
         return ImportedSharedPost{};
     }
+    const uint64_t import_start = sn_profile::start();
     ImportedSharedPost imported =
         import_shared_post(rpc, reference_resp.post);
+    sn_profile::record(sn_profile::Stage::kClientImport, import_start);
     try {
         sn_consume::retain(sn_consume::native_post(imported.buffer.buf_, imported.size));
     } catch (...) {
@@ -107,7 +109,9 @@ void user_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
         static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
 
     if (imported.buffer.buf_ != nullptr) {
+        const uint64_t release_start = sn_profile::start();
         release_imported_post(ctx->rpc_, imported);
+        sn_profile::record(sn_profile::Stage::kClientRelease, release_start);
     }
 
     ctx->queue_store->PushNextReq();
@@ -137,7 +141,9 @@ void home_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
         static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
 
     if (imported.buffer.buf_ != nullptr) {
+        const uint64_t release_start = sn_profile::start();
         release_imported_post(ctx->rpc_, imported);
+        sn_profile::record(sn_profile::Stage::kClientRelease, release_start);
     }
 
     ctx->queue_store->PushNextReq();

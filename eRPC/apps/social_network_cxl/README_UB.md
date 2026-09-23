@@ -62,8 +62,71 @@ size class. Stored posts, pregenerated requests and RPC buffers all count
 toward `ERPC_UB_ARENA_MB` and `ERPC_UB_REGION_MB`; object size is distinct
 from allocator capacity and the effective bytes consumed.
 
+The launcher therefore defaults to a **64 MiB arena per endpoint** and a
+**2048 MiB machine region**. A stored 2048-byte `PostData` uses the allocator's
+2048-byte size class plus one 64-byte block header, so a 64 MiB arena holds at
+most about 31,774 such objects after the arena header. Leave additional
+headroom for RPC buffers. Check the source dataset size before launch:
+
+```bash
+mongosh --port 20014 --quiet --eval \
+  'db.getSiblingDB("post").post.countDocuments({})'
+```
+
+If the result is near or above 30,000, increase `ERPC_UB_ARENA_MB` on **both**
+machines. The machine region must also cover every endpoint's inbox and arena;
+for example, use `ERPC_UB_ARENA_MB=128` with `ERPC_UB_REGION_MB=4096`, subject
+to the available UB shared-memory capacity. Both values are fixed when the UB
+manager creates its region, so stop all workers and both managers before
+changing them, then start both launchers again.
+
 Checksum rules, changed files and validation commands:
 [POST_CONSUMPTION.md](POST_CONSUMPTION.md).
+
+## Application breakdown profiling
+
+Set `ERPC_SN_PROFILE=1` on both hosts before running `run_ub.sh` to enable
+application-level timing. The launcher passes this environment variable to
+its services. Keep `ERPC_UB_PROFILE` unset unless transport profiling is also
+needed; enabling both adds more overhead. For final latency numbers, unset
+both variables and rerun the same workload.
+
+Each service writes `SN_UB_PROFILE` lines to its own log. A thread reports
+after every 100,000 stage samples and once at normal thread exit. Do not use
+`kill -9` for a short profiling run, as it prevents the final report. Each line
+contains `stage`, `calls`, raw `avg_ns`, `p99_upper_ns`, and `max_ns`.
+`p99_upper_ns` is the upper edge of a power-of-two bucket, not an exact
+percentile. A separate line gives
+the minimum observed `timestamp_overhead_ns` for two clock reads. The averages
+include timestamp overhead and should not be treated as uninstrumented latency.
+
+- `proxy_forward_*` and `proxy_reverse_*` in the Load Balance and Nginx logs
+  separate request/response pinning, queue insertion, outgoing-buffer
+  preparation, RPC enqueue, and completion-time release. Their
+  `queue_handoff` stages measure server-thread push to client-RPC-thread pop,
+  including scheduling delay.
+- `timeline_rx_*` and `timeline_worker_*` in the Home/User Timeline logs
+  separate receive-side handoff from post-ID lookup plus result construction.
+  `timeline_queue_handoff` measures server-thread push to worker-thread pop;
+  `timeline_forward_queue_handoff` measures worker-thread push to client-RPC-
+  thread pop. They include scheduling delay, not just queue instructions.
+  `timeline_tx_*` measures outgoing Post Storage setup, while
+  `timeline_callback_*` measures response handling and upstream forwarding.
+- `timeline_storage_rtt` starts before the Timeline enqueues its Post Storage
+  RPC and ends at its callback. It includes transport, Post Storage processing,
+  and event-loop scheduling; it is not additive with the service-local stages.
+- `storage_read_*` separates map-lock acquisition, lookup, reference retain,
+  and response enqueue. `storage_write_*` separates allocation, the 2 KiB
+  remote-to-local copy, validation, map update, and response enqueue.
+- `client_import`, `client_metadata`, and `client_fields` cover mapping/object
+  resolution and effective-field consumption before the Timeline timer stops.
+  `client_release` happens after that timer stops. Import/field stages have
+  fewer calls than total reads when a post is not found.
+
+These are per-process/per-thread measurements; do not subtract timestamps
+from different machines to infer one-way network latency. Profile one request
+type at a time if stage averages must be attributed to that type, because the
+proxy stages otherwise aggregate all request types.
 
 ## 1. Prerequisites
 
@@ -340,8 +403,8 @@ export ERPC_UB_MACHINE_ID=98
 export ERPC_UB_PROCESS_MODE=multi
 export ERPC_UB_MEMORY_MODE=one-sided
 export ERPC_UB_PROVIDER_NUMA=0
-export ERPC_UB_REGION_MB=1024
-export ERPC_UB_ARENA_MB=16
+export ERPC_UB_REGION_MB=2048
+export ERPC_UB_ARENA_MB=64
 
 export SN_BUILD_DIR="$(pwd)/build"
 export SN_CONFIG="$(pwd)/apps/social_network_cxl/config/config.ub98.json"
@@ -370,8 +433,8 @@ export ERPC_UB_MACHINE_ID=99
 export ERPC_UB_PROCESS_MODE=multi
 export ERPC_UB_MEMORY_MODE=one-sided
 export ERPC_UB_PROVIDER_NUMA=0
-export ERPC_UB_REGION_MB=1024
-export ERPC_UB_ARENA_MB=16
+export ERPC_UB_REGION_MB=2048
+export ERPC_UB_ARENA_MB=64
 
 export SN_BUILD_DIR="$(pwd)/build"
 export SN_CONFIG="$(pwd)/apps/social_network_cxl/config/config.ub99.json"

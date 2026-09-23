@@ -1,4 +1,5 @@
 #include "post_storage.h"
+#include "../ub_breakdown.h"
 
 #include <gflags/gflags.h>
 
@@ -231,23 +232,31 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
   my_assert(req_msgbuf->get_data_size() ==
             sizeof(RPCMsgReq<PostStorageReadCXLReq>));
   PostStorageReadCXLResp response{};
+  const uint64_t lock_start = sn_profile::start();
   ctx->map_mutex.lock();
+  sn_profile::record(sn_profile::Stage::kStorageReadLock, lock_start);
+  const uint64_t lookup_start = sn_profile::start();
   auto it = ctx->post_storage_map.find(req->req_control.post_id);
+  sn_profile::record(sn_profile::Stage::kStorageReadLookup, lookup_start);
   if (it != ctx->post_storage_map.end()) {
     // This reference is transferred through the response handle to the
     // final client. Intermediate services only forward the handle.
+    const uint64_t retain_start = sn_profile::start();
     retain_shared_post(ctx->rpc_, it->second);
+    sn_profile::record(sn_profile::Stage::kStorageReadRetain, retain_start);
     response.count = 1;
     response.post = it->second.handle;
   }
   ctx->map_mutex.unlock();
 
+  const uint64_t response_start = sn_profile::start();
   new (req_handle->pre_resp_msgbuf_.buf_) RPCMsgResp<PostStorageReadCXLResp>(
       RPC_TYPE::RPC_POST_STORAGE_READ_RESP, req->req_common.req_number, 0,
       response);
   ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_,
                                sizeof(RPCMsgResp<PostStorageReadCXLResp>));
   ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+  sn_profile::record(sn_profile::Stage::kStorageReadResponse, response_start);
 }
 
 void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
@@ -261,6 +270,26 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
       reinterpret_cast<RPCMsgReq<PostStorageWriteCXLReq> *>(req_msgbuf->buf_);
   my_assert(req_msgbuf->get_data_size() ==
             sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
+#ifdef ERPC_UB
+  const uint64_t alloc_start = sn_profile::start();
+  SharedPostBuffer stored_post = alloc_shared_post(ctx->rpc_, sizeof(PostData));
+  sn_profile::record(sn_profile::Stage::kStorageWriteAlloc, alloc_start);
+  my_assert(stored_post.buffer.buf_ != nullptr);
+  auto *stored = new (stored_post.buffer.buf_) PostData;
+  try {
+    const uint64_t copy_start = sn_profile::start();
+    std::memcpy(stored, &req->req_control.post, sizeof(PostData));
+    sn_profile::record(sn_profile::Stage::kStorageWriteCopy, copy_start);
+    const uint64_t validate_start = sn_profile::start();
+    validate_post_data(*stored);
+    sn_profile::record(sn_profile::Stage::kStorageWriteValidate,
+                       validate_start);
+  } catch (...) {
+    release_owned_post(ctx->rpc_, stored_post);
+    throw;
+  }
+  const int64_t final_post_id = stored->post_id;
+#else
   PostData post;
   std::memcpy(&post, &req->req_control.post, sizeof(post));
   validate_post_data(post);
@@ -269,9 +298,11 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   SharedPostBuffer stored_post = alloc_shared_post(ctx->rpc_, sizeof(PostData));
   my_assert(stored_post.buffer.buf_ != nullptr);
   std::memcpy(stored_post.buffer.buf_, &post, sizeof(PostData));
+#endif
   publish_shared_post(ctx->rpc_, stored_post);
 
   SharedPostBuffer old_buffer;
+  const uint64_t map_start = sn_profile::start();
   ctx->map_mutex.lock();
   auto old_it = ctx->post_storage_map.find(final_post_id);
   if (old_it != ctx->post_storage_map.end()) {
@@ -279,17 +310,23 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   }
   ctx->post_storage_map[final_post_id] = stored_post;
   ctx->map_mutex.unlock();
+  sn_profile::record(sn_profile::Stage::kStorageWriteMap, map_start);
 
   if (old_buffer.buffer.buf_ != nullptr) {
+    const uint64_t release_start = sn_profile::start();
     release_owned_post(ctx->rpc_, old_buffer);
+    sn_profile::record(sn_profile::Stage::kStorageWriteOldRelease,
+                       release_start);
   }
 
+  const uint64_t response_start = sn_profile::start();
   new (req_handle->pre_resp_msgbuf_.buf_)
       RPCMsgResp<CommonRPCResp>(RPC_TYPE::RPC_POST_STORAGE_WRITE_RESP,
                                 req->req_common.req_number, 0, {0});
   ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_,
                                sizeof(RPCMsgResp<CommonRPCResp>));
   ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+  sn_profile::record(sn_profile::Stage::kStorageWriteResponse, response_start);
 }
 
 void client_thread_func(size_t thread_id, ClientContext *ctx,

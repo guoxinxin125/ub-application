@@ -7,6 +7,7 @@
 #include "../social_network_cxl.h"
 #endif
 #include "../post_data.h"
+#include "../ub_breakdown.h"
 #include <hdr_histogram.h>
 #include <future>
 #include <map>
@@ -47,6 +48,9 @@ public:
 
     erpc::MsgBuffer resp_forward_msgbuf[kAppMaxBuffer];
     erpc::MsgBuffer resp_backward_msgbuf[kAppMaxBuffer];
+    uint64_t post_storage_start_ns[kAppMaxBuffer]{};
+    std::atomic<uint64_t> read_queue_start_ns[kAppMaxBuffer]{};
+    std::atomic<uint64_t> forward_queue_start_ns[kAppMaxBuffer]{};
 
     size_t client_id_;
     size_t server_sender_id_;
@@ -92,6 +96,7 @@ public:
     }
 
     MPMC_QUEUE *forward_all_mpmc_queue{};
+    std::atomic<uint64_t> *read_queue_start_ns{};
 
     erpc::MsgBuffer *req_forward_msgbuf_ptr{};
     erpc::MsgBuffer *req_backward_msgbuf_ptr{};
@@ -114,6 +119,7 @@ public:
         {
             auto *ctx = new ServerContext(i);
             ctx->forward_all_mpmc_queue = client_contexts_[i]->forward_all_mpmc_queue;
+            ctx->read_queue_start_ns = client_contexts_[i]->read_queue_start_ns;
             ctx->req_forward_msgbuf_ptr = client_contexts_[i]->req_forward_msgbuf;
             ctx->req_backward_msgbuf_ptr = client_contexts_[i]->req_backward_msgbuf;
             server_contexts_.push_back(ctx);
@@ -225,7 +231,7 @@ void init_specific_config(){
     mongodb_conns_num = conns;
 }
 
-void read_home_time_line_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_QUEUE *consumer_back) {
+void read_home_time_line_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_QUEUE *consumer_back, std::atomic<uint64_t> *forward_queue_start_ns) {
     auto* req = static_cast<RPCMsgReq<HomeTimeLineReq> *>(buf_);
 
     bool is_fwd = true;
@@ -263,6 +269,12 @@ void read_home_time_line_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *cons
     fwd_req.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ));
     fwd_req.set_hdr_req_num(req->req_common.req_number);
     fwd_req_msg->req_control.post_id = post_id;
+    const uint64_t queue_start = sn_profile::start();
+    if (queue_start != 0) {
+        const size_t slot = req->req_common.req_number % kAppMaxBuffer;
+        forward_queue_start_ns[slot].store(queue_start,
+                                            std::memory_order_relaxed);
+    }
     consumer_fwd->push(fwd_req);
 }
 

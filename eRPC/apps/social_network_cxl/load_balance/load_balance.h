@@ -23,6 +23,8 @@ public:
     erpc::MsgBuffer req_backward_msgbuf[kAppMaxBuffer];
     erpc::MsgBuffer resp_forward_msgbuf[kAppMaxBuffer];
     erpc::MsgBuffer resp_backward_msgbuf[kAppMaxBuffer];
+    std::atomic<uint64_t> forward_queue_start_ns[kAppMaxBuffer]{};
+    std::atomic<uint64_t> backward_queue_start_ns[kAppMaxBuffer]{};
 
     size_t client_id_;
     size_t server_sender_id_;
@@ -63,6 +65,8 @@ public:
  
     SPSC_QUEUE *forward_spsc_queue{};
     SPSC_QUEUE *backward_spsc_queue{};
+    std::atomic<uint64_t> *forward_queue_start_ns{};
+    std::atomic<uint64_t> *backward_queue_start_ns{};
     erpc::MsgBuffer *req_forward_msgbuf_ptr{};
     erpc::MsgBuffer *req_backward_msgbuf_ptr{};
     int servers_num_{};
@@ -78,6 +82,8 @@ public:
             auto *ctx = new ServerContext(i);
             ctx->forward_spsc_queue = client_contexts_[i]->forward_spsc_queue;
             ctx->backward_spsc_queue = client_contexts_[i]->backward_spsc_queue;
+            ctx->forward_queue_start_ns = client_contexts_[i]->forward_queue_start_ns;
+            ctx->backward_queue_start_ns = client_contexts_[i]->backward_queue_start_ns;
             ctx->req_forward_msgbuf_ptr = client_contexts_[i]->req_forward_msgbuf;
             ctx->req_backward_msgbuf_ptr = client_contexts_[i]->req_backward_msgbuf;
             server_contexts_.push_back(ctx);

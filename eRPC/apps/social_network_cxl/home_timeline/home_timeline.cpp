@@ -3,6 +3,7 @@
 #include "../utils_mongodb.h"
 
 #include "home_timeline.h"
+#include "../ub_breakdown.h"
 
 
 void connect_sessions(ClientContext *c)
@@ -114,11 +115,23 @@ void home_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
 //        ctx->rpc_->free_msg_buffer(ctx->req_forward_msgbuf_ptr[req->req_common.req_number % kAppMaxBuffer]);
 //    }
 
-    ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
+    const uint64_t pin_start = sn_profile::start();
+    erpc::MsgBuffer pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
+    sn_profile::record(sn_profile::Stage::kTimelineRxPin, pin_start);
+    const uint64_t queue_start = sn_profile::start();
+    if (queue_start != 0) {
+        const size_t slot = req->req_common.req_number % kAppMaxBuffer;
+        ctx->read_queue_start_ns[slot].store(queue_start,
+                                              std::memory_order_relaxed);
+    }
+    ctx->forward_all_mpmc_queue->push(pinned);
+    sn_profile::record(sn_profile::Stage::kTimelineRxQueue, queue_start);
 
     
 
+    const uint64_t ack_start = sn_profile::start();
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+    sn_profile::record(sn_profile::Stage::kTimelineRxAck, ack_start);
 
 }
 
@@ -264,12 +277,16 @@ void callback_post_storage_read_req(void *_context, void *_tag)
 
     erpc::MsgBuffer &req_msgbuf = ctx->req_forward_msgbuf[req_id];
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[req_id];
+    sn_profile::record(sn_profile::Stage::kTimelineStorageRtt,
+                       ctx->post_storage_start_ns[req_id]);
+    ctx->post_storage_start_ns[req_id] = 0;
 
     my_assert(resp_msgbuf.get_data_size() ==
               sizeof(RPCMsgResp<PostStorageReadCXLResp>));
     auto *resp = reinterpret_cast<RPCMsgResp<PostStorageReadCXLResp> *>(
         resp_msgbuf.buf_);
 
+    const uint64_t build_start = sn_profile::start();
     erpc::MsgBuffer result = ctx->rpc_->alloc_msg_buffer_or_die(
         sizeof(RPCMsgReq<PostStorageReadCXLResp>));
     new (result.buf_) RPCMsgReq<PostStorageReadCXLResp>(
@@ -278,10 +295,23 @@ void callback_post_storage_read_req(void *_context, void *_tag)
     result.set_hdr_req_type(
         static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP));
     result.set_hdr_req_num(resp->resp_common.req_number);
+    sn_profile::record(sn_profile::Stage::kTimelineCallbackBuild, build_start);
 
+    const uint64_t release_start = sn_profile::start();
     release_msgbuf(ctx->rpc_, req_msgbuf);
     req_msgbuf.buf_ = nullptr;
+    sn_profile::record(sn_profile::Stage::kTimelineCallbackRelease,
+                       release_start);
+#ifdef ERPC_UB
+    // The PostStorage continuation runs on this client RPC thread. Forward
+    // directly instead of handing the result back to the same thread.
+    const uint64_t forward_start = sn_profile::start();
+    handler_home_timeline_read_resp(ctx, result);
+    sn_profile::record(sn_profile::Stage::kTimelineCallbackForward,
+                       forward_start);
+#else
     ctx->backward_mpmc_queue->push(result);
+#endif
 }
 
 void handler_post_storage_read_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
@@ -289,14 +319,19 @@ void handler_post_storage_read_req(ClientContext *ctx, const erpc::MsgBuffer &re
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
     require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
                               "home_timeline.req_forward_msgbuf", slot);
+    const uint64_t prepare_start = sn_profile::start();
     ctx->req_forward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
+    sn_profile::record(sn_profile::Stage::kTimelineTxPrepare, prepare_start);
 
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[slot];
 
     flush_msgbuf_before_send(ctx->rpc_, ctx->req_forward_msgbuf[slot]);
+    const uint64_t enqueue_start = sn_profile::start();
+    ctx->post_storage_start_ns[slot] = enqueue_start;
     ctx->rpc_->enqueue_request(ctx->post_storage_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ),
                                &ctx->req_forward_msgbuf[slot], &resp_msgbuf,
                                callback_post_storage_read_req, reinterpret_cast<void *>(slot));
+    sn_profile::record(sn_profile::Stage::kTimelineTxEnqueue, enqueue_start);
 
 }
 
@@ -333,6 +368,13 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
              i < kAppMaxBuffer &&
              ctx->forward_mpmc_queue->try_pop(req_msg);
              i++) {
+            if (sn_profile::enabled()) {
+                const size_t slot = req_msg.get_hdr_req_num() % kAppMaxBuffer;
+                sn_profile::record(
+                    sn_profile::Stage::kTimelineForwardQueueHandoff,
+                    ctx->forward_queue_start_ns[slot].exchange(
+                        0, std::memory_order_relaxed));
+            }
             const auto req_type = static_cast<RPC_TYPE>(req_msg.get_hdr_req_type());
             my_assert(req_type == RPC_TYPE::RPC_POST_STORAGE_READ_REQ);
             handler_post_storage_read_req(ctx, req_msg);
@@ -400,7 +442,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
         }
     }
 }
-void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *consumer_back, MPMC_QUEUE *consumer_fwd, AppRpc *rpc_, AppRpc *server_rpc_)
+void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *consumer_back, MPMC_QUEUE *consumer_fwd, AppRpc *rpc_, AppRpc *server_rpc_, std::atomic<uint64_t> *read_queue_start_ns, std::atomic<uint64_t> *forward_queue_start_ns)
 {
     link_worker_cacheable(server_rpc_->get_rpc_id());
     // // printf("[home_timeline] worker_thread_func %zu: STARTED, producer=%p\n", thread_id, (void*)producer);
@@ -417,8 +459,25 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
                             req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ || req_type == RPC_TYPE::RPC_POST_STORAGE_READ_RESP);
 
             if(req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ){
-                read_home_time_line_post_details(req_msg.buf_,rpc_,consumer_fwd,consumer_back);
+                if (sn_profile::enabled()) {
+                    const auto *read_req =
+                        reinterpret_cast<const RPCMsgReq<HomeTimeLineReq> *>(
+                            req_msg.buf_);
+                    const size_t slot =
+                        read_req->req_common.req_number % kAppMaxBuffer;
+                    sn_profile::record(
+                        sn_profile::Stage::kTimelineQueueHandoff,
+                        read_queue_start_ns[slot].exchange(
+                            0, std::memory_order_relaxed));
+                }
+                const uint64_t lookup_start = sn_profile::start();
+                read_home_time_line_post_details(req_msg.buf_,rpc_,consumer_fwd,consumer_back,forward_queue_start_ns);
+                sn_profile::record(sn_profile::Stage::kTimelineWorkerLookupQueue,
+                                   lookup_start);
+                const uint64_t release_start = sn_profile::start();
                 release_msgbuf(server_rpc_, req_msg);
+                sn_profile::record(sn_profile::Stage::kTimelineWorkerRelease,
+                                   release_start);
             } else if(req_type == RPC_TYPE::RPC_HOME_TIMELINE_WRITE_REQ){
                 write_home_timeline_and_return(req_msg.buf_,rpc_,consumer_back);
                 release_msgbuf(server_rpc_, req_msg);
@@ -551,7 +610,9 @@ void leader_thread_func()
         my_assert(context->server_contexts_[i]->rpc_ != nullptr);
         workers[i] = std::thread(worker_thread_func, i, context->client_contexts_[i]->forward_all_mpmc_queue,
                                  context->client_contexts_[i]->backward_mpmc_queue, context->client_contexts_[i]->forward_mpmc_queue,
-                                 context->client_contexts_[i]->rpc_, context->server_contexts_[i]->rpc_);
+                                  context->client_contexts_[i]->rpc_, context->server_contexts_[i]->rpc_,
+                                  context->client_contexts_[i]->read_queue_start_ns,
+                                  context->client_contexts_[i]->forward_queue_start_ns);
 //        uint64_t worker_offset = FLAGS_worker_bind_core_offset == UINT64_MAX ? FLAGS_bind_core_offset : FLAGS_worker_bind_core_offset;
 //        erpc::bind_to_core(workers[i], FLAGS_numa_worker_node, get_bind_core(FLAGS_numa_worker_node) + worker_offset);
         erpc::bind_to_core(workers[i], FLAGS_numa_client_node, get_bind_core(FLAGS_numa_client_node) + FLAGS_bind_core_offset);

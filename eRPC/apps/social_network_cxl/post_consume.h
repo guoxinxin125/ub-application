@@ -1,6 +1,7 @@
 #pragma once
 #include "post_checksum.h"
 #include "post_data.h"
+#include "ub_breakdown.h"
 
 namespace sn_consume {
 
@@ -32,13 +33,16 @@ inline uint64_t native_post(const void *data, size_t size) {
     throw std::invalid_argument("PostData: invalid shared object size");
 
   const auto *p = static_cast<const unsigned char *>(data);
+  const uint64_t metadata_start = sn_profile::start();
   const PostHeader h = native_load<PostHeader>(p);
   if (h.version != SN_POST_LAYOUT_VERSION || h.size != sizeof(PostData) ||
       h.username_length >= SN_USERNAME_LEN || h.text_length >= SN_TEXT_LEN ||
       h.media_count > SN_MAX_MEDIA || h.mentions_count > SN_MAX_MENTIONS ||
       h.urls_count > SN_MAX_URLS)
     throw std::invalid_argument("PostData: invalid shared metadata");
+  sn_profile::record(sn_profile::Stage::kClientMetadata, metadata_start);
 
+  const uint64_t fields_start = sn_profile::start();
   Checksum sum;
   sum.integer(static_cast<uint64_t>(h.post_id));
   sum.integer(static_cast<uint64_t>(h.req_id));
@@ -81,6 +85,8 @@ inline uint64_t native_post(const void *data, size_t size) {
     sum.bytes(p + offsetof(PostData, expanded_urls) + i * SN_EXPANDED_URL_LEN,
               h.expanded_url_lengths[i]);
   }
-  return sum.value();
+  const uint64_t value = sum.value();
+  sn_profile::record(sn_profile::Stage::kClientFields, fields_start);
+  return value;
 }
 }  // namespace sn_consume

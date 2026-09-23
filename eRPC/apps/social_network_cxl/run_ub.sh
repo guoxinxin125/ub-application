@@ -14,8 +14,10 @@ fi
 
 export ERPC_UB_PROCESS_MODE="${ERPC_UB_PROCESS_MODE:-multi}"
 export ERPC_UB_MEMORY_MODE="${ERPC_UB_MEMORY_MODE:-one-sided}"
-export ERPC_UB_REGION_MB="${ERPC_UB_REGION_MB:-1024}"
-export ERPC_UB_ARENA_MB="${ERPC_UB_ARENA_MB:-16}"
+# The client keeps thousands of generated requests in its endpoint arena and
+# Post Storage keeps every MongoDB PostData object in its endpoint arena.
+export ERPC_UB_REGION_MB="${ERPC_UB_REGION_MB:-2048}"
+export ERPC_UB_ARENA_MB="${ERPC_UB_ARENA_MB:-64}"
 export ERPC_UB_MANAGER_SOCKET="${ERPC_UB_MANAGER_SOCKET:-/tmp/erpc_ub_social_network.sock}"
 export ERPC_UB_SHUTDOWN_TIMEOUT_MS="${ERPC_UB_SHUTDOWN_TIMEOUT_MS:-30000}"
 export ERPC_UB_SHUTDOWN_RETRY_MS="${ERPC_UB_SHUTDOWN_RETRY_MS:-500}"
