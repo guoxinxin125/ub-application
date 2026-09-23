@@ -476,6 +476,18 @@ class TwoPLPashaHelper {
 
 	uint64_t read_lock(std::atomic<uint64_t> &meta, void* data_ptr, uint64_t size, bool &success)
 	{
+                if (is_ub_metadata(&meta)) {
+                        UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        success = header->lock.try_lock_shared();
+                        if (!success)
+                                return 0;
+                        if (header->valid.load(std::memory_order_acquire) != 1) {
+                                header->lock.unlock_shared();
+                                success = false;
+                                return 0;
+                        }
+                        return header->version.load(std::memory_order_acquire);
+                }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
                 uint64_t old_value = 0, new_value = 0;
                 uint64_t tid = 0;

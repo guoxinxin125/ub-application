@@ -17,6 +17,12 @@
 > 「仓库缺包时的依赖排查」——`dnf install` 因 `no match for argument` 中止整个事务的后果、
 > `dnf provides` 反查包名、glog/gflags 源码安装（`WITH_UNWIND`、裸链接的路径要求）、Boost 仅需
 > 头文件、以及 jemalloc 的 `libjemalloc.so` 与 `find_library` 缓存陷阱。
+>
+> 更新记录（双机运行排障）：根据一次 `run_ub_ycsb_matrix.sh` 首个 point 即 `SIGSEGV(@0x0)` 的排障
+> 过程，在「双机验证流程」开头补上 `--servers` 每项必须带 `:port` 的前置约束，并在「常见错误」
+> 增加对应条目；同时修正步骤 3 的两处示例 prefix base（原值合成后为 36 字节，会被脚本自己的 35
+> 字节守卫拒掉，根本走不到运行），以及步骤 3 末尾「region 加大到 768/1024」与「20 万 key 实际只需
+> 约 250–300 MiB」相矛盾的那处表述。
 
 ## 目标数据路径
 
@@ -471,6 +477,10 @@ ldd "$TIGON_BUILD_DIR/ub_tigon_two_node_test"
 socket address 仍用于启动/关闭 barrier，并在 `--use_ub_transport=false` 时作为控制与数据
 transport。两个命令应相近时间启动，因为每个进程创建 owner region 后会等待 peer region 出现。
 
+`--servers` 的每一项都必须写成 `IP:port`，端口不能省略；两台主机必须传**完全相同**的字符串，
+顺序也要一致（host 0 在前）。脚本不会补默认端口，Tigon 侧也不校验格式——漏写端口会在
+`star::Coordinator::connectToPeers()` 里以 `SIGSEGV(@0x0)` 结束，排查方法见「常见错误」。
+
 每次运行使用新的 region prefix。不要在 `one-sided`、`nocache` 之间复用，也不要在异常退出后复用，
 除非已经确认旧 UBS object 被释放。两台主机必须使用相同 prefix、mode、region size、server
 ordering、key count 和 timing 参数；`--id`、`UB_PROVIDER_HOST` 不同。
@@ -603,8 +613,10 @@ echo "bench exit code=${PIPESTATUS[0]}"
 --use_ub_transport=true
 ```
 
-如果 512 MiB 不够，allocator 会在数据库初始化阶段抛出 `std::bad_alloc`，这与"UBSE 连 region 都
-创建不出来"的 6050 是不同错误，届时把 region 增加到 768 或 1024 MiB 即可。
+512 MiB 对 20 万 key 已有余量（实测占用约 250–300 MiB，见「常见错误」里 6050 那条的第 3 步）。
+只有数据库初始化阶段真的抛出 `std::bad_alloc` 时才需要加大 —— 这与"UBSE 连 region 都
+创建不出来"的 6050 是不同错误，加的时候优先在 384 → 512 这一档内微调、每次加 128 MiB，
+不要直接跳到 768/1024：region 越大，`UBSM_ERR_UBSE 6050` 的创建失败风险越高。
 
 #### 原始参考命令（确认 4 GiB 可创建后再使用）
 
@@ -656,14 +668,14 @@ Host 0：
 
 ```bash
 bash tigon/scripts/run_ub_ycsb_matrix.sh \
-  0 '192.0.2.10:10010;192.0.2.11:10010' ycsb_stage_tcp_001
+  0 '192.0.2.10:10010;192.0.2.11:10010' ycsb_tcp_001
 ```
 
 Host 1：
 
 ```bash
 bash tigon/scripts/run_ub_ycsb_matrix.sh \
-  1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_stage_tcp_001
+  1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_tcp_001
 ```
 
 通过后设置 `UB_TIGON_TRANSPORTS=true`，并使用新的 prefix base 测试 UB queue。最后运行完整
@@ -676,15 +688,18 @@ export UB_TIGON_TRANSPORTS="false true"
 
 # Host 0
 bash tigon/scripts/run_ub_ycsb_matrix.sh \
-  0 '192.0.2.10:10010;192.0.2.11:10010' ycsb_matrix_001
+  0 '192.0.2.10:10010;192.0.2.11:10010' ycsb_mat_001
 
 # Host 1
 bash tigon/scripts/run_ub_ycsb_matrix.sh \
-  1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_matrix_001
+  1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_mat_001
 ```
 
-脚本生成的 suffix 会让每个 mode/query/transport 组合使用不同 region prefix，并拒绝超过 35 字节
-的合成 prefix。可覆盖的环境变量按用途分组：
+脚本生成的 suffix 会让每个 mode/query/transport 组合使用不同 region prefix。**合成后的 prefix 必须
+≤ 35 字节**（脚本会拒绝超长并 `exit 2`）：最长后缀 `_one-sided_insert_tcp` 占 21 字节，所以
+prefix base 要 **≤ 14 字符**，上例的 `ycsb_tcp_001`（12）和 `ycsb_mat_001`（12）都留了余量。
+base 取长了不会跑起来而是先报 `UB region prefix exceeds 35 bytes: <prefix>`（退出码 2），容易
+被误当成运行失败。可覆盖的环境变量按用途分组：
 
 - 规模与时序：`UB_TIGON_PARTITIONS`（默认 2）、`UB_TIGON_THREADS`（1）、`UB_TIGON_KEYS`（200000）、
   `UB_TIGON_RUN_SECONDS`（20）、`UB_TIGON_WARMUP_SECONDS`（5）。`UB_TIGON_RUN_SECONDS` 是**传给
@@ -702,7 +717,7 @@ bash tigon/scripts/run_ub_ycsb_matrix.sh \
 设置 `UB_RESULT_DIR` 后，每个 point 的完整输出会写入
 `$UB_RESULT_DIR/ub_ycsb_<run_id>_host<id>_<mode>_<query>_<transport>.log`（文件名中的
 `<id>`/`<mode>`/`<query>`/`<transport>` 都是实际取值，如
-`ub_ycsb_ycsb_matrix_001_host0_one-sided_rmw_ubq.log`），这是步骤 6 解析器的输入。
+`ub_ycsb_ycsb_mat_001_host0_one-sided_rmw_ubq.log`），这是步骤 6 解析器的输入。
 
 ### 步骤 4：YCSB 范围查询与幻读保护
 
@@ -1030,6 +1045,20 @@ grep -E 'average commit|Worker [0-9]+ latency|txn commit latency|Executor .* exi
 - `refusing to run N point(s) x M repetition(s) in one VM lifecycle`（spr4 侧 compare，返回码 2）：
   这不是故障，而是脚本的保护性拒绝。一次 VM 生命周期只能跑一个 point，跑下一个前先重建或重启 VM；
   只有 `SPR4_ALLOW_VM_REUSE=1` 能绕过，且仅限诊断用途。详见「步骤 6」的「spr4 侧对比与结果配对」。
+- `SIGSEGV(@0x0)`，栈为 `google::(anonymous namespace)::FailureSignalHandler` →
+  `star::Coordinator::connectToPeers` → `main`（退出码 139）：`--servers` 里有一项不是 `IP:port`。
+  `Coordinator.h` 的 `getAddressPort()` 按 `:` 切分后不检查段数，调用点直接取 `addressPort[1]`
+  （listener 线程在 `:504`，主线程在 `:542`）；缺端口时读到的是缓冲区尾后的堆内存，
+  `std::string::c_str()` 返回空指针，`atoi(nullptr)` 读地址 0，于是崩在 `connectToPeers`。
+  检查方法（期望 2 项、每项 1 个冒号）：
+     ```bash
+     servers='192.0.2.10:10010;192.0.2.11:10010'
+     IFS=';' read -ra e <<< "$servers"
+     for x in "${e[@]}"; do echo "entry=[$x] colons=$(tr -cd ':' <<<"$x" | wc -c)"; done
+     ```
+  注意**端口写错（而非漏写）不会 segv**：那是重试 50 次后 `LOG(FATAL) failed to connect to peers`，
+  退出码 134。两种症状要分开判断。此路径对 `--servers` 的校验目前只存在于脚本使用说明层面，
+  漏写端口在任何 `bench_*` 手动命令上都是同一个 `SIGSEGV(@0x0)`。
 
 ## 生命周期约定
 
