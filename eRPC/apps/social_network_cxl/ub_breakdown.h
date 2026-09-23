@@ -18,6 +18,7 @@ namespace sn_profile {
 
 enum class Stage : size_t {
   kClientImport,
+  kClientCopy,
   kClientMetadata,
   kClientFields,
   kClientFieldsScalars,
@@ -101,6 +102,7 @@ inline uint64_t timestamp_overhead_ns() {
 
 inline const char *stage_name(Stage stage) {
   static const char *const names[] = {"client_import",
+                                      "client_copy",
                                       "client_metadata",
                                       "client_fields",
                                       "client_fields_scalars",

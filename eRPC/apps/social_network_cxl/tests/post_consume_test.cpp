@@ -162,6 +162,9 @@ static void check_post(const std::string &text, bool populated) {
   const uint64_t expected = expected_checksum(post);
   require(sn_consume::native_post(&native, sizeof(native)) == expected,
           "native/protobuf field mismatch");
+  require(sn_consume::native_post_after_full_copy(&native, sizeof(native)) ==
+              expected,
+          "full-copy native/protobuf field mismatch");
 
   std::vector<unsigned char> unaligned(sizeof(native) + 1);
   std::memcpy(unaligned.data() + 1, &native, sizeof(native));
@@ -269,6 +272,9 @@ static void check_compose() {
   require(sn_consume::native_post(&native, sizeof(native)) ==
               expected_checksum(post),
           "complete Compose fields differ");
+  require(sn_consume::native_post_after_full_copy(&native, sizeof(native)) ==
+              expected_checksum(post),
+          "full-copy Compose fields differ");
   require(local_post_string(native.text, native.text_length) == text,
           "Compose text lost");
   std::cout << "Compose initial=500 final_text=" << native.text_length
@@ -291,6 +297,9 @@ int main() {
   require(sn_consume::native_post(&empty, sizeof(empty)) ==
               sn_consume::protobuf_post(empty_post),
           "empty/default mismatch");
+  require(sn_consume::native_post_after_full_copy(&empty, sizeof(empty)) ==
+              sn_consume::protobuf_post(empty_post),
+          "full-copy empty/default mismatch");
 
   for (size_t length : {size_t{0}, size_t{1}, size_t{7}, size_t{8}, size_t{63},
                         size_t{64}, size_t{65}, size_t{150}, SN_TEXT_LEN - 1}) {
@@ -305,6 +314,12 @@ int main() {
       [&] { set_post_string(empty.text, std::string(SN_TEXT_LEN, 'x')); });
   require_invalid([&] { sn_consume::native_post(&empty, sizeof(empty) - 1); });
   require_invalid([&] { sn_consume::native_post(nullptr, sizeof(empty)); });
+  require_invalid([&] {
+    sn_consume::native_post_after_full_copy(&empty, sizeof(empty) - 1);
+  });
+  require_invalid([&] {
+    sn_consume::native_post_after_full_copy(nullptr, sizeof(empty));
+  });
 
   std::cout << "post_consume_test PASS sizeof(PostData)=" << sizeof(PostData)
             << '\n';

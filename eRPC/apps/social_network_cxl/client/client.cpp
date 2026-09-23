@@ -17,7 +17,12 @@ ImportedSharedPost consume_timeline_post(
         import_shared_post(rpc, reference_resp.post);
     sn_profile::record(sn_profile::Stage::kClientImport, import_start);
     try {
+#ifdef ERPC_UB
+        sn_consume::retain(sn_consume::native_post_after_full_copy(
+            imported.buffer.buf_, imported.size));
+#else
         sn_consume::retain(sn_consume::native_post(imported.buffer.buf_, imported.size));
+#endif
     } catch (...) {
         release_imported_post(rpc, imported);
         throw;

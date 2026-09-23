@@ -104,4 +104,19 @@ inline uint64_t native_post(const void *data, size_t size) {
   sn_profile::record(sn_profile::Stage::kClientFields, fields_start);
   return value;
 }
+
+inline uint64_t native_post_after_full_copy(const void *data, size_t size) {
+  if (data == nullptr || size != sizeof(PostData))
+    throw std::invalid_argument("PostData: invalid shared object size");
+
+  PostData local_post;
+  const uint64_t copy_start = sn_profile::start();
+  std::memcpy(&local_post, data, sizeof(local_post));
+#if defined(__GNUC__) || defined(__clang__)
+  // Force the entire remote object to be materialized before local reads.
+  __asm__ __volatile__("" : : "m"(local_post) : "memory");
+#endif
+  sn_profile::record(sn_profile::Stage::kClientCopy, copy_start);
+  return native_post(&local_post, sizeof(local_post));
+}
 }  // namespace sn_consume
