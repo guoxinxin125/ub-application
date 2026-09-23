@@ -178,6 +178,14 @@ inline erpc::MsgBuffer clone_msgbuf(AppRpc *rpc,
     return dst;
 }
 
+inline erpc::MsgBuffer clone_msgbuf_with_header(AppRpc *rpc,
+                                                const erpc::MsgBuffer &src) {
+    erpc::MsgBuffer dst = clone_msgbuf(rpc, src);
+    dst.set_hdr_req_type(src.get_hdr_req_type());
+    dst.set_hdr_req_num(src.get_hdr_req_num());
+    return dst;
+}
+
 inline void require_empty_msgbuf_slot(const erpc::MsgBuffer &slot,
                                       const char *slot_name,
                                       size_t slot_index) {
