@@ -4,6 +4,7 @@
 #include <gflags/gflags.h>
 
 #include <atomic>
+#include <limits>
 #include <thread>
 
 #include "../post_data.h"
@@ -151,6 +152,22 @@ void mongodb_init(AppContext *ctx) {
   mongoc_cursor_destroy(cursor);
   bson_destroy(query);
   mongoc_client_pool_push(mongodb_client_pool, mongodb_client);
+
+#ifdef ERPC_UB
+  // Pre-size the local index before timed writes so an unordered_map rehash
+  // cannot stall a request on the Post Storage RPC thread.
+  const size_t planned_requests = static_cast<size_t>(
+      config_json_all["client"].value("generate_num", uint64_t{0}));
+  auto *server = ctx->server_contexts_[0];
+  {
+    std::lock_guard<spinlock_mutex> lock(server->map_mutex);
+    const size_t existing = server->post_storage_map.size();
+    if (planned_requests > std::numeric_limits<size_t>::max() - existing) {
+      throw std::overflow_error("Post Storage map capacity overflow");
+    }
+    server->post_storage_map.reserve(existing + planned_requests);
+  }
+#endif
 
   unlink_worker_cacheable();
 
@@ -303,12 +320,27 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
 
   SharedPostBuffer old_buffer;
   const uint64_t map_start = sn_profile::start();
+  const uint64_t lock_start = sn_profile::start();
   ctx->map_mutex.lock();
+  sn_profile::record(sn_profile::Stage::kStorageWriteLock, lock_start);
+  const uint64_t lookup_start = sn_profile::start();
   auto old_it = ctx->post_storage_map.find(final_post_id);
+  sn_profile::record(sn_profile::Stage::kStorageWriteLookup, lookup_start);
+  const uint64_t insert_start = sn_profile::start();
   if (old_it != ctx->post_storage_map.end()) {
     old_buffer = old_it->second;
+#ifdef ERPC_UB
+    old_it->second = stored_post;
+#endif
   }
+#ifdef ERPC_UB
+  else {
+    ctx->post_storage_map.emplace(final_post_id, stored_post);
+  }
+#else
   ctx->post_storage_map[final_post_id] = stored_post;
+#endif
+  sn_profile::record(sn_profile::Stage::kStorageWriteInsert, insert_start);
   ctx->map_mutex.unlock();
   sn_profile::record(sn_profile::Stage::kStorageWriteMap, map_start);
 
@@ -320,12 +352,18 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   }
 
   const uint64_t response_start = sn_profile::start();
+  const uint64_t build_start = sn_profile::start();
   new (req_handle->pre_resp_msgbuf_.buf_)
       RPCMsgResp<CommonRPCResp>(RPC_TYPE::RPC_POST_STORAGE_WRITE_RESP,
                                 req->req_common.req_number, 0, {0});
   ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_,
                                sizeof(RPCMsgResp<CommonRPCResp>));
+  sn_profile::record(sn_profile::Stage::kStorageWriteResponseBuild,
+                     build_start);
+  const uint64_t enqueue_start = sn_profile::start();
   ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+  sn_profile::record(sn_profile::Stage::kStorageWriteResponseEnqueue,
+                     enqueue_start);
   sn_profile::record(sn_profile::Stage::kStorageWriteResponse, response_start);
 }
 

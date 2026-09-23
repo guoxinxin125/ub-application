@@ -26,6 +26,11 @@ service reads the incoming UB payload and copies it into a `MsgBuffer` owned by
 the outgoing endpoint before forwarding it. The transport does not forward a
 borrowed remote `MsgBuffer`.
 
+Home/User Timeline read handlers copy their small incoming request to a local
+MsgBuffer before handing it to the worker. This avoids an extra remote
+reference increment in the handler and remote decrement in the worker; the
+transport still owns and releases the original borrowed request normally.
+
 Post Storage keeps the index in its process-local map and stores every
 `PostData` object in its shared UB arena. A read response carries a 32-byte
 `{machine_id, block_offset, payload_offset, payload_length}` handle. Post
@@ -91,7 +96,9 @@ its services. Keep `ERPC_UB_PROFILE` unset unless transport profiling is also
 needed; enabling both adds more overhead. For final latency numbers, unset
 both variables and rerun the same workload.
 
-Each service writes `SN_UB_PROFILE` lines to its own log. A thread reports
+Each service writes `SN_UB_PROFILE` lines to its own log. Compare lines with
+the same `thread` and `interval` fields; a report boundary can split a stage's
+call count. A thread reports
 after every 100,000 stage samples and once at normal thread exit. Do not use
 `kill -9` for a short profiling run, as it prevents the final report. Each line
 contains `stage`, `calls`, raw `avg_ns`, `p99_upper_ns`, and `max_ns`.
@@ -107,6 +114,8 @@ include timestamp overhead and should not be treated as uninstrumented latency.
   including scheduling delay.
 - `timeline_rx_*` and `timeline_worker_*` in the Home/User Timeline logs
   separate receive-side handoff from post-ID lookup plus result construction.
+  In UB read handlers, `timeline_rx_copy` replaces the earlier
+  `timeline_rx_pin`; `timeline_worker_release` now frees the local copy.
   `timeline_queue_handoff` measures server-thread push to worker-thread pop;
   `timeline_forward_queue_handoff` measures worker-thread push to client-RPC-
   thread pop. They include scheduling delay, not just queue instructions.
@@ -117,7 +126,9 @@ include timestamp overhead and should not be treated as uninstrumented latency.
   and event-loop scheduling; it is not additive with the service-local stages.
 - `storage_read_*` separates map-lock acquisition, lookup, reference retain,
   and response enqueue. `storage_write_*` separates allocation, the 2 KiB
-  remote-to-local copy, validation, map update, and response enqueue.
+  remote-to-local copy, validation, map lock/lookup/insert, and response
+  construction/enqueue. `storage_write_map` and `storage_write_response` are
+  enclosing totals and must not be added to their nested stages.
 - `client_import`, `client_metadata`, and `client_fields` cover mapping/object
   resolution and effective-field consumption before the Timeline timer stops.
   `client_release` happens after that timer stops. Import/field stages have

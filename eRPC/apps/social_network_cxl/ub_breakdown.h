@@ -34,6 +34,7 @@ enum class Stage : size_t {
   kProxyReverseTxEnqueue,
   kProxyReverseCallbackRelease,
   kTimelineRxPin,
+  kTimelineRxCopy,
   kTimelineRxQueue,
   kTimelineRxAck,
   kTimelineQueueHandoff,
@@ -54,8 +55,13 @@ enum class Stage : size_t {
   kStorageWriteCopy,
   kStorageWriteValidate,
   kStorageWriteMap,
+  kStorageWriteLock,
+  kStorageWriteLookup,
+  kStorageWriteInsert,
   kStorageWriteOldRelease,
   kStorageWriteResponse,
+  kStorageWriteResponseBuild,
+  kStorageWriteResponseEnqueue,
   kCount
 };
 
@@ -105,6 +111,7 @@ inline const char *stage_name(Stage stage) {
                                       "proxy_reverse_tx_enqueue",
                                       "proxy_reverse_callback_release",
                                       "timeline_rx_pin",
+                                      "timeline_rx_copy",
                                       "timeline_rx_queue",
                                       "timeline_rx_ack",
                                       "timeline_queue_handoff",
@@ -125,8 +132,13 @@ inline const char *stage_name(Stage stage) {
                                       "storage_write_copy",
                                       "storage_write_validate",
                                       "storage_write_map",
+                                      "storage_write_lock",
+                                      "storage_write_lookup",
+                                      "storage_write_insert",
                                       "storage_write_old_release",
-                                      "storage_write_response"};
+                                      "storage_write_response",
+                                      "storage_write_response_build",
+                                      "storage_write_response_enqueue"};
   static_assert(
       sizeof(names) / sizeof(names[0]) == static_cast<size_t>(Stage::kCount),
       "profile stage names are out of sync");
@@ -153,23 +165,28 @@ struct Counter {
 struct ThreadStats {
   std::array<Counter, static_cast<size_t>(Stage::kCount)> counters{};
   uint64_t samples = 0;
+  uint64_t report_index = 0;
 
   ~ThreadStats() { report(); }
 
   void report() {
     if (samples == 0) return;
+    const uint64_t interval = ++report_index;
     const size_t thread_id =
         std::hash<std::thread::id>()(std::this_thread::get_id());
     std::fprintf(
-        stderr, "SN_UB_PROFILE thread=%zu timestamp_overhead_ns=%llu\n",
-        thread_id, static_cast<unsigned long long>(timestamp_overhead_ns()));
+        stderr,
+        "SN_UB_PROFILE thread=%zu interval=%llu timestamp_overhead_ns=%llu\n",
+        thread_id, static_cast<unsigned long long>(interval),
+        static_cast<unsigned long long>(timestamp_overhead_ns()));
     for (size_t i = 0; i < counters.size(); ++i) {
       const Counter &counter = counters[i];
       if (counter.calls == 0) continue;
       std::fprintf(stderr,
-                   "SN_UB_PROFILE thread=%zu stage=%s calls=%llu "
+                   "SN_UB_PROFILE thread=%zu interval=%llu stage=%s calls=%llu "
                    "avg_ns=%.1f p99_upper_ns=%llu max_ns=%llu\n",
-                   thread_id, stage_name(static_cast<Stage>(i)),
+                   thread_id, static_cast<unsigned long long>(interval),
+                   stage_name(static_cast<Stage>(i)),
                    static_cast<unsigned long long>(counter.calls),
                    static_cast<double>(counter.total_ns) / counter.calls,
                    static_cast<unsigned long long>(counter.p99_upper_ns()),

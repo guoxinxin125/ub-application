@@ -116,8 +116,15 @@ void home_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
 //    }
 
     const uint64_t pin_start = sn_profile::start();
+#ifdef ERPC_UB
+    // The worker only needs this small request. Copy it locally instead of
+    // holding another reference to the borrowed remote payload.
+    erpc::MsgBuffer pinned = clone_msgbuf_with_header(ctx->rpc_, *req_msgbuf);
+    sn_profile::record(sn_profile::Stage::kTimelineRxCopy, pin_start);
+#else
     erpc::MsgBuffer pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
     sn_profile::record(sn_profile::Stage::kTimelineRxPin, pin_start);
+#endif
     const uint64_t queue_start = sn_profile::start();
     if (queue_start != 0) {
         const size_t slot = req->req_common.req_number % kAppMaxBuffer;
