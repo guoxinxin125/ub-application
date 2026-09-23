@@ -1,0 +1,11 @@
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+Rpc 5: Created Server session_num = 0 for client [H: 76.53.137.99:31858, R: 28, S: 0] from 76.53.137.99 (rpc 28)
+Rpc 5: Created Server session_num = 1 for client [H: 76.53.137.99:31852, R: 22, S: 0] from 76.53.137.99 (rpc 22)
+Rpc 5: Created Server session_num = 2 for client [H: 76.53.137.99:31853, R: 23, S: 0] from 76.53.137.99 (rpc 23)
+Rpc 5: Created Server session_num = 3 for client [H: 76.53.137.99:31860, R: 30, S: 0] from 76.53.137.99 (rpc 30)
+Rpc 5: Created Server session_num = 4 for client [H: 76.53.137.99:31854, R: 24, S: 0] from 76.53.137.99 (rpc 24)
+[compose_post] All sessions established! num_sm_resps_=8
+Rpc 5: Created Server session_num = 5 for client [H: 76.53.137.98:31859, R: 29, S: 3] from 76.53.137.98 (rpc 29)
+Rpc 5: Created Server session_num = 6 for client [H: 76.53.137.98:31856, R: 26, S: 0] from 76.53.137.98 (rpc 26)
+Rpc 5: Created Server session_num = 7 for client [H: 76.53.137.98:31857, R: 27, S: 0] from 76.53.137.98 (rpc 27)

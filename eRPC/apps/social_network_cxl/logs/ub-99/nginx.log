@@ -1,0 +1,20 @@
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=16850726445791403940 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_forward_queue_handoff calls=3500 avg_ns=172.7 p99_upper_ns=512 max_ns=6370
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_forward_tx_prepare calls=3500 avg_ns=220.7 p99_upper_ns=512 max_ns=25030
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_forward_tx_enqueue calls=3500 avg_ns=59.0 p99_upper_ns=128 max_ns=12630
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_forward_callback_release calls=3500 avg_ns=107.9 p99_upper_ns=512 max_ns=1560
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_reverse_queue_handoff calls=3500 avg_ns=221.3 p99_upper_ns=512 max_ns=23760
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_reverse_tx_prepare calls=3500 avg_ns=1987.5 p99_upper_ns=16384 max_ns=87800
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_reverse_tx_enqueue calls=3500 avg_ns=52.5 p99_upper_ns=64 max_ns=9400
+SN_UB_PROFILE thread=16850726445791403940 interval=1 stage=proxy_reverse_callback_release calls=3500 avg_ns=143.1 p99_upper_ns=256 max_ns=2330
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=8546595214793757674 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=8546595214793757674 interval=1 stage=proxy_forward_rx_pin calls=3500 avg_ns=115.1 p99_upper_ns=256 max_ns=190
+SN_UB_PROFILE thread=8546595214793757674 interval=1 stage=proxy_forward_rx_queue calls=3500 avg_ns=106.5 p99_upper_ns=256 max_ns=6300
+SN_UB_PROFILE thread=8546595214793757674 interval=1 stage=proxy_reverse_rx_pin calls=3500 avg_ns=1629.7 p99_upper_ns=2048 max_ns=14830
+SN_UB_PROFILE thread=8546595214793757674 interval=1 stage=proxy_reverse_rx_queue calls=3500 avg_ns=120.5 p99_upper_ns=512 max_ns=15400
+Rpc 2: Created Server session_num = 0 for client [H: 76.53.137.99:31850, R: 20, S: 0] from 76.53.137.99 (rpc 20)
+Rpc 2: Created Server session_num = 1 for client [H: 76.53.137.99:31855, R: 25, S: 0] from 76.53.137.99 (rpc 25)
+Rpc 2: Created Server session_num = 2 for client [H: 76.53.137.98:31856, R: 26, S: 1] from 76.53.137.98 (rpc 26)
+Rpc 2: Created Server session_num = 3 for client [H: 76.53.137.98:31857, R: 27, S: 1] from 76.53.137.98 (rpc 27)

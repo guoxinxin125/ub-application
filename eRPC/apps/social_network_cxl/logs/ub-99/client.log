@@ -1,0 +1,12 @@
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=7010543521812088016 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=7010543521812088016 interval=1 stage=client_import calls=3410 avg_ns=151.0 p99_upper_ns=256 max_ns=6770
+SN_UB_PROFILE thread=7010543521812088016 interval=1 stage=client_metadata calls=3410 avg_ns=788.8 p99_upper_ns=16384 max_ns=32350
+SN_UB_PROFILE thread=7010543521812088016 interval=1 stage=client_fields calls=3410 avg_ns=10990.9 p99_upper_ns=131072 max_ns=244490
+SN_UB_PROFILE thread=7010543521812088016 interval=1 stage=client_release calls=3410 avg_ns=826.7 p99_upper_ns=4096 max_ns=19550
+Rpc 1: Created Server session_num = 0 for client [H: 76.53.137.99:31850, R: 20, S: 1] from 76.53.137.99 (rpc 20)
+Rpc 1: Created Server session_num = 1 for client [H: 76.53.137.98:31859, R: 29, S: 0] from 76.53.137.98 (rpc 29)
+writing latency file ./latency1-write, count=1500
+writing latency file ./latency1-user, count=1500
+writing latency file ./latency1-home, count=2000
