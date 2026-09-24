@@ -10,6 +10,7 @@
 |---|---|---:|---|
 | `ubsm_local_latency_test` | `ubsm_local_latency` | 无 | 本地8B/64B load/store及8B fetch-add/CAS延迟 |
 | `ubsm_remote_rw_latency_test` | `ubsm_remote_rw_latency` | 18531 | remote NC 8B/64B load/store延迟 |
+| `ubsm_remote_memcpy_2k_test` | `ubsm_remote_memcpy_2k` | 18538 | remote NC 到本地的2 KiB `memcpy` 延迟，区分固定地址、轮换地址和 owner 刚写完三种状态 |
 | `ubsm_remote_atomic_test` | `ubsm_remote_atomic` | 18532 | remote 单进程 8B fetch-add/CAS平均延迟及正确性 |
 | `ubsm_remote_atomic_multiprocess_test` | `ubsm_atomic_mp` | 18535 | 多个 remote 进程竞争同一 8B CAS tail 的正确性 |
 | `ubsm_owner_remote_atomic_contention_test` | `ubsm_owner_remote_atomic` | 18537 | owner cacheable 与 remote NC 竞争同一 8B fetch-add/CAS word 的正确性 |
@@ -17,7 +18,7 @@
 | `ubsm_owner_to_remote_cc_test` | `ubsm_owner_to_remote_cc` | 18533 | owner 不 flush 写，remote NC 读 |
 | `ubsm_remote_to_owner_cc_test` | `ubsm_remote_to_owner_cc` | 18534 | remote NC 写，owner 不 invalidate 的正确性及首次 load 延迟 |
 
-八个程序相互独立，分别使用自己的共享内存名称和端口，便于单独运行、定位失败并清理。
+九个程序相互独立，分别使用自己的共享内存名称和端口，便于单独运行、定位失败并清理。
 
 ## 2. 编译
 
@@ -33,6 +34,7 @@ cmake -S . -B build-ubsm \
 cmake --build build-ubsm --target \
   ubsm_local_latency_test \
   ubsm_remote_rw_latency_test \
+  ubsm_remote_memcpy_2k_test \
   ubsm_remote_atomic_test \
   ubsm_remote_atomic_multiprocess_test \
   ubsm_owner_remote_atomic_contention_test \
@@ -78,7 +80,7 @@ load和store都在每轮完整尺寸访问后执行一次
 `uint64_t`，再执行一次fence。它们衡量的是同一条热缓存行上的访问，不能解释为
 冷内存或UB介质访问延迟。
 
-## 4. 四个双机测试
+## 4. 双机测试
 
 先在机器 A 启动 owner：
 
@@ -305,6 +307,61 @@ TCP 只负责阶段同步和回传校验数据，不参与被测原子操作。�
 不缺失并严格覆盖 `[0, 2 * atomic-iterations)`，共享 word 的最终值也必须等于该上界。
 CAS 阶段还要求至少观察到一次竞争失败，否则测试会提示增大 `--atomic-iterations`。
 该测试只检查正确性，不输出延迟。
+
+### 4.4 remote 2 KiB memcpy 测试
+
+该测试专门复现 Social Network 中 `sizeof(PostData) == 2048` 的跨机读取，不包含 RPC、
+allocator、map 查找和业务处理。owner 持有 cacheable 源对象，remote 通过 NC 映射执行
+`std::memcpy` 到 64 B 对齐的本地缓冲区。每次复制独立计时并输出平均值、P50、P99 和最大值。
+
+owner 机器：
+
+```bash
+numactl --cpunodebind=0 --membind=0 \
+  ./build-ubsm/ubsm_remote_memcpy_2k_test \
+    --role owner \
+    --bind-ip <OWNER_IP> \
+    --provider-numa 0 \
+    --name ubsm_memcpy_98_to_99 \
+    --port 18538 \
+    --region-mb 4 \
+    --test-bytes 2097152 \
+    --iterations 5000 \
+    --timeout-sec 120
+```
+
+remote 机器：
+
+```bash
+numactl --cpunodebind=0 --membind=0 \
+  ./build-ubsm/ubsm_remote_memcpy_2k_test \
+    --role remote \
+    --owner-ip <OWNER_IP> \
+    --name ubsm_memcpy_98_to_99 \
+    --port 18538 \
+    --region-mb 4 \
+    --test-bytes 2097152 \
+    --iterations 5000 \
+    --timeout-sec 120
+```
+
+`--test-bytes` 是稳定源对象池大小，必须是 2048 的整数倍；上例包含 1024 个对象。
+两端的该参数和 `--iterations` 必须一致。remote 输出四组结果：
+
+- `local_same_address_2k`：纯本地复制基线；
+- `remote_same_address_2k`：反复复制同一个不再改写的远端对象；
+- `remote_rotating_address_2k`：在整个对象池中轮换源地址；
+- `remote_after_owner_write_2k`：每轮 owner 先重写同一对象并完成同步，remote 随后复制。
+
+`logical_64b_chunks=32` 只表示 2 KiB 覆盖 32 个 64 B 数据块，不能当成硬件事务计数。
+最后一种模式中的 TCP 握手和 owner 写入均在 remote 的计时窗口之外。若要测量反方向，交换
+两台机器的 owner/remote 角色，同时更换 `--name`（例如 `ubsm_memcpy_99_to_98`）和端口，
+避免与前一次残留对象冲突。
+
+按当前 Social Network 的 98/99 部署，98 为 owner、99 为 remote 的
+`remote_after_owner_write_2k` 对应 `storage_write_copy` 的数据方向；交换角色后，99 为
+owner、98 为 remote 的 `remote_rotating_address_2k` 更接近 timeline client 轮换读取
+PostStorage 稳定对象的方向。它们是裸数据路径对照，不包含应用线程调度和 RPC 往返。
 
 
 ## 5. 清理

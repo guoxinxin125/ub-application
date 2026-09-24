@@ -81,6 +81,7 @@ set(UBSM_TEST_TARGETS
 set(UBSM_BENCHMARK_TARGETS
     ubsm_local_latency_test
     ubsm_remote_rw_latency_test
+    ubsm_remote_memcpy_2k_test
     ubsm_remote_atomic_test
     ubsm_remote_atomic_multiprocess_test
     ubsm_owner_remote_atomic_contention_test

@@ -714,10 +714,31 @@ base 取长了不会跑起来而是先报 `UB region prefix exceeds 35 bytes: <p
 - 结果标记：`UB_TIGON_RUN_ID`（默认取 prefix base，写入 `TIGON_RUN_META`）、
   `UB_TIGON_REPETITION`、`UB_TIGON_DRY_RUN`（1 = 只打印不运行）。
 
-设置 `UB_RESULT_DIR` 后，每个 point 的完整输出会写入
+设置 `UB_RESULT_DIR` 后，每个 point 的**终端输出**（脚本自己的两行标记，加上子进程写到
+stdout/stderr 的内容）会写入
 `$UB_RESULT_DIR/ub_ycsb_<run_id>_host<id>_<mode>_<query>_<transport>.log`（文件名中的
 `<id>`/`<mode>`/`<query>`/`<transport>` 都是实际取值，如
-`ub_ycsb_ycsb_mat_001_host0_one-sided_rmw_ubq.log`），这是步骤 6 解析器的输入。
+`ub_ycsb_ycsb_mat_001_host0_one-sided_rmw_ubq.log`），这是步骤 6 解析器的输入。路径建议写绝对
+路径，相对路径会相对当前工作目录展开（从别的目录启动时容易多出一层 `results/results/`）。
+
+**注意：这个文件默认不含测量数据。** benchmark 的吞吐和延迟统计全部是 glog 的 `LOG(INFO)`
+（`core/Coordinator.h:348` 的 `average commit`、`:639` 的 `Global Stats: total_commit`），而 matrix
+脚本不传 `--logtostderr=1`（`TIGON_RUN_META` 里的 `logging=off`），glog 默认只把 INFO 写进**每台
+机器自己**的 `/tmp/bench_ycsb.<host>.<user>.log.INFO.<date>-<time>.<pid>`。所以只设置
+`UB_RESULT_DIR` 的话，看到的通常就是两行标记加 libubsm 的 stderr 报错（例如 region 映射重试时的
+`Failed to mmap ... ret=606`，见「常见错误」）。要让统计进 `UB_RESULT_DIR`，二选一：
+
+- 跑之前先从环境变量打开 stderr 输出（脚本本身不接受额外参数）：`export GLOG_logtostderr=1`。
+  这只在 glog 支持 `GLOG_<flag>` 环境变量时有效，所以先单独跑一个点确认终端开始出现
+  `I... Coordinator.h:...` 之类的行，再跑整个矩阵；
+- 或者在跑完之后，在**每台机器上**把 glog 文件收进同一个目录再解析（host 0 那份才有
+  `Global Stats: total_commit`，host 1 那份只用于配对检查）：
+  ```bash
+  cp -n "$(ls -t /tmp/bench_ycsb.*.log.INFO.* | head -1)" \
+        "${UB_RESULT_DIR:-tigon/results}/"
+  ```
+
+只想快速看吞吐时，也可以直接 `grep 'Global Stats' /tmp/bench_ycsb.* | tail`。
 
 ### 步骤 4：YCSB 范围查询与幻读保护
 
@@ -736,38 +757,164 @@ bash tigon/scripts/run_ub_ycsb_range_matrix.sh \
   1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_scan_tcp_001
 ```
 
-然后依次测试 `mixed`、UB transport，最后测试 `one-sided nocache`；每个阶段使用新的 prefix
-base。正确运行时不应出现未锁定 next row、重复/乱序 scan key，或在受并发保护的 gap 中成功
-commit insert。
+`scan` 通过后按下面的顺序推进。每段必须换一个新的 prefix base：region 名字是
+`<prefix>_<i>`（`UBMemory.cpp:105`），而 `initialize_local_header()` 会拒绝已经带 Tigon header 的
+owner region（`UBMemory.cpp:208-210`），复用旧 base 会直接抛错而不是复用数据。range 组合的最长
+后缀是 `_one-sided_mixed_tcp` / `_one-sided_mixed_ubq`（各 20 字节），所以 base ≤ 15；下面各段都用
+≤ 12 字节的 base（上一段的 `ycsb_scan_tcp_001` 是 16 字节，只对 `scan` 那个组合刚好 35，换 query 就
+会超，所以后面每段都另取更短的 base）。每段的两个命令仍然必须并发运行。
+
+**阶段 2 —— 同一 transport 下测 `mixed`**
+
+```bash
+export UB_TIGON_RANGE_QUERIES="mixed"
+export UB_TIGON_MODES="one-sided"
+export UB_TIGON_TRANSPORTS="false"
+
+# Host 0
+bash tigon/scripts/run_ub_ycsb_range_matrix.sh \
+  0 '192.0.2.10:10010;192.0.2.11:10010' ycsb_mix_001
+
+# Host 1
+bash tigon/scripts/run_ub_ycsb_range_matrix.sh \
+  1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_mix_001
+```
+
+**阶段 3 —— 换成 UBS queue transport（`scan` + `mixed` 两种 range 查询）**
+
+```bash
+export UB_TIGON_RANGE_QUERIES="scan mixed"
+export UB_TIGON_MODES="one-sided"
+export UB_TIGON_TRANSPORTS="true"
+
+# Host 0
+bash tigon/scripts/run_ub_ycsb_range_matrix.sh \
+  0 '192.0.2.10:10010;192.0.2.11:10010' ycsb_ubq_001
+
+# Host 1
+bash tigon/scripts/run_ub_ycsb_range_matrix.sh \
+  1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_ubq_001
+```
+
+**阶段 4 —— 换 `nocache` mode（先 TCP，再用新 base 跑 UB queue）**
+
+```bash
+export UB_TIGON_RANGE_QUERIES="scan mixed"
+export UB_TIGON_MODES="nocache"
+export UB_TIGON_TRANSPORTS="false"
+
+# Host 0
+bash tigon/scripts/run_ub_ycsb_range_matrix.sh \
+  0 '192.0.2.10:10010;192.0.2.11:10010' ycsb_nc_001
+
+# Host 1
+bash tigon/scripts/run_ub_ycsb_range_matrix.sh \
+  1 '192.0.2.10:10010;192.0.2.11:10010' ycsb_nc_001
+```
+
+再把 `UB_TIGON_TRANSPORTS` 设为 `true` 并用 `ycsb_nc_002` 重跑一遍，range 部分就覆盖完了。
+
+正确运行时不应出现未锁定 next row、重复/乱序 scan key，或在受并发保护的 gap 中成功 commit
+insert。
 
 ### 步骤 5：TPCC 主索引与二级索引
 
 TPCC 消耗的 region 空间明显更多，launcher 默认每个 owner region 使用 8 GiB。**注意：如果
 YCSB 在 4 GiB 上已出现 6050，TPCC 默认的 8 GiB 同样可能创建失败，应先用缩小后的 region（如
-1024–2048 MiB）验证，再逐步上调。** 先隔离一种 transaction type 并使用 TCP message：
+1024–2048 MiB）验证，再逐步上调。**
+
+TPCC 的初始化要往 UBS region 里**逐行**插入大量数据：`item` 一张表就是 100,000 行
+（`ITEM_NUM`，`benchmark/tpcc/Schema.h:33`），每个 warehouse 还有 `stock` 100,000 行、`customer`
+30,000 行、`order` 30,000 行、`order_line` 约 300,000 行；`--partition_num` 在 TPCC 下默认是
+`2 × threads`，所以首发配置大约 1.2M 行，且 `item` 由单个 partition 单线程写入。全程只写 glog；
+matrix 脚本默认**不传** `--logtostderr=1`，所以终端在 `TIGON_RUN_META` 那一行之后会完全静默
+**几分钟**——这是正常现象，不等于卡死（判断和定位方法见「常见错误」里"终端长时间无输出"那条）。
+
+先隔离一种 transaction type 并使用 TCP message。TPCC 的 prefix base 比 YCSB 更紧：最长后缀是
+`_one-sided_first_two_tcp`（24 字节），所以 base 必须 **≤ 11 字节**（`UBMemory.cpp:68` 要求
+`prefix.size() + 12 < 48`，也就是合成后的 prefix ≤ 35 字节；YCSB 那条 ≤ 14 的规则来自它自己的最长
+后缀 `_one-sided_insert_tcp` = 21 字节）。下面各段都用 8–10 字节的 base，两个命令并发运行：
 
 ```bash
-export UB_REGION_MB=8192
+export UB_REGION_MB=2048
 export UB_TIGON_THREADS=1
 export UB_TIGON_MODES="one-sided"
 export UB_TIGON_TRANSPORTS="false"
 export UB_TPCC_QUERIES="payment"
 export UB_TPCC_PAYMENT_DIST=100
 export UB_TPCC_NEWORDER_DIST=100
-
-# 分别在 Host 0 和 Host 1 并发运行
-bash tigon/scripts/run_ub_tpcc_matrix.sh \
-  0 '192.0.2.10:10010;192.0.2.11:10010' tpcc_payment_tcp_001
-bash tigon/scripts/run_ub_tpcc_matrix.sh \
-  1 '192.0.2.10:10010;192.0.2.11:10010' tpcc_payment_tcp_001
 ```
 
-按以下顺序推进，每个阶段使用新 prefix：`payment`、`neworder`、`first_two`、`mixed`；先 TCP 后
-UB queue；先 one-sided 后 nocache。两端的启动和关闭 consistency check 都必须通过。除步骤 3 的通
-用 matrix 变量外，脚本还接受 `UB_TPCC_QUERIES`（默认 `payment neworder first_two mixed`）、
+Host 0：
+
+```bash
+bash tigon/scripts/run_ub_tpcc_matrix.sh \
+  0 '192.0.2.10:10010;192.0.2.11:10010' tpcc_iso_01
+```
+
+Host 1：
+
+```bash
+bash tigon/scripts/run_ub_tpcc_matrix.sh \
+  1 '192.0.2.10:10010;192.0.2.11:10010' tpcc_iso_01
+```
+
+`payment` 通过后，按「先 TCP 后 UB queue」×「先 one-sided 后 nocache」推进。每个阶段通过环境变量
+把 4 种 transaction 一次性交给脚本的循环（顺序与脚本默认一致：`payment neworder first_two
+mixed`），每段换一个新 base，两个命令并发运行。
+
+**阶段 A —— TCP + one-sided，4 种 transaction**
+
+```bash
+export UB_TPCC_QUERIES="payment neworder first_two mixed"
+export UB_TIGON_TRANSPORTS="false"
+export UB_TIGON_MODES="one-sided"
+
+# Host 0
+bash tigon/scripts/run_ub_tpcc_matrix.sh \
+  0 '192.0.2.10:10010;192.0.2.11:10010' tpcc_001
+
+# Host 1
+bash tigon/scripts/run_ub_tpcc_matrix.sh \
+  1 '192.0.2.10:10010;192.0.2.11:10010' tpcc_001
+```
+
+**阶段 B —— 换成 UB queue**：`export UB_TIGON_TRANSPORTS="true"`，base `tpcc_002`。
+
+**阶段 C —— 换 `nocache` + TCP**：`export UB_TIGON_MODES="nocache"` 和
+`UB_TIGON_TRANSPORTS="false"`，base `tpcc_003`。
+
+**阶段 D —— `nocache` + UB queue**：`UB_TIGON_TRANSPORTS="true"`，base `tpcc_004`。
+
+各阶段除上面这几行 export 和 base 之外，命令与阶段 A 完全相同；每一段都必须两端并发、完整跑完，
+出现非零退出码就停下来查。
+
+首次运行建议直接跑二进制并加 `--logtostderr=1`，这样终端能看到初始化和每秒统计（两台主机同时
+启动）：
+
+```bash
+"$TIGON_BUILD_DIR/bench_tpcc" \
+  --logtostderr=1 \
+  --id=0 --servers="192.0.2.10:10010;192.0.2.11:10010" \
+  --protocol=TwoPLPasha --partition_num=2 --threads=1 --io=1 \
+  --shared_memory_backend=ub --ub_memory_mode=one-sided \
+  --ub_region_prefix=tpcc_raw_001 --ub_region_mb=2048 \
+  --ub_provider_host=host-81 --ub_provider_numa=1 \
+  --use_ub_transport=false --query=payment \
+  --neworder_dist=100 --payment_dist=100 \
+  --time_to_warmup=5 --time_to_run=20 --lotus_checkpoint=0
+```
+
+机器 82 用 `--id=1`、`--ub_provider_host=host-82`、`--ub_provider_numa=0`。正常会看到
+`creating hash tables for database...` 和每张表的 `<name> initialization finished in N ms`；
+如果停在 region 映射阶段想放宽等待，加 `--ub_map_timeout=300`。
+
+两端的启动和关闭 consistency check 都必须通过。除步骤 3 的通用 matrix 变量外，脚本还接受
+`UB_TPCC_QUERIES`（默认 `payment neworder first_two mixed`）、
 `UB_TPCC_PAYMENT_DIST` 和 `UB_TPCC_NEWORDER_DIST`；`UB_TIGON_PARTITIONS` 的 TPCC 默认值不是 2，
-而是 `2 × UB_TIGON_THREADS`，日志写入
-`$UB_RESULT_DIR/ub_tpcc_<run_id>_host<id>_<mode>_<query>_<transport>.log`。TPCC 没有
+而是 `2 × UB_TIGON_THREADS`，终端输出（脚本标记 + stderr）写入
+`$UB_RESULT_DIR/ub_tpcc_<run_id>_host<id>_<mode>_<query>_<transport>.log`。和步骤 3 一样，这个文件
+默认**不含** glog 统计与 `TPC-C consistency check passed!`，收集方法见步骤 3 的说明。TPCC 没有
 keys/rw_ratio/zipf/cross_ratio 概念，这些字段在 `TIGON_RUN_META` 中为空。
 
 设置 `--threads=N` 时，每个进程还包含 manager、incoming dispatcher、outgoing dispatcher 和
@@ -838,8 +985,11 @@ TIGON_RUN_END run_id=cmp_001_y_rw95_c100_r1 host_id=0 status=ok exit_code=0
 ```
 
 `TIGON_RUN_END` 的 `status` 在正常结束时为 `ok`、benchmark 非零退出时为 `failed`、dry-run 时为
-`dry-run`。设置 `UB_RESULT_DIR` 后每个 point 的完整输出（含这两行）写入步骤 3/5 所述的日志文件，
-解析器就靠这些日志工作。
+`dry-run`。设置 `UB_RESULT_DIR` 后每个 point 的终端输出（含这两行）写入步骤 3/5 所述的日志文件，
+解析器就靠这些日志工作。**但解析器要的是 glog 输出**：YCSB 需要 host 0 日志里出现
+`Global Stats: total_commit`，TPCC 需要 `TPC-C consistency check passed!`，这两行都是 `LOG(INFO)`，
+默认只落在各主机自己的 `/tmp`。跑之前 `export GLOG_logtostderr=1`，或跑完后按步骤 3 的方法把
+`/tmp/bench_*.log.INFO.*` 收进 `UB_RESULT_DIR`，否则解析器会报"解析到 0 行"。
 
 解析器递归读取 UB 的日志文件或目录：
 
@@ -1029,6 +1179,11 @@ grep -E 'average commit|Worker [0-9]+ latency|txn commit latency|Executor .* exi
   3. 按「步骤 2」的三步流程用 256 MiB 起步即可，YCSB 20 万 key 实际只需约 250–300 MiB（含
      tuple header、key/value、对齐、B+ Tree node、catalog，以及 UB transport 的约 32 MiB
      inbox：4096 entries × 约 8 KiB/entry）。
+- `IpcCallShmMap response error : 606` / `Failed to mmap, name=<region>, mapSize=..., ret=606`（在
+  `UB_RESULT_DIR` 或终端里出现，通常连着几行）：这是对端 region 此刻还不可映射（常见于两端启动
+  有时间差），`map_region_with_retry()` 会每 100 ms 重试（`UBMemory.cpp:178-195`）；**后续重试成功
+  就完全无影响**，日志里紧接着仍是正常跑完的 `TIGON_RUN_END ... exit_code=0`。只有一直失败到
+  `--ub_map_timeout`（默认 120 秒）才会抛 `map region ...`，那时按下面 peer timeout 那条排查。
 - 运行结束但终端没有任何输出：不是故障。`bench_ycsb` 的运行信息和吞吐量都用 glog `LOG(INFO)`
   输出，默认写入 `/tmp` 下的日志文件；它也不会像 `ub_tigon_two_node_test` 那样打印 `PASS`。
   确认方法：`echo $?`（0 为正常退出；134 通常为 abort，139 通常为段错误）；运行时长应明显超过
@@ -1037,9 +1192,32 @@ grep -E 'average commit|Worker [0-9]+ latency|txn commit latency|Executor .* exi
 - 每秒统计中大量字段为 0：先对照上文「运行统计解读」。`commit`/`local_access`/`remote_access`
   非零且三者比例自洽（`access ≈ commit × 每事务本地/远程操作数`）即说明主路径正常；真正反映延迟
   的是结束时的 `average commit`、`Worker N latency` 分位数和 `dist txn latency`。
-- peer mapping/header timeout：对比两台主机的 prefix、mode、region size、coordinator count、
-  provider hostname 和启动时间。同一个 `--ub_map_timeout` deadline 同时约束 SDK mapping 和等待
-  peer 发布 region header。
+- 运行中终端长时间无输出、看起来卡住（TPCC 首次运行尤其常见）：先按"不是故障"处理。TPCC 的
+  初始化是**单行插入、每张表各自串行、全程只写 glog**，规模按 warehouse 计：`item` 100,000 行
+  （只有一个 partition，固定由一台主机写入），每个 warehouse 另有 `stock` 100,000、`customer`
+  30,000、`order` 30,000、`order_line` 约 300,000（10 district × 3,000 order × O_OL_CNT，常量见
+  `benchmark/tpcc/Schema.h`）；`--partition_num` 默认 `2 × threads`，所以首发配置约 1.2M 行，
+  每行都要走 UB B+ Tree 的加锁与可能的分裂。**几分钟量级是正常的，30 秒远远不够**。而 matrix
+  脚本不传 `--logtostderr=1`，终端从 `TIGON_RUN_META` 之后就完全静默。三步定位：
+  1. 别看终端，看日志：`ls -lt /tmp/*bench_tpcc* | head -3`，再 `tail -f` 最新那个。正常会依次
+     出现 `creating hash tables for database...` 和每张表的 `<name> initialization finished in
+     N ms`，卡在哪张表一目了然；
+  2. 判断进程是忙还是堵：`ps -o pid,stat,%cpu,etime,cmd -p <pid>` —— `R` 且接近 100% = 在加载或
+     自旋，`S` 且 0% = 阻塞在 UBS 调用；
+  3. 要精确到栈：`gdb -p <pid> -batch -ex 'thread apply all bt' | head -80`。常见自旋点是
+     `UBBPlusTree::lock_shared()` / `lock_exclusive()`（`UBBPlusTree.h:424-442`，对 `tree_lock`
+     无限重试）和 `TableUBBPlusTree::native_tree()`（`UBBPlusTreeAdapter.h:225-235`，等对端创建
+     descriptor）。
+  另有一段静默在初始化**之后**：`bench_tpcc` 在 `connectToPeers()` 之前会先调用一次
+  `db.check_consistency()`（`bench_tpcc.cpp:66`），它会完整扫描本机每张表。所以"初始化日志已经打完
+  但终端仍然没有输出"也可能停在这里，同样不是故障。
+  还有一段"卡住"是**有上界、不要提前 Ctrl-C** 的：region bootstrap 里
+  `map_region_with_retry()` 每 100 ms 重试一次，直到 `--ub_map_timeout`（默认 120 秒）才抛
+  `map region ...`；`validate_remote_header()` 等对端把 `header->ready` 置 1 也是同一个 deadline
+  （`UBMemory.cpp:178-256`）。两段都静默，所以前两分钟没有任何输出是正常的。
+- peer mapping/header timeout：真等到超时了，就对比两台主机的 prefix、mode、region size、
+  coordinator count、provider hostname 和启动顺序（同一个 `--ub_map_timeout` deadline 同时约束
+  SDK mapping 和等待 peer 发布 region header），并考虑把 `--ub_region_mb` 降一档。
 - 出现 `cxlalloc_* was called while Tigon is using the UB backend` fatal message：进入了尚未
   适配的 legacy CXL path，例如选择了不支持的 workload。
 - `refusing to run N point(s) x M repetition(s) in one VM lifecycle`（spr4 侧 compare，返回码 2）：
