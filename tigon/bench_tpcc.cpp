@@ -70,7 +70,12 @@ int main(int argc, char *argv[])
 	c.connectToPeers();
 	c.start();
 
-        db.check_consistency(context);
+        // Coordinator::start() tears UBMemory down before it returns (unmap of the
+        // owner region, ubsmem_deallocate, ubsmem_finalize), so every UB table
+        // holds a dangling descriptor from here on and the first scan would fault.
+        // The check above already ran on the mapped regions.
+        if (context.shared_memory_backend != "ub")
+                db.check_consistency(context);
 
 	return 0;
 }

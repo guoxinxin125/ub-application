@@ -731,11 +731,13 @@ stdout/stderr 的内容）会写入
 - 跑之前先从环境变量打开 stderr 输出（脚本本身不接受额外参数）：`export GLOG_logtostderr=1`。
   这只在 glog 支持 `GLOG_<flag>` 环境变量时有效，所以先单独跑一个点确认终端开始出现
   `I... Coordinator.h:...` 之类的行，再跑整个矩阵；
-- 或者在跑完之后，在**每台机器上**把 glog 文件收进同一个目录再解析（host 0 那份才有
-  `Global Stats: total_commit`，host 1 那份只用于配对检查）：
+- 或者跑完之后，在**每台机器上**把脚本日志和本机 glog **合并成一个** `*.log` 文件再解析。解析器是
+  按文件判断的：同一个文件里必须既有 `TIGON_RUN_META` 行、又有 `Global Stats: total_commit`，直接
+  `cp` 出来的 glog 文件没有 META 行，会被整份跳过（host 0 那份才有吞吐，host 1 那份只用于配对
+  检查）：
   ```bash
-  cp -n "$(ls -t /tmp/bench_ycsb.*.log.INFO.* | head -1)" \
-        "${UB_RESULT_DIR:-tigon/results}/"
+  cat "${UB_RESULT_DIR:-tigon/results}/ub_ycsb_<run_id>_host0_<mode>_<query>_<transport>.log" \
+      "$(ls -t /tmp/bench_ycsb.*.log.INFO.* | head -1)" > merged_host0.log
   ```
 
 只想快速看吞吐时，也可以直接 `grep 'Global Stats' /tmp/bench_ycsb.* | tail`。
@@ -909,7 +911,11 @@ bash tigon/scripts/run_ub_tpcc_matrix.sh \
 `creating hash tables for database...` 和每张表的 `<name> initialization finished in N ms`；
 如果停在 region 映射阶段想放宽等待，加 `--ub_map_timeout=300`。
 
-两端的启动和关闭 consistency check 都必须通过。除步骤 3 的通用 matrix 变量外，脚本还接受
+两端的**启动 consistency check**（`bench_tpcc.cpp:66`）都必须通过。注意 UB 后端不会运行跑完后的
+那次 check：`Coordinator::start()` 在返回前已经 unmap 并 deallocate 本地 owner region
+（`Coordinator.h:407-418`），此时每张 UB 表的 `descriptor_` 都是悬垂指针，`bench_tpcc.cpp:73`
+的第二次 check 必然 SIGSEGV，所以脚本对 UB 后端跳过它（详见「常见错误」里 exit_code=139 那条）。
+除步骤 3 的通用 matrix 变量外，脚本还接受
 `UB_TPCC_QUERIES`（默认 `payment neworder first_two mixed`）、
 `UB_TPCC_PAYMENT_DIST` 和 `UB_TPCC_NEWORDER_DIST`；`UB_TIGON_PARTITIONS` 的 TPCC 默认值不是 2，
 而是 `2 × UB_TIGON_THREADS`，终端输出（脚本标记 + stderr）写入
@@ -988,8 +994,10 @@ TIGON_RUN_END run_id=cmp_001_y_rw95_c100_r1 host_id=0 status=ok exit_code=0
 `dry-run`。设置 `UB_RESULT_DIR` 后每个 point 的终端输出（含这两行）写入步骤 3/5 所述的日志文件，
 解析器就靠这些日志工作。**但解析器要的是 glog 输出**：YCSB 需要 host 0 日志里出现
 `Global Stats: total_commit`，TPCC 需要 `TPC-C consistency check passed!`，这两行都是 `LOG(INFO)`，
-默认只落在各主机自己的 `/tmp`。跑之前 `export GLOG_logtostderr=1`，或跑完后按步骤 3 的方法把
-`/tmp/bench_*.log.INFO.*` 收进 `UB_RESULT_DIR`，否则解析器会报"解析到 0 行"。
+默认只落在各主机自己的 `/tmp`。UB 后端下 TPCC 的这个标记来自**启动前**那次 check（跑完后那次被
+跳过），只说明初始化出来的表自洽，不等于跑完后的校验。所以要么跑之前 `export GLOG_logtostderr=1`，
+要么跑完后按步骤 3 的方法把 `/tmp/bench_*.log.INFO.*` 与脚本日志**合并成同一个 `.log` 文件**——
+分开存放（或单独 `cp` glog）都会让解析器报"解析到 0 行"。
 
 解析器递归读取 UB 的日志文件或目录：
 
@@ -1237,12 +1245,29 @@ grep -E 'average commit|Worker [0-9]+ latency|txn commit latency|Executor .* exi
   注意**端口写错（而非漏写）不会 segv**：那是重试 50 次后 `LOG(FATAL) failed to connect to peers`，
   退出码 134。两种症状要分开判断。此路径对 `--servers` 的校验目前只存在于脚本使用说明层面，
   漏写端口在任何 `bench_*` 手动命令上都是同一个 `SIGSEGV(@0x0)`。
+- TPCC 跑满一个 point 之后 `TIGON_RUN_END ... status=failed exit_code=139`，stderr 里
+  `Coordinator exits.` 之后是栈顶 `TableUBBPlusTree::scan` ← `tpcc::Database::check_consistency()`
+  （`bench_tpcc.cpp:73`）：这是 UB 后端的**生命周期顺序**问题，不是 B+ Tree 的数据结构 bug。
+  `Coordinator::start()` 在返回前依次执行 `unmap_imported_regions()` → `measure_round_trip()` →
+  `ub_memory.shutdown(true)`（`Coordinator.h:407-418`），而 `shutdown` 会 unmap 本地 owner region、
+  `ubsmem_shmem_deallocate()` 并 `ubsmem_finalize()`（`common/UBMemory.cpp:363-396`）；
+  `TableUBBPlusTree` 的 `descriptor_` 是构造时缓存下来的指针（`UBBPlusTreeAdapter.h:225-235`，
+  只在为 `nullptr` 时才重新 `find`），此刻已指向未映射内存，于是 `scan()` 里第一次
+  `lock_shared()` 就崩。启动前那次 check（`:66`）不受影响，所以初始化正常通过、测量数据也已经全部
+  打印完毕（`Global Stats` 在 `Coordinator.h:639`，早于 `Coordinator exits.`）——**该 point 的吞吐和
+  延迟可以直接用**，只是 `status=failed` 会让解析器把它排除出 summary（见步骤 6）。要在运行结束后
+  读 UB 表，必须把代码排在 teardown 之前，`tests/ub_two_node_correctness.cpp:453-455` 就是这个顺序。
 
 ## 生命周期约定
 
 正常关闭顺序如下：停止 worker、message producer 和 dispatcher；unmap 全部 imported region；执行
 最终 TCP peer barrier；unmap/deallocate 本地 owner region；调用 `ubsmem_finalize()`。当前
 coordinator 对支持的单节点/双节点 YCSB 路径执行该顺序。
+
+这个顺序在 `Coordinator::start()` 内部完成，所以**任何要在运行结束后读 UB 表的代码都必须排在它
+之前**：`descriptor_` 是在构造时缓存的指针，teardown 之后既不重新 `find` 也拦不住（`UBMemory::
+shutdown` 只把 `base` 置空并 `regions_.clear()`）。TPCC 的跑完后 `check_consistency` 正是踩在
+teardown 之后，UB 后端因此跳过它（`bench_tpcc.cpp:73`）。
 
 单节点没有 peer socket 或 imported region，因此跳过 TCP peer barrier。通用 N-node shutdown、crash
 cleanup 和 replay 不属于当前 milestone。
