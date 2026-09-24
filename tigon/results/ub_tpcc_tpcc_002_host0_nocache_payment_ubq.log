@@ -1,0 +1,71 @@
+TIGON_RUN_META system=ub workload=tpcc run_id=tpcc_002 host_id=0 repetition= mode=nocache query=payment transport=ubq partitions=2 workers=1 keys= rw_ratio= zipf= cross_ratio= neworder_dist=100 payment_dist=100 warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+[2026-09-24 10:22:03.487 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:03.487 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:03.487 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:03.591 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:03.591 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:03.591 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:03.694 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:03.694 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:03.694 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:03.797 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:03.797 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:03.797 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:03.900 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:03.900 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:03.900 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.003 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.003 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.003 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.106 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.106 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.106 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.214 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.214 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.214 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.318 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.318 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.318 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.422 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.422 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.422 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.524 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.524 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.524 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.627 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.627 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.627 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.730 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.730 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.730 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.833 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.833 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.833 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:04.936 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:04.936 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:04.936 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:05.040 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:05.040 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:05.040 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:05.144 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:05.145 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:05.145 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:05.248 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:05.248 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:05.248 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:05.352 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:05.353 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:05.353 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+[2026-09-24 10:22:05.456 +08:00][ERROR][1750204][281473120215072][shm_ipc_command.cpp:183] IpcCallShmMap response error : 606
+[2026-09-24 10:22:05.456 +08:00][ERROR][1750204][281473120215072][RackMemShm.cpp:322] Failed to mmap, name=tpcc_002_nocache_payment_ubq_1, mapSize=2147483648, ret=606
+[2026-09-24 10:22:05.456 +08:00][ERROR][1750204][281473120215072][mxmem_shmem.cpp:473] Failed to mmap shared memory, ret=606
+I20260924 10:22:06.004391 1750204 UBMemory.cpp:138] UB memory initialized: local_region=0 regions=2 mode=nocache bytes_per_region=2147483648
+I20260924 10:22:06.004447 1750204 Database.h:170] creating hash tables for database...
+I20260924 10:22:06.007918 1750204 Database.h:150] warehouse initialization finished in 2 milliseconds.
+I20260924 10:22:06.008250 1750204 Database.h:150] district initialization finished in 0 milliseconds.
+I20260924 10:22:06.607795 1750204 Database.h:150] customer initialization finished in 599 milliseconds.
+I20260924 10:22:07.096903 1750204 Database.h:150] customer_name_idx initialization finished in 489 milliseconds.
+I20260924 10:22:08.149466 1750204 Database.h:150] history initialization finished in 1052 milliseconds.
+I20260924 10:22:57.844175 1750204 Database.h:150] new_order initialization finished in 49694 milliseconds.
+I20260924 10:22:58.299768 1750204 Database.h:150] order initialization finished in 455 milliseconds.
+I20260924 10:30:23.328397 1750204 Database.h:150] order_cust initialization finished in 445028 milliseconds.

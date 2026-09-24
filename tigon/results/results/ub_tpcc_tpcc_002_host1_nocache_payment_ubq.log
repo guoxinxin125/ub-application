@@ -1,0 +1,11 @@
+TIGON_RUN_META system=ub workload=tpcc run_id=tpcc_002 host_id=1 repetition= mode=nocache query=payment transport=ubq partitions=2 workers=1 keys= rw_ratio= zipf= cross_ratio= neworder_dist=100 payment_dist=100 warmup_seconds=5 run_seconds=15 total_seconds=20 logging=off
+I20260924 10:21:55.644238 1777711 UBMemory.cpp:138] UB memory initialized: local_region=1 regions=2 mode=nocache bytes_per_region=2147483648
+I20260924 10:21:55.644306 1777711 Database.h:170] creating hash tables for database...
+I20260924 10:21:55.645241 1777711 Database.h:150] warehouse initialization finished in 0 milliseconds.
+I20260924 10:21:55.646737 1777711 Database.h:150] district initialization finished in 1 milliseconds.
+I20260924 10:21:56.232995 1777711 Database.h:150] customer initialization finished in 586 milliseconds.
+I20260924 10:21:56.732805 1777711 Database.h:150] customer_name_idx initialization finished in 499 milliseconds.
+I20260924 10:21:57.726691 1777711 Database.h:150] history initialization finished in 993 milliseconds.
+I20260924 10:22:48.871587 1777711 Database.h:150] new_order initialization finished in 51144 milliseconds.
+I20260924 10:22:49.336760 1777711 Database.h:150] order initialization finished in 465 milliseconds.
+I20260924 10:30:16.565351 1777711 Database.h:150] order_cust initialization finished in 447228 milliseconds.
