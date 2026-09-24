@@ -134,6 +134,21 @@ include timestamp overhead and should not be treated as uninstrumented latency.
   `client_release` happens after that timer stops. Import/field stages have
   fewer calls than total reads when a post is not found.
 
+To diagnose the physical source of `storage_write_copy`, enable this only on
+the Post Storage host before starting `run_ub.sh`:
+
+```bash
+export ERPC_SN_STORAGE_WRITE_PROBE=1
+```
+
+The first write prints one `SN_UB_STORAGE_WRITE_PROBE` line containing the
+request backing/payload/PostData addresses, source and destination alignment,
+`source_is_local`, request/PostData sizes, and two consecutive 2 KiB copy
+times. For the documented machine-99 Client to machine-98 Post Storage
+placement, `local_machine_id=98` and `source_is_local=0` are required. The
+second copy and full local checksum deliberately perturb the first request, so
+use this probe only for diagnosis and unset it for reported latency runs.
+
 These are per-process/per-thread measurements; do not subtract timestamps
 from different machines to infer one-way network latency. Profile one request
 type at a time if stage averages must be attributed to that type, because the

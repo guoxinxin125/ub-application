@@ -1,18 +1,49 @@
 #include "post_storage.h"
-#include "../ub_breakdown.h"
 
 #include <gflags/gflags.h>
 
 #include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <thread>
 
 #include "../post_data.h"
+#include "../ub_breakdown.h"
 #include "../utils_mongodb.h"
 
 int mongodb_conns_num = 0;
 mongoc_client_pool_t *mongodb_client_pool;
 std::atomic<bool> post_storage_clients_stopped{false};
+
+#ifdef ERPC_UB
+namespace {
+
+bool claim_storage_write_probe() {
+  static std::atomic<bool> claimed{false};
+  const char *value = std::getenv("ERPC_SN_STORAGE_WRITE_PROBE");
+  if (value == nullptr || value[0] != '1' || value[1] != '\0') return false;
+  return !claimed.exchange(true, std::memory_order_relaxed);
+}
+
+uint64_t elapsed_ns(std::chrono::steady_clock::time_point begin,
+                    std::chrono::steady_clock::time_point end) {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin)
+          .count());
+}
+
+uint64_t consume_probe_copy(const PostData &post) {
+  const auto *bytes = reinterpret_cast<const uint8_t *>(&post);
+  uint64_t checksum = 0;
+  for (size_t offset = 0; offset < sizeof(PostData); ++offset)
+    checksum += bytes[offset];
+  return checksum;
+}
+
+}  // namespace
+#endif
 
 void release_post_storage_map(ServerContext *ctx) {
   std::vector<SharedPostBuffer> buffers_to_release;
@@ -293,9 +324,29 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   sn_profile::record(sn_profile::Stage::kStorageWriteAlloc, alloc_start);
   my_assert(stored_post.buffer.buf_ != nullptr);
   auto *stored = new (stored_post.buffer.buf_) PostData;
+  const bool run_write_probe = claim_storage_write_probe();
+  uint64_t first_copy_ns = 0;
+  uint64_t second_copy_ns = 0;
+  uint64_t second_copy_checksum = 0;
   try {
     const uint64_t copy_start = sn_profile::start();
-    std::memcpy(stored, &req->req_control.post, sizeof(PostData));
+    if (run_write_probe) {
+      const auto first_begin = std::chrono::steady_clock::now();
+      std::memcpy(stored, &req->req_control.post, sizeof(PostData));
+      std::atomic_signal_fence(std::memory_order_seq_cst);
+      const auto first_end = std::chrono::steady_clock::now();
+      first_copy_ns = elapsed_ns(first_begin, first_end);
+
+      alignas(64) PostData second_copy;
+      const auto second_begin = std::chrono::steady_clock::now();
+      std::memcpy(&second_copy, &req->req_control.post, sizeof(PostData));
+      std::atomic_signal_fence(std::memory_order_seq_cst);
+      const auto second_end = std::chrono::steady_clock::now();
+      second_copy_ns = elapsed_ns(second_begin, second_end);
+      second_copy_checksum = consume_probe_copy(second_copy);
+    } else {
+      std::memcpy(stored, &req->req_control.post, sizeof(PostData));
+    }
     sn_profile::record(sn_profile::Stage::kStorageWriteCopy, copy_start);
     const uint64_t validate_start = sn_profile::start();
     validate_post_data(*stored);
@@ -304,6 +355,33 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   } catch (...) {
     release_owned_post(ctx->rpc_, stored_post);
     throw;
+  }
+  if (run_write_probe) {
+    void *const backing = msgbuf_backing_ptr(*req_msgbuf);
+    const void *const source = &req->req_control.post;
+    const bool source_is_local =
+        ctx->rpc_->get_transport()->is_in_shared_memory(backing);
+    const char *const local_machine_id = std::getenv("ERPC_UB_MACHINE_ID");
+    std::fprintf(stderr,
+                 "SN_UB_STORAGE_WRITE_PROBE local_machine_id=%s backing=%p "
+                 "req_payload=%p post_source=%p stored_destination=%p "
+                 "post_offset_from_backing=%zu source_alignment_mod_64=%zu "
+                 "destination_alignment_mod_64=%zu source_is_local=%d "
+                 "request_bytes=%zu post_bytes=%zu first_copy_ns=%llu "
+                 "second_copy_ns=%llu second_copy_checksum=%llu\n",
+                 local_machine_id == nullptr ? "unset" : local_machine_id,
+                 backing, static_cast<void *>(req_msgbuf->buf_),
+                 const_cast<void *>(source), static_cast<void *>(stored),
+                 static_cast<size_t>(static_cast<const uint8_t *>(source) -
+                                     static_cast<const uint8_t *>(backing)),
+                 reinterpret_cast<uintptr_t>(source) % 64,
+                 reinterpret_cast<uintptr_t>(stored) % 64,
+                 source_is_local ? 1 : 0, req_msgbuf->get_data_size(),
+                 sizeof(PostData),
+                 static_cast<unsigned long long>(first_copy_ns),
+                 static_cast<unsigned long long>(second_copy_ns),
+                 static_cast<unsigned long long>(second_copy_checksum));
+    std::fflush(stderr);
   }
   const int64_t final_post_id = stored->post_id;
 #else

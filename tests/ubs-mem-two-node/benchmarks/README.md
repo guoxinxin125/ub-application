@@ -128,6 +128,27 @@ remote_nc_store_fenced_8b_avg_ns
 remote_nc_store_fenced_64b_avg_ns
 ```
 
+它还会按以下关键尺寸执行 remote NC 与本地对齐缓冲区之间的 `std::memcpy` sweep：
+
+```text
+8, 16, 32, 64, 128, 256, 512 B,
+1, 2, 4, 8, 16, 32, 64, 128, 256, 512 KiB,
+1, 2 MiB
+```
+
+只测试不超过 `--test-bytes` 的尺寸；要覆盖到 2 MiB，两端都使用
+`--test-bytes 2097152`。每个尺寸输出实际迭代次数、整块平均延迟和 GiB/s：
+
+```text
+operation=remote_nc_memcpy_read bytes=64 iterations=... avg_ns=... gib_per_sec=...
+operation=remote_nc_memcpy_write bytes=64 iterations=... avg_ns=... gib_per_sec=...
+```
+
+为避免大尺寸产生过长运行时间，每个尺寸最多传输约 32 MiB，同时不超过
+`--iterations`。每轮 read/write 后都有编译器屏障和 `seq_cst` fence。8B/64B原有
+标量结果仍然保留；其中64B标量测试明确执行8次8B访问，而 memcpy sweep 用于观察
+32B、64B及更大尺寸的延迟台阶和带宽变化，不能单独证明UB链路只生成一个64B硬件事务。
+
 8B和64B使用相同的标量模板，每轮分别访问1个和8个连续 `uint64_t`；这里不是
 NEON/vector测试。load和store都在每轮完成对应尺寸的访问后执行一次
 `std::atomic_thread_fence(std::memory_order_seq_cst)`。remote完成全部测试后，owner会

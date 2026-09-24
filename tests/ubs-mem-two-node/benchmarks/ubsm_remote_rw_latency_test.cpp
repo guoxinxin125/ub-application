@@ -1,6 +1,83 @@
 #include "ubsm_benchmark_common.h"
 
+#include <algorithm>
+#include <array>
+#include <vector>
+
 namespace {
+
+constexpr uint8_t kSweepReadSeed = 0x39;
+constexpr uint8_t kSweepWriteSeed = 0xa6;
+constexpr uint64_t kSweepTargetBytes = 32ULL * 1024ULL * 1024ULL;
+constexpr uint64_t kMaximumSweepBytes = 2ULL * 1024ULL * 1024ULL;
+
+std::vector<uint64_t> sweep_sizes(uint64_t test_bytes) {
+  static constexpr std::array<uint64_t, 19> kSizes = {
+      8,    16,    32,    64,    128,    256,    512,    1024,    2048,   4096,
+      8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152};
+  std::vector<uint64_t> sizes;
+  const uint64_t maximum = std::min(test_bytes, kMaximumSweepBytes);
+  for (const uint64_t size : kSizes) {
+    if (size <= maximum)
+      sizes.push_back(size);
+  }
+  if (sizes.empty() || sizes.back() != maximum)
+    sizes.push_back(maximum);
+  return sizes;
+}
+
+uint64_t sweep_iterations(uint64_t requested, uint64_t bytes) {
+  return std::min(requested, std::max<uint64_t>(1, kSweepTargetBytes / bytes));
+}
+
+uint8_t *aligned_local_buffer(std::vector<uint8_t> &storage) {
+  const uintptr_t address = reinterpret_cast<uintptr_t>(storage.data());
+  return reinterpret_cast<uint8_t *>((address + 63U) & ~uintptr_t{63U});
+}
+
+void compiler_observe(const void *buffer, size_t bytes) {
+  asm volatile("" : : "r"(buffer), "r"(bytes) : "memory");
+}
+
+double benchmark_memcpy_read(const uint8_t *remote, uint8_t *local,
+                             uint64_t bytes, uint64_t iterations) {
+  std::memcpy(local, remote, static_cast<size_t>(bytes));
+  compiler_observe(local, static_cast<size_t>(bytes));
+  const auto start = std::chrono::steady_clock::now();
+  for (uint64_t i = 0; i < iterations; ++i) {
+    std::memcpy(local, remote, static_cast<size_t>(bytes));
+    compiler_observe(local, static_cast<size_t>(bytes));
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return std::chrono::duration<double, std::nano>(elapsed).count() /
+         static_cast<double>(iterations);
+}
+
+double benchmark_memcpy_write(uint8_t *remote, const uint8_t *local,
+                              uint64_t bytes, uint64_t iterations) {
+  std::memcpy(remote, local, static_cast<size_t>(bytes));
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+  const auto start = std::chrono::steady_clock::now();
+  for (uint64_t i = 0; i < iterations; ++i) {
+    std::memcpy(remote, local, static_cast<size_t>(bytes));
+    compiler_observe(remote, static_cast<size_t>(bytes));
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return std::chrono::duration<double, std::nano>(elapsed).count() /
+         static_cast<double>(iterations);
+}
+
+void print_memcpy_result(const char *operation, uint64_t bytes,
+                         uint64_t iterations, double average_ns) {
+  const double gib_per_sec = (static_cast<double>(bytes) / average_ns) * 1e9 /
+                             static_cast<double>(1024ULL * 1024ULL * 1024ULL);
+  std::cout << std::fixed << std::setprecision(2) << "operation=" << operation
+            << " bytes=" << bytes << " iterations=" << iterations
+            << " avg_ns=" << average_ns << " gib_per_sec=" << gib_per_sec
+            << '\n';
+}
 
 void run_owner(const ubsm_bench::TwoNodeOptions &options,
                ubsm_test::SharedMemory &memory, int connection) {
@@ -11,6 +88,8 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
   constexpr uint64_t kCachelineSequence = 0x123456789abcdef0ULL;
   ubsm_bench::write_word_block<1>(word, ubsm_bench::kInitialLatencyValue);
   ubsm_bench::write_word_block<8>(cacheline, kCachelineSequence);
+  ubsm_test::write_pattern(ubsm_bench::pattern_at(memory), options.test_bytes,
+                           kSweepReadSeed);
 
   ubsm_test::expect_stage(connection, 'H');
   ubsm_test::send_stage(connection, 'R');
@@ -21,6 +100,10 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
   ubsm_bench::verify_word_block<8>(
       cacheline, options.iterations - 1,
       "remote 64-byte fenced store observed by owner");
+  const uint64_t largest_sweep = sweep_sizes(options.test_bytes).back();
+  ubsm_test::verify_pattern(ubsm_bench::pattern_at(memory), largest_sweep,
+                            kSweepWriteSeed,
+                            "remote memcpy sweep write observed by owner");
   std::cout << "PASS remote final 8-byte and 64-byte stores observed by owner "
                "without invalidate\n";
   ubsm_test::send_stage(connection, 'V');
@@ -46,14 +129,42 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
       ubsm_bench::benchmark_word_block_load_fenced<8>(
           cacheline, options.iterations, kCachelineSequence));
 
-  ubsm_test::print_latency(
-      "remote_nc_store_fenced_8b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_fenced<1>(word,
-                                                        options.iterations));
-  ubsm_test::print_latency(
-      "remote_nc_store_fenced_64b_avg_ns",
-      ubsm_bench::benchmark_word_block_store_fenced<8>(cacheline,
-                                                        options.iterations));
+  ubsm_test::print_latency("remote_nc_store_fenced_8b_avg_ns",
+                           ubsm_bench::benchmark_word_block_store_fenced<1>(
+                               word, options.iterations));
+  ubsm_test::print_latency("remote_nc_store_fenced_64b_avg_ns",
+                           ubsm_bench::benchmark_word_block_store_fenced<8>(
+                               cacheline, options.iterations));
+
+  const std::vector<uint64_t> sizes = sweep_sizes(options.test_bytes);
+  std::vector<uint8_t> local_storage(static_cast<size_t>(sizes.back() + 63U));
+  uint8_t *const local = aligned_local_buffer(local_storage);
+  const uint8_t *const remote_read =
+      const_cast<const uint8_t *>(ubsm_bench::pattern_at(memory));
+  uint8_t *const remote_write = const_cast<uint8_t *>(remote_read);
+  std::cout << "memcpy_sweep_max_bytes=" << sizes.back()
+            << " local_alignment_mod_64="
+            << reinterpret_cast<uintptr_t>(local) % 64
+            << " remote_alignment_mod_64="
+            << reinterpret_cast<uintptr_t>(remote_read) % 64 << '\n';
+
+  for (const uint64_t bytes : sizes) {
+    const uint64_t iterations = sweep_iterations(options.iterations, bytes);
+    const double average_ns =
+        benchmark_memcpy_read(remote_read, local, bytes, iterations);
+    print_memcpy_result("remote_nc_memcpy_read", bytes, iterations, average_ns);
+  }
+  ubsm_test::verify_pattern(local, sizes.back(), kSweepReadSeed,
+                            "remote memcpy sweep read");
+
+  ubsm_test::write_pattern(local, sizes.back(), kSweepWriteSeed);
+  for (const uint64_t bytes : sizes) {
+    const uint64_t iterations = sweep_iterations(options.iterations, bytes);
+    const double average_ns =
+        benchmark_memcpy_write(remote_write, local, bytes, iterations);
+    print_memcpy_result("remote_nc_memcpy_write", bytes, iterations,
+                        average_ns);
+  }
   ubsm_test::send_stage(connection, 'D');
   ubsm_test::expect_stage(connection, 'V');
   ubsm_bench::remote_cleanup(memory, connection);
