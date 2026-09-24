@@ -144,9 +144,22 @@ operation=remote_nc_memcpy_read bytes=64 iterations=... avg_ns=... gib_per_sec=.
 operation=remote_nc_memcpy_write bytes=64 iterations=... avg_ns=... gib_per_sec=...
 ```
 
+同一组尺寸还会绕过 `std::memcpy`，逐个执行 8B `volatile uint64_t` 访问：
+
+```text
+operation=remote_nc_scalar_load_fenced bytes=64 iterations=... avg_ns=... gib_per_sec=...
+operation=remote_nc_scalar_store_fenced bytes=64 iterations=... avg_ns=... gib_per_sec=...
+```
+
+每轮标量测试对整块执行 `bytes / 8` 次连续 8B load 或 store，然后执行一次
+`seq_cst` fence；它不会在每次 8B 访问后单独 fence。该结果用于区分 libc
+`memcpy` 的向量化、尺寸分支和预取策略，与普通标量 NC 访问本身的开销。owner 会在
+标量 store sweep 结束后校验最大尺寸的全部 8B word；在开始标量测试前也会单独校验
+`memcpy` write 的结果。
+
 为避免大尺寸产生过长运行时间，每个尺寸最多传输约 32 MiB，同时不超过
-`--iterations`。每轮 read/write 后都有编译器屏障和 `seq_cst` fence。8B/64B原有
-标量结果仍然保留；其中64B标量测试明确执行8次8B访问，而 memcpy sweep 用于观察
+`--iterations`。每轮 `memcpy` 后都有编译器屏障和 `seq_cst` fence。8B/64B原有
+标量结果仍然保留；其中64B标量测试明确执行8次8B访问，而两个 sweep 用于观察
 32B、64B及更大尺寸的延迟台阶和带宽变化，不能单独证明UB链路只生成一个64B硬件事务。
 
 8B和64B使用相同的标量模板，每轮分别访问1个和8个连续 `uint64_t`；这里不是
