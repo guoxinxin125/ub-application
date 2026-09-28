@@ -1,0 +1,43 @@
+[root@localhost ub-application]# grep -h 'UB_POINT_PROFILE' "$UB_RESULT_DIR"/ub_ycsb_*.log
+I20260928 19:22:38.974216 94507 Coordinator.h:375] UB_POINT_PROFILE scope=local period=256 phase=all_including_warmup samples=97534 found=97534 lock_success=97502 lookup_avg_ns=827 lock_avg_ns=45 read_copy_avg_ns=295 read_bytes=98477020 write_samples=4862 write_copy_avg_ns=84 write_bytes=4910620
+I20260928 19:22:38.974225 94507 Coordinator.h:375] UB_POINT_PROFILE scope=remote period=256 phase=all_including_warmup samples=0 found=0 lock_success=0 lookup_avg_ns=0 lock_avg_ns=0 read_copy_avg_ns=0 read_bytes=0 write_samples=0 write_copy_avg_ns=0 write_bytes=0
+I20260928 19:23:05.289002 94732 Coordinator.h:375] UB_POINT_PROFILE scope=local period=256 phase=all_including_warmup samples=3355 found=3355 lock_success=3355 lookup_avg_ns=1335 lock_avg_ns=56 read_copy_avg_ns=360 read_bytes=3388550 write_samples=150 write_copy_avg_ns=124 write_bytes=151500
+I20260928 19:23:05.289008 94732 Coordinator.h:375] UB_POINT_PROFILE scope=remote period=256 phase=all_including_warmup samples=2665 found=2665 lock_success=2665 lookup_avg_ns=45027 lock_avg_ns=2875 read_copy_avg_ns=5627 read_bytes=2691650 write_samples=151 write_copy_avg_ns=2491 write_bytes=152510
+[root@localhost ub-application]# awk '
+> /UB_POINT_PROFILE scope=remote/ {
+>   delete v
+>   for (i=1; i<=NF; i++) {
+>     split($i, a, "=")
+>     v[a[1]]=a[2]
+>   }
+>   total=v["lookup_avg_ns"]+v["lock_avg_ns"]+v["read_copy_avg_ns"]
+>   if (v["samples"] > 0 && total > 0)
+>     printf "%s: samples=%s success=%s lookup=%.3f us lock=%.3f us copy=%.3f us copy_share=%.1f%%\n",
+>       FILENAME, v["samples"], v["lock_success"],
+>       v["lookup_avg_ns"]/1000, v["lock_avg_ns"]/1000,
+>       v["read_copy_avg_ns"]/1000, 100*v["read_copy_avg_ns"]/total
+> }' "$UB_RESULT_DIR"/ub_ycsb_*.log
+/home/gxx/ub-application/tigon/results/ub_profile_run01/ub_ycsb_ub_profile_run01_y_rw95_c100_r1_host0_one-sided_rmw_ubq.log: samples=2665 success=2665 lookup=45.027 us lock=2.875 us copy=5.627 us copy_share=10.5%
+
+
+host1 grep -h 'UB_POINT_PROFILE' "$UB_RESULT_DIR"/ub_ycsb_*.log
+I20260928 19:22:30.746349 96800 Coordinator.h:375] UB_POINT_PROFILE scope=local period=256 phase=all_including_warmup samples=97577 found=97577 lock_success=97556 lookup_avg_ns=835 lock_avg_ns=45 read_copy_avg_ns=294 read_bytes=98531560 write_samples=4869 write_copy_avg_ns=84 write_bytes=4917690
+I20260928 19:22:30.746358 96800 Coordinator.h:375] UB_POINT_PROFILE scope=remote period=256 phase=all_including_warmup samples=0 found=0 lock_success=0 lookup_avg_ns=0 lock_avg_ns=0 read_copy_avg_ns=0 read_bytes=0 write_samples=0 write_copy_avg_ns=0 write_bytes=0
+I20260928 19:22:57.060654 97029 Coordinator.h:375] UB_POINT_PROFILE scope=local period=256 phase=all_including_warmup samples=3194 found=3194 lock_success=3194 lookup_avg_ns=1251 lock_avg_ns=45 read_copy_avg_ns=364 read_bytes=3225940 write_samples=163 write_copy_avg_ns=116 write_bytes=164630
+I20260928 19:22:57.060662 97029 Coordinator.h:375] UB_POINT_PROFILE scope=remote period=256 phase=all_including_warmup samples=3043 found=3043 lock_success=3042 lookup_avg_ns=43647 lock_avg_ns=2822 read_copy_avg_ns=5455 read_bytes=3072420 write_samples=150 write_copy_avg_ns=2498 write_bytes=151500
+[root@localhost ub-application]# awk '
+> /UB_POINT_PROFILE scope=remote/ {
+>   delete v
+>   for (i=1; i<=NF; i++) {
+>     split($i, a, "=")
+>     v[a[1]]=a[2]
+>   }
+>   total=v["lookup_avg_ns"]+v["lock_avg_ns"]+v["read_copy_avg_ns"]
+>   if (v["samples"] > 0 && total > 0)
+>     printf "%s: samples=%s success=%s lookup=%.3f us lock=%.3f us copy=%.3f us copy_share=%.1f%%\n",
+>       FILENAME, v["samples"], v["lock_success"],
+>       v["lookup_avg_ns"]/1000, v["lock_avg_ns"]/1000,
+>       v["read_copy_avg_ns"]/1000, 100*v["read_copy_avg_ns"]/total
+> }' "$UB_RESULT_DIR"/ub_ycsb_*.log
+/home/gxx/ub-application/tigon/results/ub_profile_run01/ub_ycsb_ub_profile_run01_y_rw95_c100_r1_host1_one-sided_rmw_ubq.log: samples=3043 success=3042 lookup=43.647 us lock=2.822 us copy=5.455 us copy_share=10.5%
+
