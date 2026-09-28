@@ -292,6 +292,14 @@ int main() {
               sn_consume::protobuf_post(empty_post),
           "empty/default mismatch");
 
+  const auto *empty_bytes =
+      reinterpret_cast<const unsigned char *>(&empty);
+  for (size_t offset = 0; offset < sizeof(empty); offset += sizeof(uint64_t)) {
+    require(sn_consume::contiguous_scalar_load(empty_bytes + offset) ==
+                sn_consume::load_le64(empty_bytes + offset),
+            "contiguous scalar load differs from an 8-byte value read");
+  }
+
   const uint64_t contiguous_before =
       sn_consume::native_post_contiguous(&empty, sizeof(empty));
   empty.text[SN_TEXT_LEN - 1] = 'X';

@@ -581,9 +581,13 @@ To compare sparse field access with a contiguous remote access stream, select:
 export ERPC_SN_POST_READ_MODE=contiguous
 ```
 
-`contiguous` still validates the header, then consumes the remainder of the
-fixed 2048-byte `PostData` layout sequentially with eight independent scalar
-accumulation lanes. It does not copy the object into a local 2 KiB buffer. The
+`contiguous` still materializes and validates the 104-byte header, then
+consumes the remainder of the fixed 2048-byte `PostData` layout sequentially
+with eight independent scalar accumulation lanes. On UB AArch64 and x86-64,
+each 8-byte payload read uses an explicit scalar load instruction; this avoids
+compiler conversion of the loop into wide/vector loads. Other architectures
+fall back to the previous 8-byte `memcpy` expression. It does not copy the
+object into a local 2 KiB buffer. The
 two modes therefore compare fewer but potentially scattered remote bytes with
 more but contiguous remote bytes. Set the variable before starting `run_ub.sh`;
 the client process reads it once. Restart the processes to change modes.

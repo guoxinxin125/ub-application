@@ -23,6 +23,10 @@ struct PostHeader {
 };
 static_assert(sizeof(PostHeader) == offsetof(PostData, creator_username),
               "consumer metadata layout mismatch");
+static_assert(sizeof(PostHeader) % sizeof(uint64_t) == 0,
+              "contiguous scalar reads require an 8-byte header boundary");
+static_assert(alignof(PostData) >= alignof(uint64_t),
+              "contiguous scalar reads require an 8-byte PostData base");
 
 template <class T>
 inline T native_load(const unsigned char *p) {
@@ -63,19 +67,37 @@ inline PostHeader load_header(const unsigned char *p) {
   return header;
 }
 
+// Keep contiguous UB reads as individual 64-bit loads. Unlike the 8-byte
+// memcpy used by the semantic fields path, these instructions cannot be
+// combined into vector loads by an optimizing compiler. The imported PostData
+// object and its 104-byte header boundary are both 8-byte aligned.
+inline uint64_t contiguous_scalar_load(const unsigned char *p) {
+#if defined(ERPC_UB) && defined(__aarch64__)
+  uint64_t value;
+  __asm__ __volatile__("ldr %0, [%1]" : "=r"(value) : "r"(p) : "memory");
+  return value;
+#elif defined(ERPC_UB) && defined(__x86_64__)
+  uint64_t value;
+  __asm__ __volatile__("movq (%1), %0" : "=r"(value) : "r"(p) : "memory");
+  return value;
+#else
+  return load_le64(p);
+#endif
+}
+
 inline uint64_t contiguous_scalar_checksum(const unsigned char *p,
                                            size_t size) {
   uint64_t lane0 = 0, lane1 = 0, lane2 = 0, lane3 = 0;
   uint64_t lane4 = 0, lane5 = 0, lane6 = 0, lane7 = 0;
   while (size >= 64) {
-    lane0 += load_le64(p);
-    lane1 += load_le64(p + 8);
-    lane2 += load_le64(p + 16);
-    lane3 += load_le64(p + 24);
-    lane4 += load_le64(p + 32);
-    lane5 += load_le64(p + 40);
-    lane6 += load_le64(p + 48);
-    lane7 += load_le64(p + 56);
+    lane0 += contiguous_scalar_load(p);
+    lane1 += contiguous_scalar_load(p + 8);
+    lane2 += contiguous_scalar_load(p + 16);
+    lane3 += contiguous_scalar_load(p + 24);
+    lane4 += contiguous_scalar_load(p + 32);
+    lane5 += contiguous_scalar_load(p + 40);
+    lane6 += contiguous_scalar_load(p + 48);
+    lane7 += contiguous_scalar_load(p + 56);
     p += 64;
     size -= 64;
   }
@@ -90,7 +112,7 @@ inline uint64_t contiguous_scalar_checksum(const unsigned char *p,
   sum.integer(lane6);
   sum.integer(lane7);
   while (size >= 8) {
-    sum.integer(load_le64(p));
+    sum.integer(contiguous_scalar_load(p));
     p += 8;
     size -= 8;
   }
