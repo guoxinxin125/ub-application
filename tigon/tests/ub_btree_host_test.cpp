@@ -358,5 +358,16 @@ int main()
         require(cached_lookup(stable_key).node == stable.node &&
                         offset_cache.lookup(&tree, stable_key.value).generation == current.generation,
                 "stale generation was not discarded and refreshed");
+
+        star::UBPointProfile::Sample lookup_profile;
+        {
+                star::UBPointProfile::ScopedLookup scope(&lookup_profile);
+                require(static_cast<bool>(tree.search(stable_key)),
+                        "profiled tree lookup failed");
+        }
+        require(star::UBPointProfile::active_lookup() == nullptr,
+                "lookup profile scope was not cleared");
+        require(lookup_profile.tree_searched && lookup_profile.tree_levels > 0,
+                "profiled lookup did not record tree traversal");
         return 0;
 }

@@ -2,6 +2,7 @@
 
 #include "common/UBCpu.h"
 #include "common/UBMemory.h"
+#include "common/UBPointProfile.h"
 #include "common/UBTuple.h"
 #include "core/UBBTreeCatalog.h"
 
@@ -191,11 +192,23 @@ class UBBPlusTree {
 
         TupleRef search(const KeyType &key) const
         {
+                auto *profile = UBPointProfile::active_lookup();
+                if (profile == nullptr) {
+                        SharedTreeGuard guard(*this);
+                        TupleRef ref = search_unlocked(key);
+                        if (ref && ref.header->valid.load(std::memory_order_acquire) != 1)
+                                return TupleRef();
+                        return ref;
+                }
+                profile->tree_searched = true;
+                const auto lock_start = UBPointProfile::Clock::now();
                 SharedTreeGuard guard(*this);
-                TupleRef ref = search_unlocked(key);
-                if (ref && ref.header->valid.load(std::memory_order_acquire) != 1)
-                        return TupleRef();
-                return ref;
+                profile->tree_lock_ns += UBPointProfile::elapsed_ns(lock_start);
+                TupleRef ref = search_unlocked(key, profile);
+                const auto valid_start = UBPointProfile::Clock::now();
+                const bool valid = !ref || ref.header->valid.load(std::memory_order_acquire) == 1;
+                profile->tree_tuple_ns += UBPointProfile::elapsed_ns(valid_start);
+                return valid ? ref : TupleRef();
         }
 
         TupleRef search_including_invalid(const KeyType &key) const
@@ -516,13 +529,16 @@ class UBBPlusTree {
         }
 
         LeafNode *find_leaf_unlocked(const KeyType &key,
-                                     std::vector<PathEntry> *path) const
+                                     std::vector<PathEntry> *path,
+                                     UBPointProfile::Sample *profile = nullptr) const
         {
                 NodeHeader *node = node_from_offset(
                         descriptor_->root_offset.load(std::memory_order_acquire));
                 if (node == nullptr)
                         throw std::runtime_error("UB B+ Tree has no root");
                 while (node->type == static_cast<uint32_t>(NodeType::INNER)) {
+                        if (profile != nullptr)
+                                ++profile->tree_levels;
                         InnerNode *inner = reinterpret_cast<InnerNode *>(node);
                         const uint32_t index = child_index(inner, key);
                         if (path != nullptr)
@@ -536,16 +552,31 @@ class UBBPlusTree {
                 return reinterpret_cast<LeafNode *>(node);
         }
 
-        TupleRef search_unlocked(const KeyType &key) const
+        TupleRef search_unlocked(const KeyType &key,
+                                 UBPointProfile::Sample *profile = nullptr) const
         {
                 if (descriptor_ == nullptr)
                         return TupleRef();
-                LeafNode *leaf = find_leaf_unlocked(key, nullptr);
+                const auto walk_start = profile ? UBPointProfile::Clock::now()
+                                                : UBPointProfile::Clock::time_point{};
+                LeafNode *leaf = find_leaf_unlocked(key, nullptr, profile);
+                if (profile != nullptr)
+                        profile->tree_walk_ns += UBPointProfile::elapsed_ns(walk_start);
+                const auto leaf_start = profile ? UBPointProfile::Clock::now()
+                                                : UBPointProfile::Clock::time_point{};
                 const uint32_t position = leaf_lower_bound(leaf, key);
-                if (position == leaf->header.count ||
-                    !equal(leaf->entries[position].key, key))
+                const bool found = position != leaf->header.count &&
+                                   equal(leaf->entries[position].key, key);
+                if (profile != nullptr)
+                        profile->tree_leaf_ns += UBPointProfile::elapsed_ns(leaf_start);
+                if (!found)
                         return TupleRef();
-                return make_ref(tuple_from_offset(leaf->entries[position].tuple_offset));
+                const auto tuple_start = profile ? UBPointProfile::Clock::now()
+                                                 : UBPointProfile::Clock::time_point{};
+                TupleRef ref = make_ref(tuple_from_offset(leaf->entries[position].tuple_offset));
+                if (profile != nullptr)
+                        profile->tree_tuple_ns += UBPointProfile::elapsed_ns(tuple_start);
+                return ref;
         }
 
         TupleRef end_gap_ref() const

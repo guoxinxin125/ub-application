@@ -385,6 +385,25 @@ class Coordinator {
                                           << " write_samples=" << writes
                                           << " write_copy_avg_ns=" << (writes ? profile.write_ns.load(std::memory_order_relaxed) / writes : 0)
                                           << " write_bytes=" << profile.write_bytes.load(std::memory_order_relaxed);
+                                const uint64_t tree_n = profile.tree_searches.load(std::memory_order_relaxed);
+                                const uint64_t cache_hits = profile.cache_hits.load(std::memory_order_relaxed);
+                                const uint64_t cache_misses = profile.cache_misses.load(std::memory_order_relaxed);
+                                LOG(INFO) << "UB_LOOKUP_PROFILE scope=" << (remote ? "remote" : "local")
+                                          << " period=" << UBPointProfile::sample_period
+                                          << " phase=all_including_warmup"
+                                          << " samples=" << n
+                                          << " cache_hits=" << cache_hits
+                                          << " cache_misses=" << cache_misses
+                                          << " cache_stale=" << profile.cache_stale.load(std::memory_order_relaxed)
+                                          << " tree_searches=" << tree_n
+                                          << " cache_probe_avg_ns=" << (n ? profile.cache_probe_ns.load(std::memory_order_relaxed) / n : 0)
+                                          << " cache_validate_avg_ns=" << (cache_hits + profile.cache_stale.load(std::memory_order_relaxed) ? profile.cache_validate_ns.load(std::memory_order_relaxed) / (cache_hits + profile.cache_stale.load(std::memory_order_relaxed)) : 0)
+                                          << " tree_prepare_avg_ns=" << (tree_n ? profile.tree_prepare_ns.load(std::memory_order_relaxed) / tree_n : 0)
+                                          << " tree_lock_avg_ns=" << (tree_n ? profile.tree_lock_ns.load(std::memory_order_relaxed) / tree_n : 0)
+                                          << " tree_walk_avg_ns=" << (tree_n ? profile.tree_walk_ns.load(std::memory_order_relaxed) / tree_n : 0)
+                                          << " tree_leaf_avg_ns=" << (tree_n ? profile.tree_leaf_ns.load(std::memory_order_relaxed) / tree_n : 0)
+                                          << " tree_tuple_avg_ns=" << (tree_n ? profile.tree_tuple_ns.load(std::memory_order_relaxed) / tree_n : 0)
+                                          << " tree_inner_levels_avg=" << (tree_n ? profile.tree_levels.load(std::memory_order_relaxed) / tree_n : 0);
                         }
                 }
 

@@ -100,7 +100,13 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
 				UBPointProfile::Sample profile;
 				UBPointProfile::Clock::time_point lookup_start;
 				if (sampled) lookup_start = UBPointProfile::Clock::now();
-				auto row = table->search(key);
+				std::tuple<star::ITable::MetaDataType *, void *> row;
+				if (sampled) {
+					UBPointProfile::ScopedLookup lookup_scope(&profile);
+					row = table->search(key);
+				} else {
+					row = table->search(key);
+				}
 				if (sampled) profile.lookup_ns = UBPointProfile::elapsed_ns(lookup_start);
 				const bool owner_local =
 					this->partitioner->has_master_partition(partition_id);

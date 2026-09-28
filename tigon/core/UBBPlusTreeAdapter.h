@@ -4,6 +4,7 @@
 #include "common/Encoder.h"
 #include "common/StringPiece.h"
 #include "common/UBMemory.h"
+#include "common/UBPointProfile.h"
 #include "common/UBTupleOffsetCache.h"
 #include "core/Table.h"
 #include "core/UBBPlusTree.h"
@@ -58,21 +59,44 @@ class TableUBBPlusTree : public ITable {
         std::tuple<MetaDataType *, void *> search(const void *key) override
         {
                 const KeyType &typed_key = *static_cast<const KeyType *>(key);
+                auto *profile = UBPointProfile::active_lookup();
+                auto tree_search = [&]() {
+                        const auto start = profile ? UBPointProfile::Clock::now()
+                                                   : UBPointProfile::Clock::time_point{};
+                        NativeTree &tree = native_tree();
+                        if (profile != nullptr)
+                                profile->tree_prepare_ns += UBPointProfile::elapsed_ns(start);
+                        return tree.search(typed_key);
+                };
                 if (rmw_cache_enabled_ && owner_region_ != ub_memory.local_region_id()) {
                         UBTupleOffsetCache &cache = local_cache();
                         const uint64_t plain_key = typed_key.get_plain_key();
+                        const auto probe_start = profile ? UBPointProfile::Clock::now()
+                                                         : UBPointProfile::Clock::time_point{};
                         const UBGlobalPtr cached = cache.lookup(descriptor_, plain_key);
+                        if (profile != nullptr)
+                                profile->cache_probe_ns += UBPointProfile::elapsed_ns(probe_start);
                         if (cached) {
+                                const auto validate_start = profile ? UBPointProfile::Clock::now()
+                                                                    : UBPointProfile::Clock::time_point{};
                                 // resolve() rejects a previous region generation before
                                 // any tuple memory is dereferenced. No negative caching.
                                 auto *node = ub_memory.resolve_as<typename NativeTree::TupleNode>(cached);
-                                if (node != nullptr &&
-                                    node->tuple.valid.load(std::memory_order_acquire) == 1)
+                                const bool valid = node != nullptr &&
+                                        node->tuple.valid.load(std::memory_order_acquire) == 1;
+                                if (profile != nullptr) {
+                                        profile->cache_validate_ns += UBPointProfile::elapsed_ns(validate_start);
+                                        profile->cache_hit = valid;
+                                        profile->cache_stale = !valid;
+                                }
+                                if (valid)
                                         return std::make_tuple(&node->tuple.version,
                                                                static_cast<void *>(&node->value));
                                 cache.forget(descriptor_, plain_key);
                         }
-                        const auto ref = native_tree().search(typed_key);
+                        if (profile != nullptr)
+                                profile->cache_miss = true;
+                        const auto ref = tree_search();
                         if (!ref)
                                 return std::make_tuple(nullptr, nullptr);
                         cache.remember(descriptor_, plain_key,
@@ -80,7 +104,7 @@ class TableUBBPlusTree : public ITable {
                         return std::make_tuple(&ref.header->version,
                                                static_cast<void *>(ref.value));
                 }
-                const auto ref = native_tree().search(typed_key);
+                const auto ref = tree_search();
                 if (!ref)
                         return std::make_tuple(nullptr, nullptr);
                 return std::make_tuple(&ref.header->version,

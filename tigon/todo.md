@@ -163,7 +163,7 @@ python3 tigon/scripts/parse/parse_two_node_compare.py \
 
 ## 7. 单独计时诊断（正式矩阵之后，可选但建议）
 
-为了判断缓存实际节省了多少远端树查找时间，可用 `rw=95, cross=100`（必要时再测 `cross=0`）单独做 profile。两台机器都设置；分别以缓存关闭和开启跑一遍，每次使用新的、两端相同的 campaign：
+当前先定位 lookup 内部瓶颈，不做 cache-off/on 对照。两台机器都同步新代码、重新编译并运行同一个 `rw=95, cross=100` 单点；沿用当前 cache-on 配置：
 
 ```bash
 export UB_COMPARE_REPETITIONS=1
@@ -173,19 +173,13 @@ export UB_COMPARE_WARMUP_SECONDS=5
 export UB_COMPARE_RUN_SECONDS=10
 export TIGON_UB_POINT_PROFILE=1
 
-export TIGON_UB_RMW_TUPLE_CACHE=0
-export UB_RESULT_DIR="$TIGON_REPO_ROOT/tigon/results/${CAMPAIGN_TAG}_profile_off"
-bash tigon/scripts/run_ub_two_node_compare.sh \
-  ycsb "$UB_ID" "$SERVERS" "${CAMPAIGN_TAG}_profile_off"
-
-# 双端 off 完成后，双方再改成 1 并运行新的 profile_on campaign：
 export TIGON_UB_RMW_TUPLE_CACHE=1
-export UB_RESULT_DIR="$TIGON_REPO_ROOT/tigon/results/${CAMPAIGN_TAG}_profile_on"
+export UB_RESULT_DIR="$TIGON_REPO_ROOT/tigon/results/${CAMPAIGN_TAG}_lookup_profile"
 bash tigon/scripts/run_ub_two_node_compare.sh \
-  ycsb "$UB_ID" "$SERVERS" "${CAMPAIGN_TAG}_profile_on"
+  ycsb "$UB_ID" "$SERVERS" "${CAMPAIGN_TAG}_lookup_profile"
 ```
 
-查看两端日志中的 `UB_POINT_PROFILE scope=remote/local`，重点看 lookup、lock、copy、write 的采样次数与累计耗时。采样周期为 256，且当前 profile 标注 `phase=all_including_warmup`，因此只用来定位开销；不要与关闭 profile 的正式吞吐样本合并。若后续想隔离 scalar read 的收益，再另用全新 campaign、两端同时设 `TIGON_UB_SCALAR_READ=0` 做少量对照；不要混入本轮 cache-off/on 的正式矩阵。
+查看两端日志中的 `UB_POINT_PROFILE` 和 `UB_LOOKUP_PROFILE`。后者给出地址缓存命中/未命中/失效次数，以及 `cache_probe`、`cache_validate`、`tree_prepare`、`tree_lock`、`tree_walk`、`tree_leaf`、`tree_tuple` 的平均 ns 和树内部层数。树阶段均值以 `tree_searches` 为分母，缓存校验以命中加失效次数为分母；这些条件均值不能直接相加当作总 lookup 延迟。采样周期为 256，`phase=all_including_warmup`，只用于定位开销；不要与关闭 profile 的正式吞吐样本合并。远端 value copy 暂不优化。
 
 ## 8. 最终需要带回的数据
 
