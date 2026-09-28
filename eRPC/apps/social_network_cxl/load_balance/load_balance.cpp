@@ -295,10 +295,15 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     connect_sessions(ctx);
 
+    // In inline mode, bound work between RPC event-loop polls. Otherwise a
+    // busy handoff queue can delay responses and request callbacks by an
+    // entire kAppMaxBuffer-sized drain. Preserve the old A/B path unchanged.
+    const size_t queue_batch = ctx->forward_inline_queue == nullptr
+        ? kAppMaxBuffer : kProxyInlinePollBatch;
     while (true) {
         erpc::MsgBuffer req_msg;
         for (size_t i = 0;
-             i < kAppMaxBuffer &&
+             i < queue_batch &&
              ctx->forward_spsc_queue->try_pop(req_msg);
              i++) {
             const auto req_type =
@@ -318,7 +323,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
         }
 
         for (size_t i = 0;
-             i < kAppMaxBuffer &&
+             i < queue_batch &&
              ctx->backward_spsc_queue->try_pop(req_msg);
              i++) {
             const auto req_type =
@@ -340,7 +345,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
         if (ctx->forward_inline_queue != nullptr) {
             ProxyInlineMessage msg;
             for (size_t i = 0;
-                 i < kAppMaxBuffer && ctx->forward_inline_queue->try_pop(msg);
+                 i < queue_batch && ctx->forward_inline_queue->try_pop(msg);
                  ++i) {
                 if (sn_profile::enabled()) {
                     const size_t slot = msg.req_num % kAppMaxBuffer;
@@ -355,7 +360,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
         if (ctx->backward_inline_queue != nullptr) {
             ProxyInlineMessage msg;
             for (size_t i = 0;
-                 i < kAppMaxBuffer && ctx->backward_inline_queue->try_pop(msg);
+                 i < queue_batch && ctx->backward_inline_queue->try_pop(msg);
                  ++i) {
                 if (sn_profile::enabled()) {
                     const size_t slot = msg.req_num % kAppMaxBuffer;

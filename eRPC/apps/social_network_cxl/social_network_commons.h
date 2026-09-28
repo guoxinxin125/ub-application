@@ -70,7 +70,11 @@ using MPMC_QUEUE = atomic_queue::AtomicQueueB2<erpc::MsgBuffer, std::allocator<e
 // The Timeline request and returned PostStorage handle fit in one small value.
 // Passing this value across the proxy's thread boundary avoids holding a
 // remote shared-buffer reference while the sender creates its own MsgBuffer.
-static constexpr size_t kProxyInlineBytes = 64;
+// The largest supported wire value is the single-post response (45 bytes).
+// Keep the queue element within 64 bytes: the old 64-byte payload made each
+// queued value 80 bytes and increased cache footprint on both proxy threads.
+static constexpr size_t kProxyInlineBytes = 48;
+static constexpr size_t kProxyInlinePollBatch = 8;
 static_assert(sizeof(RPCMsgReq<UserTimeLineReq>) <= kProxyInlineBytes,
               "User Timeline request exceeds proxy inline capacity");
 static_assert(sizeof(RPCMsgReq<HomeTimeLineReq>) <= kProxyInlineBytes,
@@ -83,6 +87,8 @@ struct ProxyInlineMessage {
     uint8_t req_type{};
     std::array<uint8_t, kProxyInlineBytes> data{};
 };
+static_assert(sizeof(ProxyInlineMessage) == 64,
+              "proxy inline queue element must fit in 64 bytes");
 using PROXY_INLINE_QUEUE = atomic_queue::AtomicQueueB2<ProxyInlineMessage, std::allocator<ProxyInlineMessage>, true, false, false>;
 
 inline bool proxy_inline_enabled() {
@@ -115,7 +121,7 @@ inline bool proxy_inline_timeline_type(RPC_TYPE type) {
 inline ProxyInlineMessage proxy_inline_copy(const erpc::MsgBuffer &src) {
     const size_t size = src.get_data_size();
     if (size > kProxyInlineBytes)
-        throw std::invalid_argument("proxy inline: message exceeds 64 bytes");
+        throw std::invalid_argument("proxy inline: message exceeds inline capacity");
     ProxyInlineMessage msg;
     msg.req_num = src.get_hdr_req_num();
     msg.req_type = src.get_hdr_req_type();

@@ -329,6 +329,183 @@ interval 的均值直接相加。
 现有 `logs/ub-99/client.log` 可能包含旧的 `client_copy` 阶段；以新运行日志里的
 `SN_UB_POST_READ_MODE` 和 `client_fields*` 确认已使用这次编译的代码。
 
+## 6.1 复机后验证 Proxy Inline 的 P90～P99（可直接执行）
+
+本轮专门验证 LB/Nginx inline 队列缩为 64 B、每队列每轮最多处理 8 条之后，
+尾延迟是否改善。先在**两台机器**拉取同一代码版本并按第 1 节重新编译；不要把上次
+`cmp.txt` 与新二进制直接当作严格 A/B。以下使用 `/home/g/src/ub-application`、
+`/home/g/.local` 和 `eRPC/build`，与第 1 节、`run_ub.sh` 的实际输出目录一致。
+
+先检查地址、CPU 和 NUMA；两份 JSON 中的 `IP98`/`IP99` 必须换成可达的实际 IP：
+
+```bash
+cd /home/g/src/ub-application/eRPC
+git rev-parse HEAD
+sha256sum build/{client,load_balance,nginx,home_timeline,user_timeline,post_storage,erpc_ub_manager}
+grep -nE 'IP98|IP99' apps/social_network_cxl/config/config.ub{98,99}.json
+numactl -H
+lscpu -e=CPU,NODE,CORE,ONLINE
+test -x build/erpc_ub_manager && test -x build/client && test -x build/post_storage
+```
+
+下面按 **98=NUMA 0、99=NUMA 2** 写命令：99 上次换到 NUMA 2 后才解决
+manager 分配内存失败，但这不是当前机器状态的实时证明。99 必须先确认 NUMA 2
+至少容纳 README 预留的节点内 CPU 索引 0～30，且有足够空闲内存；否则停止并根据
+`numactl -H` 选择实际可用节点，同步修改下方 `SN_NUMA_99`，不要仅修改
+`numactl` 而保留 JSON 中的 NUMA 0。98 的 MongoDB 及 IP/端口准备仍按
+`README_UB.md` 第 3～4 节执行。若需要额外的 `ERPC_UB_PROVIDER_HOST`、
+`ERPC_UB_PROVIDER_SOCKET` 或 `ERPC_UB_PROVIDER_PORT`，沿用该机器上次成功运行的值。
+
+每轮在两侧使用同一个、尚未使用过的 `RUN_TAG`。先在 **98** 的终端设置：
+
+```bash
+cd /home/g/src/ub-application/eRPC
+export RUN_TAG=mixed-inline1-profile0-r1  # 按下表逐轮修改，98/99 必须相同
+export SN_NUMA_98=0
+export SN_DEPS=/home/g/.local
+export PATH="$SN_DEPS/bin:$PATH"
+export LD_LIBRARY_PATH="$SN_DEPS/lib:$SN_DEPS/lib64:/usr/local/ubs_mem/lib:${LD_LIBRARY_PATH:-}"
+export PKG_CONFIG_PATH="$SN_DEPS/lib/pkgconfig:$SN_DEPS/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
+export CMAKE_PREFIX_PATH="$SN_DEPS:${CMAKE_PREFIX_PATH:-}"
+export ERPC_UB_MACHINE_ID=98
+export ERPC_UB_PROCESS_MODE=multi
+export ERPC_UB_MEMORY_MODE=one-sided
+export ERPC_UB_PROVIDER_NUMA="$SN_NUMA_98"
+export ERPC_UB_REGION_MB=2048
+export ERPC_UB_ARENA_MB=64
+export ERPC_UB_MANAGER_SOCKET=/tmp/erpc_ub_social_network.sock
+export ERPC_UB_SHUTDOWN_TIMEOUT_MS=30000
+export ERPC_UB_SHUTDOWN_RETRY_MS=500
+export SN_BUILD_DIR="$(pwd)/build"
+export SN_CONFIG="$(pwd)/apps/social_network_cxl/config/config.ub98.json"
+export SN_LOG_DIR="$(pwd)/measurements/$RUN_TAG/ub-98"
+export SN_SERVICES='post_storage user_timeline home_timeline'
+export ERPC_SN_POST_READ_MODE=contiguous
+export ERPC_SN_PROXY_INLINE=1  # 每轮按下表改为 0 或 1；98 无代理，但保持环境一致
+unset ERPC_UB_PROFILE ERPC_SN_STORAGE_WRITE_PROBE
+unset ERPC_SN_PROFILE  # profiling 轮改为：export ERPC_SN_PROFILE=1
+test ! -e "$SN_LOG_DIR/erpc_ub_manager.log" || { echo 'RUN_TAG 已使用'; false; }
+numactl --cpunodebind="$SN_NUMA_98" --membind="$SN_NUMA_98" \
+  ./apps/social_network_cxl/run_ub.sh
+```
+
+等 98 的服务启动后，在 **99** 的另一个终端设置并运行。99 的 `SN_CONFIG`
+是每轮新生成的副本，不修改仓库中的 `config.ub99.json`。`USER_NUM`、
+`HOME_NUM`、`WRITE_NUM` 是权重而不是请求总数；`generate_num` 保持 5000：
+
+```bash
+cd /home/g/src/ub-application/eRPC
+export RUN_TAG=mixed-inline1-profile0-r1  # 与 98 一致
+export SN_NUMA_99=2
+export USER_NUM=0 HOME_NUM=7 WRITE_NUM=3  # 按下表逐轮修改
+export SN_DEPS=/home/g/.local
+export PATH="$SN_DEPS/bin:$PATH"
+export LD_LIBRARY_PATH="$SN_DEPS/lib:$SN_DEPS/lib64:/usr/local/ubs_mem/lib:${LD_LIBRARY_PATH:-}"
+export PKG_CONFIG_PATH="$SN_DEPS/lib/pkgconfig:$SN_DEPS/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
+export CMAKE_PREFIX_PATH="$SN_DEPS:${CMAKE_PREFIX_PATH:-}"
+export ERPC_UB_MACHINE_ID=99
+export ERPC_UB_PROCESS_MODE=multi
+export ERPC_UB_MEMORY_MODE=one-sided
+export ERPC_UB_PROVIDER_NUMA="$SN_NUMA_99"
+export ERPC_UB_REGION_MB=2048
+export ERPC_UB_ARENA_MB=64
+export ERPC_UB_MANAGER_SOCKET=/tmp/erpc_ub_social_network.sock
+export ERPC_UB_SHUTDOWN_TIMEOUT_MS=30000
+export ERPC_UB_SHUTDOWN_RETRY_MS=500
+export SN_BUILD_DIR="$(pwd)/build"
+export SN_LOG_DIR="$(pwd)/measurements/$RUN_TAG/ub-99"
+export SN_SERVICES='client load_balance nginx compose_post unique_id url_shorten user_service user_mention'
+export ERPC_SN_POST_READ_MODE=contiguous
+export ERPC_SN_PROXY_INLINE=1  # 按下表改为 0 或 1
+unset ERPC_UB_PROFILE ERPC_SN_STORAGE_WRITE_PROBE
+unset ERPC_SN_PROFILE  # profiling 轮改为：export ERPC_SN_PROFILE=1
+test ! -e "measurements/$RUN_TAG" || { echo 'RUN_TAG 已使用'; false; }
+mkdir -p "measurements/$RUN_TAG"
+python3 - "$RUN_TAG" "$SN_NUMA_99" "$USER_NUM" "$HOME_NUM" "$WRITE_NUM" <<'PY'
+import json, sys
+tag, numa, user, home, write = sys.argv[1:]
+with open('apps/social_network_cxl/config/config.ub99.json') as f:
+    config = json.load(f)
+config['common']['numa_client_node'] = int(numa)
+config['common']['numa_server_node'] = int(numa)
+config['client'].update(user_num=int(user), home_num=int(home), write_num=int(write))
+with open('measurements/{}/config.ub99.json'.format(tag), 'w') as f:
+    json.dump(config, f, indent=2)
+PY
+export SN_CONFIG="$(pwd)/measurements/$RUN_TAG/config.ub99.json"
+grep -nE 'IP98|IP99' "$SN_CONFIG"  # 有输出就先修正地址，不要启动
+test ! -e latency1-home && test ! -e latency1-user && test ! -e latency1-write
+numactl --cpunodebind="$SN_NUMA_99" --membind="$SN_NUMA_99" \
+  ./apps/social_network_cxl/run_ub.sh
+```
+
+上述 `test`/`grep` 是检查命令，不会自动中止后续复制粘贴；发现占位 IP、旧
+`latency1-*` 或节点 CPU/内存不足时必须先处理，不能继续启动。99 如果确实要
+继续用 NUMA 0，只有确认内存容量问题已解决后才把 `SN_NUMA_99=0`。
+
+建议按以下顺序做，先复现原来的混合负载，再用纯读隔离。每轮必须**两侧都正常
+Ctrl-C 结束、保存日志，再启动下一轮**；无 profiling 的每种配置至少重复 3 轮，
+不要只凭 5000 次请求的一轮 P99 下结论。profile 轮只用于定位阶段，不与
+无 profile 轮直接比较绝对延迟。
+
+| 场景/`RUN_TAG` 前缀 | `USER_NUM HOME_NUM WRITE_NUM` | `ERPC_SN_PROXY_INLINE` | `ERPC_SN_PROFILE` | 重复 |
+| --- | --- | ---: | ---: | ---: |
+| `mixed-inline0-profile0` | `0 7 3` | 0 | unset | 3 |
+| `mixed-inline1-profile0` | `0 7 3` | 1 | unset | 3 |
+| `home-inline0-profile0` / `home-inline1-profile0` | `0 1 0` | 0 / 1 | unset | 各 3 |
+| `user-inline0-profile0` / `user-inline1-profile0` | `1 0 0` | 0 / 1 | unset | 各 3 |
+| `home-inline0-profile1` / `home-inline1-profile1` | `0 1 0` | 0 / 1 | 1 | 各 1 |
+| `user-inline0-profile1` / `user-inline1-profile1` | `1 0 0` | 0 / 1 | 1 | 各 1 |
+
+例：`RUN_TAG=home-inline1-profile0-r2` 时，两台机器都设置
+`ERPC_SN_PROXY_INLINE=1`、`unset ERPC_SN_PROFILE`；99 再设置
+`USER_NUM=0 HOME_NUM=1 WRITE_NUM=0`。为了控制运行顺序/预热的影响，
+可以交错运行 inline0/inline1，而不是连续跑完一种模式。
+
+每轮确认 99 的 `latency1-*` **新文件已经生成**后，再在 99、98 两侧
+分别对 launcher 发送 Ctrl-C，让 worker 先于 manager 退出。随后在 99 归档：
+
+```bash
+cd /home/g/src/ub-application/eRPC
+mv latency1-home latency1-user latency1-write "measurements/$RUN_TAG/"
+sha256sum build/{client,load_balance,nginx} > "measurements/$RUN_TAG/sha256-99.txt"
+git rev-parse HEAD > "measurements/$RUN_TAG/git-revision-99.txt"
+grep -E 'SN_UB_PROXY_INLINE|SN_UB_POST_READ_MODE' \
+  "measurements/$RUN_TAG/ub-99/"{client,load_balance,nginx}.log
+grep -RniE 'error|failed|assert|6050|603|reference underflow' \
+  "measurements/$RUN_TAG/ub-99" || true
+```
+
+98 归档其配置与构建标识，并检查 manager 是否干净退出：
+
+```bash
+cd /home/g/src/ub-application/eRPC
+cp apps/social_network_cxl/config/config.ub98.json "measurements/$RUN_TAG/config.ub98.json"
+sha256sum build/{home_timeline,user_timeline,post_storage} > "measurements/$RUN_TAG/sha256-98.txt"
+git rev-parse HEAD > "measurements/$RUN_TAG/git-revision-98.txt"
+grep -RniE 'error|failed|assert|6050|603|reference underflow' \
+  "measurements/$RUN_TAG/ub-98" || true
+```
+
+profile 轮重点提取这些阶段，分别保存 **LB 和 Nginx** 的正反向队列交接、
+接收端 copy/pin、发送端 materialize/准备与回调释放，以及 Client 远端读取：
+
+```bash
+cd /home/g/src/ub-application/eRPC
+grep -E 'stage=proxy_(forward|reverse)_(rx_pin|rx_queue|queue_handoff|tx_prepare|tx_enqueue|callback_release)' \
+  "measurements/$RUN_TAG/ub-99/"{load_balance,nginx}.log
+grep -E 'stage=client_(import|metadata|fields|fields_contiguous|release)' \
+  "measurements/$RUN_TAG/ub-99/client.log"
+grep -E 'stage=(timeline_|forward_|storage_|rx_)' \
+  "measurements/$RUN_TAG/ub-98/"{home_timeline,user_timeline,post_storage}.log
+```
+
+判断顺序：先看同场景无 profile 的 P50/P90/P95/P99 和每轮波动；若
+inline1 的 P99 仍变差，检查 `proxy_*_queue_handoff` 的 P99 是否同步抬高。
+若队列交接没有抬高，再查 `proxy_*_rx_pin`、`proxy_*_tx_prepare`，最后
+对照 Client 的 `client_import`/`client_fields*` 与 98 的 Timeline/PostStorage。
+这次修复只消除了代码中可能的长时间队列 drain，并未在真机证明 P99 原因。
+
 ## 7. 可选：URMA 与 UBSM 兼容性
 
 如果这次也要评估 UB shared memory + URMA 混合路径，按
