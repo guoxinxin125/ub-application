@@ -20,6 +20,7 @@ enum class Stage : size_t {
   kClientImport,
   kClientMetadata,
   kClientFields,
+  kClientFieldsContiguous,
   kClientFieldsScalars,
   kClientFieldsUsername,
   kClientFieldsText,
@@ -103,6 +104,7 @@ inline const char *stage_name(Stage stage) {
   static const char *const names[] = {"client_import",
                                       "client_metadata",
                                       "client_fields",
+                                      "client_fields_contiguous",
                                       "client_fields_scalars",
                                       "client_fields_username",
                                       "client_fields_text",
@@ -163,8 +165,10 @@ struct Counter {
   uint64_t max_ns = 0;
   std::array<uint64_t, 64> latency_buckets{};
 
-  uint64_t p99_upper_ns() const {
-    const uint64_t rank = (calls / 100) * 99 + ((calls % 100) * 99 + 99) / 100;
+  uint64_t percentile_upper_ns(uint64_t numerator,
+                               uint64_t denominator = 100) const {
+    if (calls == 0) return 0;
+    const uint64_t rank = (calls * numerator + denominator - 1) / denominator;
     uint64_t seen = 0;
     for (size_t i = 0; i < latency_buckets.size(); ++i) {
       seen += latency_buckets[i];
@@ -194,15 +198,20 @@ struct ThreadStats {
     for (size_t i = 0; i < counters.size(); ++i) {
       const Counter &counter = counters[i];
       if (counter.calls == 0) continue;
-      std::fprintf(stderr,
-                   "SN_UB_PROFILE thread=%zu interval=%llu stage=%s calls=%llu "
-                   "avg_ns=%.1f p99_upper_ns=%llu max_ns=%llu\n",
-                   thread_id, static_cast<unsigned long long>(interval),
-                   stage_name(static_cast<Stage>(i)),
-                   static_cast<unsigned long long>(counter.calls),
-                   static_cast<double>(counter.total_ns) / counter.calls,
-                   static_cast<unsigned long long>(counter.p99_upper_ns()),
-                   static_cast<unsigned long long>(counter.max_ns));
+      std::fprintf(
+          stderr,
+          "SN_UB_PROFILE thread=%zu interval=%llu stage=%s calls=%llu "
+          "avg_ns=%.1f p50_upper_ns=%llu p90_upper_ns=%llu "
+          "p95_upper_ns=%llu p99_upper_ns=%llu max_ns=%llu\n",
+          thread_id, static_cast<unsigned long long>(interval),
+          stage_name(static_cast<Stage>(i)),
+          static_cast<unsigned long long>(counter.calls),
+          static_cast<double>(counter.total_ns) / counter.calls,
+          static_cast<unsigned long long>(counter.percentile_upper_ns(50)),
+          static_cast<unsigned long long>(counter.percentile_upper_ns(90)),
+          static_cast<unsigned long long>(counter.percentile_upper_ns(95)),
+          static_cast<unsigned long long>(counter.percentile_upper_ns(99)),
+          static_cast<unsigned long long>(counter.max_ns));
     }
     counters = {};
     samples = 0;

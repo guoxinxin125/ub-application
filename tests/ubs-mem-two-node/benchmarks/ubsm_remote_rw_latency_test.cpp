@@ -8,13 +8,16 @@ namespace {
 
 constexpr uint8_t kSweepReadSeed = 0x39;
 constexpr uint8_t kSweepWriteSeed = 0xa6;
+constexpr uint8_t kScalarCopyPoisonSeed = 0x5c;
+constexpr uint8_t kScalarCopyWriteSeed = 0xd3;
 constexpr uint64_t kSweepTargetBytes = 32ULL * 1024ULL * 1024ULL;
 constexpr uint64_t kMaximumSweepBytes = 2ULL * 1024ULL * 1024ULL;
 
 std::vector<uint64_t> sweep_sizes(uint64_t test_bytes) {
-  static constexpr std::array<uint64_t, 19> kSizes = {
-      8,    16,    32,    64,    128,    256,    512,    1024,    2048,   4096,
-      8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152};
+  static constexpr std::array<uint64_t, 20> kSizes = {
+      8,     16,     32,     64,     128,     256,    512,
+      1024,  1300,   2048,   4096,   8192,    16384,  32768,
+      65536, 131072, 262144, 524288, 1048576, 2097152};
   std::vector<uint64_t> sizes;
   const uint64_t maximum = std::min(test_bytes, kMaximumSweepBytes);
   for (const uint64_t size : kSizes) {
@@ -72,6 +75,8 @@ double benchmark_memcpy_write(uint8_t *remote, const uint8_t *local,
 double benchmark_scalar_load_fenced(volatile const uint64_t *remote,
                                     uint64_t bytes, uint64_t iterations) {
   const uint64_t word_count = bytes / sizeof(uint64_t);
+  volatile const uint8_t *const remote_bytes =
+      reinterpret_cast<volatile const uint8_t *>(remote);
   uint64_t sink0 = 0;
   uint64_t sink1 = 0;
   uint64_t sink2 = 0;
@@ -95,6 +100,8 @@ double benchmark_scalar_load_fenced(volatile const uint64_t *remote,
     }
     for (; word < word_count; ++word)
       sink0 ^= remote[word];
+    for (uint64_t byte = word_count * sizeof(uint64_t); byte < bytes; ++byte)
+      sink0 ^= remote_bytes[byte];
     std::atomic_thread_fence(std::memory_order_seq_cst);
   }
   const auto elapsed = std::chrono::steady_clock::now() - start;
@@ -109,10 +116,14 @@ double benchmark_scalar_load_fenced(volatile const uint64_t *remote,
 double benchmark_scalar_store_fenced(volatile uint64_t *remote, uint64_t bytes,
                                      uint64_t iterations) {
   const uint64_t word_count = bytes / sizeof(uint64_t);
+  volatile uint8_t *const remote_bytes =
+      reinterpret_cast<volatile uint8_t *>(remote);
   const auto start = std::chrono::steady_clock::now();
   for (uint64_t i = 0; i < iterations; ++i) {
     for (uint64_t word = 0; word < word_count; ++word)
       remote[word] = i;
+    for (uint64_t byte = word_count * sizeof(uint64_t); byte < bytes; ++byte)
+      remote_bytes[byte] = static_cast<uint8_t>(i);
     std::atomic_thread_fence(std::memory_order_seq_cst);
   }
   const auto elapsed = std::chrono::steady_clock::now() - start;
@@ -123,6 +134,8 @@ double benchmark_scalar_store_fenced(volatile uint64_t *remote, uint64_t bytes,
 void verify_scalar_store(volatile const uint64_t *remote, uint64_t bytes,
                          uint64_t sequence) {
   const uint64_t word_count = bytes / sizeof(uint64_t);
+  volatile const uint8_t *const remote_bytes =
+      reinterpret_cast<volatile const uint8_t *>(remote);
   std::atomic_thread_fence(std::memory_order_seq_cst);
   for (uint64_t word = 0; word < word_count; ++word) {
     const uint64_t expected = sequence;
@@ -134,6 +147,61 @@ void verify_scalar_store(volatile const uint64_t *remote, uint64_t bytes,
                       ", actual=" + std::to_string(actual));
     }
   }
+  for (uint64_t byte = word_count * sizeof(uint64_t); byte < bytes; ++byte) {
+    const uint8_t expected = static_cast<uint8_t>(sequence);
+    const uint8_t actual = remote_bytes[byte];
+    if (actual != expected) {
+      ubsm_test::fail("remote scalar-store sweep mismatch at byte " +
+                      std::to_string(byte) +
+                      ": expected=" + std::to_string(expected) +
+                      ", actual=" + std::to_string(actual));
+    }
+  }
+}
+
+double benchmark_scalar_copy_read(volatile const uint8_t *remote,
+                                  uint8_t *local, uint64_t bytes,
+                                  uint64_t iterations) {
+  const uint64_t word_count = bytes / sizeof(uint64_t);
+  volatile const uint64_t *const remote_words =
+      reinterpret_cast<volatile const uint64_t *>(remote);
+  const auto start = std::chrono::steady_clock::now();
+  for (uint64_t i = 0; i < iterations; ++i) {
+    for (uint64_t word = 0; word < word_count; ++word) {
+      const uint64_t value = remote_words[word];
+      std::memcpy(local + word * sizeof(uint64_t), &value, sizeof(value));
+    }
+    for (uint64_t byte = word_count * sizeof(uint64_t); byte < bytes; ++byte)
+      local[byte] = remote[byte];
+    compiler_observe(local, static_cast<size_t>(bytes));
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return std::chrono::duration<double, std::nano>(elapsed).count() /
+         static_cast<double>(iterations);
+}
+
+double benchmark_scalar_copy_write(volatile uint8_t *remote,
+                                   const uint8_t *local, uint64_t bytes,
+                                   uint64_t iterations) {
+  const uint64_t word_count = bytes / sizeof(uint64_t);
+  volatile uint64_t *const remote_words =
+      reinterpret_cast<volatile uint64_t *>(remote);
+  const auto start = std::chrono::steady_clock::now();
+  for (uint64_t i = 0; i < iterations; ++i) {
+    for (uint64_t word = 0; word < word_count; ++word) {
+      uint64_t value = 0;
+      std::memcpy(&value, local + word * sizeof(uint64_t), sizeof(value));
+      remote_words[word] = value;
+    }
+    for (uint64_t byte = word_count * sizeof(uint64_t); byte < bytes; ++byte)
+      remote[byte] = local[byte];
+    compiler_observe(local, static_cast<size_t>(bytes));
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return std::chrono::duration<double, std::nano>(elapsed).count() /
+         static_cast<double>(iterations);
 }
 
 void print_sweep_result(const char *operation, uint64_t bytes,
@@ -166,6 +234,11 @@ void run_owner(const ubsm_bench::TwoNodeOptions &options,
                             kSweepWriteSeed,
                             "remote memcpy sweep write observed by owner");
   ubsm_test::send_stage(connection, 'N');
+  ubsm_test::expect_stage(connection, 'C');
+  ubsm_test::verify_pattern(ubsm_bench::pattern_at(memory), largest_sweep,
+                            kScalarCopyWriteSeed,
+                            "remote scalar-copy sweep write observed by owner");
+  ubsm_test::send_stage(connection, 'E');
   ubsm_test::expect_stage(connection, 'D');
   ubsm_bench::verify_word_block<1>(
       word, options.iterations - 1,
@@ -250,6 +323,33 @@ void run_remote(const ubsm_bench::TwoNodeOptions &options,
     print_sweep_result("remote_nc_scalar_load_fenced", bytes, iterations,
                        average_ns);
   }
+
+  ubsm_test::write_pattern(local, sizes.back(), kScalarCopyPoisonSeed);
+  volatile const uint8_t *const remote_bytes =
+      reinterpret_cast<volatile const uint8_t *>(remote_words);
+  for (const uint64_t bytes : sizes) {
+    const uint64_t iterations = sweep_iterations(options.iterations, bytes);
+    const double average_ns =
+        benchmark_scalar_copy_read(remote_bytes, local, bytes, iterations);
+    print_sweep_result("remote_nc_scalar_copy_read_fenced", bytes, iterations,
+                       average_ns);
+  }
+  ubsm_test::verify_pattern(local, sizes.back(), kSweepWriteSeed,
+                            "remote scalar-copy sweep read");
+
+  ubsm_test::write_pattern(local, sizes.back(), kScalarCopyWriteSeed);
+  volatile uint8_t *const remote_write_bytes =
+      reinterpret_cast<volatile uint8_t *>(remote_words);
+  for (const uint64_t bytes : sizes) {
+    const uint64_t iterations = sweep_iterations(options.iterations, bytes);
+    const double average_ns = benchmark_scalar_copy_write(
+        remote_write_bytes, local, bytes, iterations);
+    print_sweep_result("remote_nc_scalar_copy_write_fenced", bytes, iterations,
+                       average_ns);
+  }
+  ubsm_test::send_stage(connection, 'C');
+  ubsm_test::expect_stage(connection, 'E');
+
   for (const uint64_t bytes : sizes) {
     const uint64_t iterations = sweep_iterations(options.iterations, bytes);
     const double average_ns =
@@ -269,8 +369,6 @@ int main(int argc, char **argv) {
   try {
     const auto options = ubsm_bench::parse_two_node_options(
         argc, argv, "ubsm_remote_rw_latency", 18531);
-    if (options.test_bytes % sizeof(uint64_t) != 0)
-      ubsm_test::fail("--test-bytes must be a multiple of 8");
     const uint64_t region_bytes =
         ubsm_test::region_bytes_from_mb(options.region_mb);
     ubsm_test::SdkSession session;

@@ -78,6 +78,9 @@ tigon_link_shared_memory_backend(bench_ycsb)
 
 if(TIGON_BUILD_UB_UNIT_TESTS)
         enable_testing()
+        add_executable(ub_scalar_read_test tests/ub_scalar_read_test.cpp)
+        add_test(NAME ub_scalar_read_test COMMAND ub_scalar_read_test)
+
         add_executable(ub_primitives_test tests/ub_primitives_test.cpp)
         target_link_libraries(ub_primitives_test pthread)
         add_test(NAME ub_primitives_test COMMAND ub_primitives_test)

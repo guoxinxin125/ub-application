@@ -12,6 +12,7 @@
 #include "common/CXLTransport.h"
 #include "common/CXL_EBR.h"
 #include "common/UBMemory.h"
+#include "common/UBPointProfile.h"
 #include "common/UBMPSCRingBuffer.h"
 #include "core/ControlMessage.h"
 #include "core/Dispatcher.h"
@@ -365,6 +366,27 @@ class Coordinator {
 			workers[i]->onExit();
 			threads[i].join();
 		}
+
+                if (context.shared_memory_backend == "ub" && UBPointProfile::enabled()) {
+                        for (bool remote : {false, true}) {
+                                const auto &profile = UBPointProfile::counters(remote);
+                                const uint64_t n = profile.samples.load(std::memory_order_relaxed);
+                                const uint64_t writes = profile.write_samples.load(std::memory_order_relaxed);
+                                LOG(INFO) << "UB_POINT_PROFILE scope=" << (remote ? "remote" : "local")
+                                          << " period=" << UBPointProfile::sample_period
+                                          << " phase=all_including_warmup"
+                                          << " samples=" << n
+                                          << " found=" << profile.found.load(std::memory_order_relaxed)
+                                          << " lock_success=" << profile.success.load(std::memory_order_relaxed)
+                                          << " lookup_avg_ns=" << (n ? profile.lookup_ns.load(std::memory_order_relaxed) / n : 0)
+                                          << " lock_avg_ns=" << (n ? profile.lock_ns.load(std::memory_order_relaxed) / n : 0)
+                                          << " read_copy_avg_ns=" << (n ? profile.copy_ns.load(std::memory_order_relaxed) / n : 0)
+                                          << " read_bytes=" << profile.value_bytes.load(std::memory_order_relaxed)
+                                          << " write_samples=" << writes
+                                          << " write_copy_avg_ns=" << (writes ? profile.write_ns.load(std::memory_order_relaxed) / writes : 0)
+                                          << " write_bytes=" << profile.write_bytes.load(std::memory_order_relaxed);
+                        }
+                }
 
                 // print CXL memory usage
                 cxl_memory.print_stats();

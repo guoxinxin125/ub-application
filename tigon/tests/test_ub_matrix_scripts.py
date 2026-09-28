@@ -70,6 +70,14 @@ class MatrixScriptTests(unittest.TestCase):
         for flag in ("--threads=3", "--partition_num=2", "--keys=300000", "--read_write_ratio=95", "--zipf=0.7", "--cross_ratio=25"):
             self.assertIn(flag, result.stdout)
         self.assertIn("taskset -c 4-6", result.stdout)
+        self.assertIn("rmw_tuple_cache=0", result.stdout)
+        env["TIGON_UB_RMW_TUPLE_CACHE"] = "1"
+        cached = subprocess.run(
+            [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
+             "0", "h0:30000;h1:30000", "u12345678"],
+            env=env, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("rmw_tuple_cache=1", cached.stdout)
 
     @unittest.skipUnless(BASH, "bash is required")
     def test_ub_tpcc_default_partition_count_matches_spr4(self) -> None:
@@ -153,6 +161,42 @@ class MatrixScriptTests(unittest.TestCase):
 
 
 class ParserTests(unittest.TestCase):
+    def test_parser_keeps_rmw_cache_variants_separate(self) -> None:
+        parser = TIGON / "scripts/parse/parse_two_node_compare.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for enabled in (0, 1):
+                for cross in (0, 100):
+                    for host in (0, 1):
+                        run_id = f"cache{enabled}_c{cross}_r1"
+                        throughput = (1000 if enabled == 0 else 1200) - cross
+                        (root / f"{run_id}_host{host}.log").write_text(
+                            f"TIGON_RUN_META system=ub workload=ycsb run_id={run_id} "
+                            f"host_id={host} repetition=1 mode=one-sided query=rmw "
+                            f"transport=ubq partitions=2 workers=3 keys=300000 "
+                            f"rw_ratio=95 zipf=0.7 cross_ratio={cross} "
+                            f"warmup_seconds=30 run_seconds=30 total_seconds=60 "
+                            f"logging=off rmw_tuple_cache={enabled}\n"
+                            f"Global Stats: total_commit: {throughput}\n"
+                            f"TIGON_RUN_END run_id={run_id} host_id={host} "
+                            "status=ok exit_code=0\n",
+                            encoding="utf-8",
+                        )
+            summary = root / "summary.csv"
+            subprocess.run(
+                [sys.executable, str(parser), str(root),
+                 "--raw-output", str(root / "raw.csv"),
+                 "--summary-output", str(summary)], check=True,
+            )
+            with summary.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 4)
+            by_setting = {(r["rmw_tuple_cache"], r["cross_ratio"]): r for r in rows}
+            self.assertEqual(by_setting[("0", "0")]["throughput_median_txn_s"], "1000.0")
+            self.assertEqual(by_setting[("1", "0")]["throughput_median_txn_s"], "1200.0")
+            self.assertAlmostEqual(float(by_setting[("0", "100")]["remote_efficiency_vs_local"]), 0.9)
+            self.assertAlmostEqual(float(by_setting[("1", "100")]["remote_efficiency_vs_local"]), 1100 / 1200)
+
     def test_parser_uses_host0_cluster_metric_and_remote_efficiency(self) -> None:
         parser = TIGON / "scripts/parse/parse_two_node_compare.py"
         with tempfile.TemporaryDirectory() as tmp:

@@ -371,8 +371,10 @@ void UBMemory::shutdown(bool deallocate_owner)
                         if (result != UBSM_OK)
                                 LOG(ERROR) << "unmap owner region " << local.name
                                            << " failed, UBS Memory error=" << result;
-                        else
+                        else {
                                 local.base = nullptr;
+                                local.header = nullptr;
+                        }
                 }
                 if (deallocate_owner && local.allocated) {
                         const int result = ubsmem_shmem_deallocate(local.name.c_str());
@@ -405,8 +407,10 @@ void UBMemory::unmap_imported_regions()
                 if (result != UBSM_OK)
                         LOG(ERROR) << "unmap imported region " << regions_[i].name
                                    << " failed, UBS Memory error=" << result;
-                else
+                else {
                         regions_[i].base = nullptr;
+                        regions_[i].header = nullptr;
+                }
         }
 #endif
 }

@@ -103,7 +103,8 @@ class Database {
 				tbl_ycsb_vec.push_back(
 					std::make_unique<TableUBBPlusTree<ycsb::key, ycsb::value,
 						ycsb::KeyComparator, ycsb::ValueComparator> >(
-							ycsbTableID, partitionID, context.ub_index_buckets));
+							 ycsbTableID, partitionID, context.ub_index_buckets,
+							 context.workloadType == YCSBWorkloadType::RMW));
 			} else if (context.protocol == "Sundial") {
 				tbl_ycsb_vec.push_back(
 					std::make_unique<TableBTreeOLC<ycsb::key, ycsb::value, ycsb::KeyComparator, ycsb::ValueComparator, MetaInitFuncSundial> >(ycsbTableID, partitionID));

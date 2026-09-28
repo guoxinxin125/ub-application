@@ -1,4 +1,7 @@
 #pragma once
+#include <cstdio>
+#include <cstdlib>
+
 #include "post_checksum.h"
 #include "post_data.h"
 #include "ub_breakdown.h"
@@ -28,19 +31,91 @@ inline T native_load(const unsigned char *p) {
   return value;
 }
 
-inline uint64_t native_post(const void *data, size_t size) {
-  if (data == nullptr || size != sizeof(PostData))
-    throw std::invalid_argument("PostData: invalid shared object size");
-
-  const auto *p = static_cast<const unsigned char *>(data);
-  const uint64_t metadata_start = sn_profile::start();
-  const PostHeader h = native_load<PostHeader>(p);
+inline void validate_header(const PostHeader &h) {
   if (h.version != SN_POST_LAYOUT_VERSION || h.size != sizeof(PostData) ||
       h.username_length >= SN_USERNAME_LEN || h.text_length >= SN_TEXT_LEN ||
       h.media_count > SN_MAX_MEDIA || h.mentions_count > SN_MAX_MENTIONS ||
       h.urls_count > SN_MAX_URLS)
     throw std::invalid_argument("PostData: invalid shared metadata");
+}
+
+inline void validate_active_lengths(const PostHeader &h) {
+  for (size_t i = 0; i < h.media_count; ++i)
+    if (h.media_type_lengths[i] >= SN_MEDIA_TYPE_LEN)
+      throw std::invalid_argument("PostData: invalid shared media type length");
+  for (size_t i = 0; i < h.mentions_count; ++i)
+    if (h.mention_name_lengths[i] >= SN_USERNAME_LEN)
+      throw std::invalid_argument(
+          "PostData: invalid shared mention username length");
+  for (size_t i = 0; i < h.urls_count; ++i)
+    if (h.shortened_url_lengths[i] >= SN_SHORT_URL_LEN ||
+        h.expanded_url_lengths[i] >= SN_EXPANDED_URL_LEN)
+      throw std::invalid_argument("PostData: invalid shared URL length");
+}
+
+inline PostHeader load_header(const unsigned char *p) {
+  const PostHeader header = native_load<PostHeader>(p);
+#if defined(__GNUC__) || defined(__clang__)
+  // Keep the complete 104-byte header materialized even when the compiler can
+  // prove that a particular request does not use every length slot.
+  __asm__ __volatile__("" : : "m"(header) : "memory");
+#endif
+  return header;
+}
+
+inline uint64_t contiguous_scalar_checksum(const unsigned char *p,
+                                           size_t size) {
+  uint64_t lane0 = 0, lane1 = 0, lane2 = 0, lane3 = 0;
+  uint64_t lane4 = 0, lane5 = 0, lane6 = 0, lane7 = 0;
+  while (size >= 64) {
+    lane0 += load_le64(p);
+    lane1 += load_le64(p + 8);
+    lane2 += load_le64(p + 16);
+    lane3 += load_le64(p + 24);
+    lane4 += load_le64(p + 32);
+    lane5 += load_le64(p + 40);
+    lane6 += load_le64(p + 48);
+    lane7 += load_le64(p + 56);
+    p += 64;
+    size -= 64;
+  }
+
+  Checksum sum;
+  sum.integer(lane0);
+  sum.integer(lane1);
+  sum.integer(lane2);
+  sum.integer(lane3);
+  sum.integer(lane4);
+  sum.integer(lane5);
+  sum.integer(lane6);
+  sum.integer(lane7);
+  while (size >= 8) {
+    sum.integer(load_le64(p));
+    p += 8;
+    size -= 8;
+  }
+  uint64_t tail = 0;
+  for (size_t i = 0; i < size; ++i)
+    tail |= static_cast<uint64_t>(p[i]) << (8 * i);
+  sum.integer(tail);
+  return sum.value();
+}
+
+inline PostHeader checked_header(const void *data, size_t size) {
+  if (data == nullptr || size != sizeof(PostData))
+    throw std::invalid_argument("PostData: invalid shared object size");
+
+  const auto *p = static_cast<const unsigned char *>(data);
+  const uint64_t metadata_start = sn_profile::start();
+  const PostHeader h = load_header(p);
+  validate_header(h);
   sn_profile::record(sn_profile::Stage::kClientMetadata, metadata_start);
+  return h;
+}
+
+inline uint64_t native_post_fields(const void *data, size_t size) {
+  const auto *p = static_cast<const unsigned char *>(data);
+  const PostHeader h = checked_header(data, size);
 
   const uint64_t fields_start = sn_profile::start();
   Checksum sum;
@@ -103,5 +178,60 @@ inline uint64_t native_post(const void *data, size_t size) {
   const uint64_t value = sum.value();
   sn_profile::record(sn_profile::Stage::kClientFields, fields_start);
   return value;
+}
+
+inline uint64_t native_post_contiguous(const void *data, size_t size) {
+  const auto *p = static_cast<const unsigned char *>(data);
+  const PostHeader h = checked_header(data, size);
+
+  const uint64_t fields_start = sn_profile::start();
+  validate_active_lengths(h);
+  const uint64_t contiguous_start = sn_profile::start();
+  const uint64_t remainder = contiguous_scalar_checksum(
+      p + sizeof(PostHeader), size - sizeof(PostHeader));
+  sn_profile::record(sn_profile::Stage::kClientFieldsContiguous,
+                     contiguous_start);
+
+  // Fold locally materialized header values into the sink. The header's full
+  // byte representation was already forced by load_header().
+  Checksum sum;
+  sum.integer(static_cast<uint64_t>(h.post_id));
+  sum.integer(static_cast<uint64_t>(h.req_id));
+  sum.integer(static_cast<uint64_t>(h.timestamp));
+  sum.integer(static_cast<uint64_t>(static_cast<int64_t>(h.type)));
+  sum.integer(static_cast<uint64_t>(h.creator_id));
+  sum.integer(remainder);
+  const uint64_t value = sum.value();
+  sn_profile::record(sn_profile::Stage::kClientFields, fields_start);
+  return value;
+}
+
+enum class PostReadMode { kFields, kContiguous };
+
+inline PostReadMode configured_post_read_mode() {
+#ifdef ERPC_UB
+  static const PostReadMode mode = [] {
+    const char *value = std::getenv("ERPC_SN_POST_READ_MODE");
+    if (value == nullptr || std::strcmp(value, "fields") == 0) {
+      std::fprintf(stderr, "SN_UB_POST_READ_MODE=fields\n");
+      return PostReadMode::kFields;
+    }
+    if (std::strcmp(value, "contiguous") == 0) {
+      std::fprintf(stderr, "SN_UB_POST_READ_MODE=contiguous\n");
+      return PostReadMode::kContiguous;
+    }
+    throw std::invalid_argument(
+        "ERPC_SN_POST_READ_MODE must be fields or contiguous");
+  }();
+  return mode;
+#else
+  return PostReadMode::kFields;
+#endif
+}
+
+inline uint64_t native_post(const void *data, size_t size) {
+  if (configured_post_read_mode() == PostReadMode::kContiguous)
+    return native_post_contiguous(data, size);
+  return native_post_fields(data, size);
 }
 }  // namespace sn_consume

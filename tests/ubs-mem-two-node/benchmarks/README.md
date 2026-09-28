@@ -131,8 +131,8 @@ remote_nc_store_fenced_64b_avg_ns
 它还会按以下关键尺寸执行 remote NC 与本地对齐缓冲区之间的 `std::memcpy` sweep：
 
 ```text
-8, 16, 32, 64, 128, 256, 512 B,
-1, 2, 4, 8, 16, 32, 64, 128, 256, 512 KiB,
+8, 16, 32, 64, 128, 256, 512, 1024, 1300, 2048 B,
+4, 8, 16, 32, 64, 128, 256, 512 KiB,
 1, 2 MiB
 ```
 
@@ -152,10 +152,23 @@ operation=remote_nc_scalar_store_fenced bytes=64 iterations=... avg_ns=... gib_p
 ```
 
 每轮标量测试对整块执行 `bytes / 8` 次连续 8B load 或 store，然后执行一次
-`seq_cst` fence；它不会在每次 8B 访问后单独 fence。该结果用于区分 libc
+`seq_cst` fence；不能整除8的尾部继续逐字节访问，因此1300B会完整访问而不是只处理
+前1296B。它不会在每次8B访问后单独fence。该结果用于区分 libc
 `memcpy` 的向量化、尺寸分支和预取策略，与普通标量 NC 访问本身的开销。owner 会在
 标量 store sweep 结束后校验最大尺寸的全部 8B word；在开始标量测试前也会单独校验
 `memcpy` write 的结果。
+
+此外还会执行真正产生目标副本的标量copy，而不只是把load结果汇总到寄存器：
+
+```text
+operation=remote_nc_scalar_copy_read_fenced bytes=1300 iterations=... avg_ns=... gib_per_sec=...
+operation=remote_nc_scalar_copy_write_fenced bytes=1300 iterations=... avg_ns=... gib_per_sec=...
+```
+
+read方向逐个从remote NC地址读取8B并写入本地对齐缓冲区；write方向逐个从本地缓冲区
+读取8B并写入remote NC地址。固定8B的本地装载/存储允许编译器生成普通标量指令，remote
+访问保持为 `volatile`，防止重新合成为大块libc `memcpy`。两种方向均处理字节尾部，并
+分别校验完整最大尺寸；write校验发生在后续scalar store覆盖数据之前。
 
 为避免大尺寸产生过长运行时间，每个尺寸最多传输约 32 MiB，同时不超过
 `--iterations`。每轮 `memcpy` 后都有编译器屏障和 `seq_cst` fence。8B/64B原有

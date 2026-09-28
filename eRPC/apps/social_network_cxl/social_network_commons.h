@@ -166,16 +166,31 @@ inline std::vector<size_t> flags_get_cxl_ports(size_t numa_node) {
     for (auto &s : split_vec)
         ret.push_back(std::stoull(s));
     return ret;
-} 
+}
 
-inline erpc::MsgBuffer clone_msgbuf(AppRpc *rpc,
-                                    const erpc::MsgBuffer &src) {
-    size_t size = src.get_data_size();
-    erpc::MsgBuffer dst = rpc->alloc_msg_buffer_or_die(size);
-    if (size != 0) {
-        std::memcpy(dst.buf_, src.buf_, size);
-    }
-    return dst;
+// A service's bind_core_offset reserves one contiguous block. Keep its
+// continuously polling client, server, and worker roles on deterministic,
+// different CPUs instead of depending on get_bind_core() call order.
+inline size_t app_client_bind_core(size_t thread_id) {
+  return FLAGS_bind_core_offset + thread_id;
+}
+
+inline size_t app_server_bind_core(size_t thread_id) {
+  return FLAGS_bind_core_offset + FLAGS_client_num + thread_id;
+}
+
+inline size_t app_worker_bind_core(size_t thread_id) {
+  return FLAGS_bind_core_offset + FLAGS_client_num + FLAGS_server_num +
+         thread_id;
+}
+
+inline erpc::MsgBuffer clone_msgbuf(AppRpc *rpc, const erpc::MsgBuffer &src) {
+  size_t size = src.get_data_size();
+  erpc::MsgBuffer dst = rpc->alloc_msg_buffer_or_die(size);
+  if (size != 0) {
+    std::memcpy(dst.buf_, src.buf_, size);
+  }
+  return dst;
 }
 
 inline erpc::MsgBuffer clone_msgbuf_with_header(AppRpc *rpc,

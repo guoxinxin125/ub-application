@@ -6,6 +6,7 @@
 
 #include "common/CCSet.h"
 #include "common/CCHashTable.h"
+#include "common/UBPointProfile.h"
 #include "core/Executor.h"
 #include "protocol/TwoPLPasha/TwoPLPasha.h"
 #include "protocol/TwoPLPasha/TwoPLPashaHelper.h"
@@ -95,14 +96,21 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
                         ITable *table = this->db.find_table(table_id, partition_id);
 
 			if (this->context.shared_memory_backend == "ub" && !local_index_read) {
+				const bool sampled = UBPointProfile::should_sample();
+				UBPointProfile::Sample profile;
+				UBPointProfile::Clock::time_point lookup_start;
+				if (sampled) lookup_start = UBPointProfile::Clock::now();
 				auto row = table->search(key);
+				if (sampled) profile.lookup_ns = UBPointProfile::elapsed_ns(lookup_start);
+				const bool owner_local =
+					this->partitioner->has_master_partition(partition_id);
 				if (std::get<0>(row) == nullptr || std::get<1>(row) == nullptr) {
+					if (sampled) UBPointProfile::record(!owner_local, profile);
 					success = false;
 					remote = false;
 					return 0;
 				}
-				const bool owner_local =
-					this->partitioner->has_master_partition(partition_id);
+				profile.found = true;
 				uint64_t version = 0;
 				remote = false;
 				if (owner_local) {
@@ -111,11 +119,11 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
 					if (write_lock) {
 						version = twopl_pasha_global_helper->take_write_lock_and_read(
 							row, value, table->value_size(), success,
-							this->n_local_cxl_access);
+							this->n_local_cxl_access, sampled ? &profile : nullptr);
 					} else {
 						version = twopl_pasha_global_helper->take_read_lock_and_read(
 							row, value, table->value_size(), success,
-							this->n_local_cxl_access);
+							this->n_local_cxl_access, sampled ? &profile : nullptr);
 					}
 				} else {
 					this->n_remote_access.fetch_add(1);
@@ -128,12 +136,16 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
 					if (write_lock) {
 						version = twopl_pasha_global_helper->remote_take_write_lock_and_read(
 							cached_migrated_row, value, table->value_size(), false,
-							success);
+							success, sampled ? &profile : nullptr);
 					} else {
 						version = twopl_pasha_global_helper->remote_take_read_lock_and_read(
 							cached_migrated_row, value, table->value_size(), false,
-							success);
+							success, sampled ? &profile : nullptr);
 					}
+				}
+				if (sampled) {
+					profile.success = success;
+					UBPointProfile::record(!owner_local, profile);
 				}
 				return success ? version : 0;
 			}

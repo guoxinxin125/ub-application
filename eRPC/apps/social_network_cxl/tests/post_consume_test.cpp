@@ -292,6 +292,14 @@ int main() {
               sn_consume::protobuf_post(empty_post),
           "empty/default mismatch");
 
+  const uint64_t contiguous_before =
+      sn_consume::native_post_contiguous(&empty, sizeof(empty));
+  empty.text[SN_TEXT_LEN - 1] = 'X';
+  require(sn_consume::native_post_contiguous(&empty, sizeof(empty)) !=
+              contiguous_before,
+          "contiguous mode did not consume unused fixed capacity");
+  empty.text[SN_TEXT_LEN - 1] = 0;
+
   for (size_t length : {size_t{0}, size_t{1}, size_t{7}, size_t{8}, size_t{63},
                         size_t{64}, size_t{65}, size_t{150}, SN_TEXT_LEN - 1}) {
     std::string text(length, 'a');
@@ -305,6 +313,14 @@ int main() {
       [&] { set_post_string(empty.text, std::string(SN_TEXT_LEN, 'x')); });
   require_invalid([&] { sn_consume::native_post(&empty, sizeof(empty) - 1); });
   require_invalid([&] { sn_consume::native_post(nullptr, sizeof(empty)); });
+  require_invalid(
+      [&] { sn_consume::native_post_contiguous(&empty, sizeof(empty) - 1); });
+  require_invalid(
+      [&] { sn_consume::native_post_contiguous(nullptr, sizeof(empty)); });
+  empty.media_count = 1;
+  empty.media_type_lengths[0] = SN_MEDIA_TYPE_LEN;
+  require_invalid(
+      [&] { sn_consume::native_post_contiguous(&empty, sizeof(empty)); });
 
   std::cout << "post_consume_test PASS sizeof(PostData)=" << sizeof(PostData)
             << '\n';

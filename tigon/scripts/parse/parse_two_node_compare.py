@@ -20,7 +20,7 @@ ABORT_RATE_RE = re.compile(r"\babort_rate:\s*([0-9.eE+-]+)")
 CONFIG_FIELDS = [
     "system", "workload", "run_id", "host_id", "mode", "query", "transport",
     "partitions", "workers", "keys", "rw_ratio", "zipf", "cross_ratio",
-    "neworder_dist", "payment_dist", "warmup_seconds", "run_seconds", "total_seconds", "logging",
+    "neworder_dist", "payment_dist", "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache",
 ]
 RAW_FIELDS = CONFIG_FIELDS + [
     "repetition", "throughput_txn_s", "abort_rate", "consistency_passed",
@@ -29,7 +29,7 @@ RAW_FIELDS = CONFIG_FIELDS + [
 SUMMARY_FIELDS = [
     "system", "workload", "mode", "query", "transport", "partitions", "workers",
     "keys", "rw_ratio", "zipf", "cross_ratio", "neworder_dist", "payment_dist",
-    "warmup_seconds", "run_seconds", "total_seconds", "logging", "samples", "throughput_mean_txn_s",
+    "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "samples", "throughput_mean_txn_s",
     "throughput_median_txn_s", "throughput_min_txn_s", "throughput_max_txn_s",
     "abort_rate_mean", "remote_efficiency_vs_local",
 ]
@@ -84,7 +84,7 @@ def identity(row: dict[str, object]) -> tuple[object, ...]:
     return tuple(row.get(field, "") for field in (
         "system", "workload", "run_id", "mode", "query", "transport",
         "partitions", "workers", "keys", "rw_ratio", "zipf", "cross_ratio",
-        "neworder_dist", "payment_dist",
+        "neworder_dist", "payment_dist", "rmw_tuple_cache",
     ))
 
 
@@ -103,12 +103,12 @@ def select_cluster_rows(rows: list[dict[str, object]]) -> list[dict[str, object]
 
 
 def summary_key(row: dict[str, object]) -> tuple[object, ...]:
-    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:17])
+    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:18])
 
 
 def baseline_key(row: dict[str, object]) -> tuple[object, ...]:
     excluded = {"cross_ratio", "neworder_dist", "payment_dist"}
-    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:17] if field not in excluded)
+    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:18] if field not in excluded)
 
 
 def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -127,7 +127,7 @@ def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         first = samples[0]
         values = [float(row["throughput_txn_s"]) for row in samples]
         aborts = [float(row["abort_rate"]) for row in samples if row.get("abort_rate") is not None]
-        summary = {field: first.get(field, "") for field in SUMMARY_FIELDS[:17]}
+        summary = {field: first.get(field, "") for field in SUMMARY_FIELDS[:18]}
         summary.update({
             "samples": len(values),
             "throughput_mean_txn_s": statistics.fmean(values),

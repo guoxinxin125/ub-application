@@ -399,9 +399,22 @@ server, worker, and Nexus threads on NUMA node 0:
 ```
 
 The per-service `bind_core_offset` is an index within the selected NUMA node,
-not a global Linux CPU ID. This layout reserves local core indices 0-30 on
-machine 99 and 0-13 on machine 98. It counts RPC, worker, leader, and MongoDB
-initialization threads, leaving CPUs for the manager, MongoDB, and the OS.
+not a global Linux CPU ID. Binding of data-plane threads is deterministic and
+does not depend on thread creation order. A service reserves consecutive CPUs:
+
+```text
+client RPC threads: base ... base + client_num - 1
+server RPC threads: base + client_num ... base + client_num + server_num - 1
+worker threads:     base + client_num + server_num ...
+```
+
+With the configured single client/server thread, worker services use
+`base+0`, `base+1`, and `base+2`; services without a worker use `base+0` and
+`base+1`. The configured service blocks do not overlap: data-plane threads use
+local core indices 0-28 on machine 99 and 0-11 on machine 98. Leader threads
+block while joining workers, MongoDB initialization threads exit before the
+measurement, and Nexus session-management threads block on UDP control-plane
+input. CPUs remain available for the manager, MongoDB, and the OS.
 
 The RPC IDs must be globally unique in the range 0-63. With
 `server_num=client_num=1`, the service server endpoints use the configured IDs
@@ -551,6 +564,33 @@ export ERPC_UB_MEMORY_MODE=nocache
 ```
 
 Do not use spellings such as `non-cache`. Both machines must use the same mode.
+
+## 9.1 Timeline post read layout
+
+The UB client supports two remote `PostData` consumption layouts. The default
+reads the 104-byte metadata header followed only by fields whose recorded
+length/count says they are present:
+
+```bash
+export ERPC_SN_POST_READ_MODE=fields
+```
+
+To compare sparse field access with a contiguous remote access stream, select:
+
+```bash
+export ERPC_SN_POST_READ_MODE=contiguous
+```
+
+`contiguous` still validates the header, then consumes the remainder of the
+fixed 2048-byte `PostData` layout sequentially with eight independent scalar
+accumulation lanes. It does not copy the object into a local 2 KiB buffer. The
+two modes therefore compare fewer but potentially scattered remote bytes with
+more but contiguous remote bytes. Set the variable before starting `run_ub.sh`;
+the client process reads it once. Restart the processes to change modes.
+
+With `ERPC_SN_PROFILE=1`, compare `client_fields` between modes. Contiguous
+runs additionally report `client_fields_contiguous`; the individual
+username/text/media/mentions/URL stages are present only in `fields` mode.
 
 ## 10. Shutdown and cleanup
 

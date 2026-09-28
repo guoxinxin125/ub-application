@@ -431,20 +431,23 @@ void leader_thread_func()
 
     clients[0] = std::thread(client_thread_func, 0, context->client_contexts_[0], &nexus);
     sleep(2);
-    erpc::bind_to_core(clients[0], FLAGS_numa_client_node, get_bind_core(FLAGS_numa_client_node) + FLAGS_bind_core_offset);
+    erpc::bind_to_core(clients[0], FLAGS_numa_client_node,
+                       app_client_bind_core(0));
 
     for (size_t i = 1; i < FLAGS_client_num; i++)
     {
         clients[i] = std::thread(client_thread_func, i, context->client_contexts_[i], &nexus);
 
-        erpc::bind_to_core(clients[i], FLAGS_numa_client_node, get_bind_core(FLAGS_numa_client_node) + FLAGS_bind_core_offset);
+        erpc::bind_to_core(clients[i], FLAGS_numa_client_node,
+                           app_client_bind_core(i));
     }
 
     for (size_t i = 0; i < FLAGS_server_num; i++)
     {
         servers[i] = std::thread(server_thread_func, i, context->server_contexts_[i], &nexus);
 
-        erpc::bind_to_core(servers[i], FLAGS_numa_server_node, get_bind_core(FLAGS_numa_server_node) + FLAGS_bind_core_offset);
+        erpc::bind_to_core(servers[i], FLAGS_numa_server_node,
+                           app_server_bind_core(i));
     }
     sleep(3);
 

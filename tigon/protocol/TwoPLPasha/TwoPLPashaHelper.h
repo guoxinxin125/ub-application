@@ -14,6 +14,8 @@
 #include "common/CXLMemory.h"
 #include "common/CXL_EBR.h"
 #include "common/UBMemory.h"
+#include "common/UBPointProfile.h"
+#include "common/UBScalarRead.h"
 #include "common/UBTuple.h"
 #include "core/Context.h"
 #include "core/CXLTable.h"
@@ -389,7 +391,12 @@ class TwoPLPashaHelper {
                 if (is_ub_metadata(&meta)) {
                         UBTupleHeader *header = UBTupleHeader::from_version(&meta);
                         DCHECK(header->valid.load(std::memory_order_acquire) == 1);
+                        const bool sampled = UBPointProfile::should_sample_write();
+                        UBPointProfile::Clock::time_point start;
+                        if (sampled) start = UBPointProfile::Clock::now();
                         std::memcpy(std::get<1>(row), value, value_size);
+                        if (sampled)
+                                UBPointProfile::record_write(false, UBPointProfile::elapsed_ns(start), value_size);
                         return;
                 }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
@@ -419,7 +426,12 @@ class TwoPLPashaHelper {
 		if (is_ub_tuple(row)) {
 			UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
                         DCHECK(header->valid.load(std::memory_order_acquire) == 1);
+			const bool sampled = UBPointProfile::should_sample_write();
+			UBPointProfile::Clock::time_point start;
+			if (sampled) start = UBPointProfile::Clock::now();
 			std::memcpy(UBTable::value_from_header(header), value, value_size);
+			if (sampled)
+				UBPointProfile::record_write(true, UBPointProfile::elapsed_ns(start), value_size);
 			return;
 		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
@@ -568,22 +580,34 @@ out_unlock_lmeta:
 		return tid;
 	}
 
-        uint64_t take_read_lock_and_read(const std::tuple<MetaDataType *, void *> &row, void *dest, std::size_t size, bool &success, std::atomic<uint64_t> &local_cxl_access)
+        uint64_t take_read_lock_and_read(const std::tuple<MetaDataType *, void *> &row, void *dest, std::size_t size, bool &success, std::atomic<uint64_t> &local_cxl_access, UBPointProfile::Sample *profile = nullptr)
 	{
                 MetaDataType &meta = *std::get<0>(row);
                 if (is_ub_metadata(&meta)) {
                         UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        UBPointProfile::Clock::time_point lock_start;
+                        if (profile) lock_start = UBPointProfile::Clock::now();
                         success = header->lock.try_lock_shared();
-                        if (!success)
+                        if (!success) {
+                                if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
                                 return 0;
+                        }
                         if (header->valid.load(std::memory_order_acquire) != 1) {
                                 header->lock.unlock_shared();
                                 success = false;
+                                if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
                                 return 0;
                         }
                         const uint64_t version =
                                 header->version.load(std::memory_order_acquire);
+                        if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
+                        UBPointProfile::Clock::time_point copy_start;
+                        if (profile) copy_start = UBPointProfile::Clock::now();
                         std::memcpy(dest, std::get<1>(row), size);
+                        if (profile) {
+                                profile->copy_ns = UBPointProfile::elapsed_ns(copy_start);
+                                profile->value_bytes = size;
+                        }
                         return version;
                 }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
@@ -682,21 +706,33 @@ out_unlock_lmeta:
 		return tid;
 	}
 
-        uint64_t remote_take_read_lock_and_read(char *row, void *dest, std::size_t size, bool inc_ref_cnt, bool &success)
+        uint64_t remote_take_read_lock_and_read(char *row, void *dest, std::size_t size, bool inc_ref_cnt, bool &success, UBPointProfile::Sample *profile = nullptr)
 	{
 		if (is_ub_tuple(row)) {
 			UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
+			UBPointProfile::Clock::time_point lock_start;
+			if (profile) lock_start = UBPointProfile::Clock::now();
 			success = header->lock.try_lock_shared();
-			if (!success)
+			if (!success) {
+				if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
 				return 0;
+			}
 			if (header->valid.load(std::memory_order_acquire) != 1) {
 				header->lock.unlock_shared();
 				success = false;
+				if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
 				return 0;
 			}
 			const uint64_t version =
 				header->version.load(std::memory_order_acquire);
-			std::memcpy(dest, UBTable::value_from_header(header), size);
+			if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
+			UBPointProfile::Clock::time_point copy_start;
+			if (profile) copy_start = UBPointProfile::Clock::now();
+			UBScalarRead::copy(dest, UBTable::value_from_header(header), size);
+			if (profile) {
+				profile->copy_ns = UBPointProfile::elapsed_ns(copy_start);
+				profile->value_bytes = size;
+			}
 			return version;
 		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);
@@ -877,22 +913,34 @@ out_unlock_lmeta:
 		return tid;
 	}
 
-        uint64_t take_write_lock_and_read(const std::tuple<MetaDataType *, void *> &row, void *dest, std::size_t size, bool &success, std::atomic<uint64_t> &local_cxl_access)
+        uint64_t take_write_lock_and_read(const std::tuple<MetaDataType *, void *> &row, void *dest, std::size_t size, bool &success, std::atomic<uint64_t> &local_cxl_access, UBPointProfile::Sample *profile = nullptr)
 	{
                 MetaDataType &meta = *std::get<0>(row);
                 if (is_ub_metadata(&meta)) {
                         UBTupleHeader *header = UBTupleHeader::from_version(&meta);
+                        UBPointProfile::Clock::time_point lock_start;
+                        if (profile) lock_start = UBPointProfile::Clock::now();
                         success = header->lock.try_lock();
-                        if (!success)
+                        if (!success) {
+                                if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
                                 return 0;
+                        }
                         if (header->valid.load(std::memory_order_acquire) != 1) {
                                 header->lock.unlock();
                                 success = false;
+                                if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
                                 return 0;
                         }
                         const uint64_t version =
                                 header->version.load(std::memory_order_acquire);
+                        if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
+                        UBPointProfile::Clock::time_point copy_start;
+                        if (profile) copy_start = UBPointProfile::Clock::now();
                         std::memcpy(dest, std::get<1>(row), size);
+                        if (profile) {
+                                profile->copy_ns = UBPointProfile::elapsed_ns(copy_start);
+                                profile->value_bytes = size;
+                        }
                         return version;
                 }
                 TwoPLPashaMetadataLocal *lmeta = reinterpret_cast<TwoPLPashaMetadataLocal *>(meta.load());
@@ -991,21 +1039,33 @@ out_unlock_lmeta:
 		return tid;
 	}
 
-        uint64_t remote_take_write_lock_and_read(char *row, void *dest, std::size_t size, bool inc_ref_cnt, bool &success)
+        uint64_t remote_take_write_lock_and_read(char *row, void *dest, std::size_t size, bool inc_ref_cnt, bool &success, UBPointProfile::Sample *profile = nullptr)
 	{
 		if (is_ub_tuple(row)) {
 			UBTupleHeader *header = reinterpret_cast<UBTupleHeader *>(row);
+			UBPointProfile::Clock::time_point lock_start;
+			if (profile) lock_start = UBPointProfile::Clock::now();
 			success = header->lock.try_lock();
-			if (!success)
+			if (!success) {
+				if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
 				return 0;
+			}
                         if (header->valid.load(std::memory_order_acquire) != 1) {
 				header->lock.unlock();
 				success = false;
+				if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
 				return 0;
 			}
 			const uint64_t version =
 				header->version.load(std::memory_order_acquire);
-			std::memcpy(dest, UBTable::value_from_header(header), size);
+			if (profile) profile->lock_ns = UBPointProfile::elapsed_ns(lock_start);
+			UBPointProfile::Clock::time_point copy_start;
+			if (profile) copy_start = UBPointProfile::Clock::now();
+			UBScalarRead::copy(dest, UBTable::value_from_header(header), size);
+			if (profile) {
+				profile->copy_ns = UBPointProfile::elapsed_ns(copy_start);
+				profile->value_bytes = size;
+			}
 			return version;
 		}
 		TwoPLPashaMetadataShared *smeta = reinterpret_cast<TwoPLPashaMetadataShared *>(row);

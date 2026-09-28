@@ -506,25 +506,29 @@ void leader_thread_func() {
 
     clients.emplace_back(client_thread_func, 0, context->client_contexts_[0], &nexus);
     sleep(2);
-    erpc::bind_to_core(clients[0], FLAGS_numa_client_node, get_bind_core(FLAGS_numa_client_node) + FLAGS_bind_core_offset);
+    erpc::bind_to_core(clients[0], FLAGS_numa_client_node,
+                       app_client_bind_core(0));
 
     for (size_t i = 1; i < FLAGS_client_num; i++) {
         clients.emplace_back(client_thread_func, i, context->client_contexts_[i], &nexus);
 
-        erpc::bind_to_core(clients[i], FLAGS_numa_client_node, get_bind_core(FLAGS_numa_client_node) + FLAGS_bind_core_offset);
+        erpc::bind_to_core(clients[i], FLAGS_numa_client_node,
+                           app_client_bind_core(i));
     }
 
     for (size_t i = 0; i < FLAGS_server_num; i++) {
         servers.emplace_back(server_thread_func, i, context->server_contexts_[i], &nexus);
 
-        erpc::bind_to_core(servers[i], FLAGS_numa_server_node, get_bind_core(FLAGS_numa_server_node) + FLAGS_bind_core_offset);
+        erpc::bind_to_core(servers[i], FLAGS_numa_server_node,
+                           app_server_bind_core(i));
     }
 #if defined(RMEM_PROGRAM)
     std::vector<std::thread> readers;
     for (size_t i = 0; i < FLAGS_server_num; i++) {
         readers.emplace_back(reader_thread_func, i, context->client_contexts_[i]->queue_store);
 
-        erpc::bind_to_core(readers[i], FLAGS_numa_server_node, get_bind_core(FLAGS_numa_server_node) + FLAGS_bind_core_offset);
+        erpc::bind_to_core(readers[i], FLAGS_numa_server_node,
+                           app_worker_bind_core(i));
     }
 #endif
     sleep(3);

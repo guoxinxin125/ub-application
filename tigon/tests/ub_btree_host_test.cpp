@@ -1,4 +1,5 @@
 #include "core/UBBPlusTree.h"
+#include "common/UBTupleOffsetCache.h"
 
 #include <atomic>
 #include <cstdint>
@@ -298,5 +299,64 @@ int main()
                                 descriptor.end_gap_offset.load(
                                         std::memory_order_acquire),
                 "scan did not return the stable infinity-gap tuple");
+
+        // Mirror the RMW adapter's positive-only offset lookup. The tuple
+        // itself remains shared, visible only after a fresh valid/lock check.
+        star::UBTupleOffsetCache offset_cache;
+        auto cached_lookup = [&](TestKey key) {
+                const star::UBGlobalPtr cached = offset_cache.lookup(&tree, key.value);
+                if (cached) {
+                        auto *node = star::ub_memory.resolve_as<TestTree::TupleNode>(cached);
+                        if (node != nullptr &&
+                            node->tuple.valid.load(std::memory_order_acquire) == 1) {
+                                TestTree::TupleRef ref;
+                                ref.node = node;
+                                ref.header = &node->tuple;
+                                ref.key = &node->key;
+                                ref.value = &node->value;
+                                return ref;
+                        }
+                        offset_cache.forget(&tree, key.value);
+                }
+                auto ref = tree.search(key);
+                if (ref)
+                        offset_cache.remember(&tree, key.value,
+                                star::ub_memory.to_global(0, ref.node));
+                return ref;
+        };
+        const TestKey stable_key{17};
+        auto stable = cached_lookup(stable_key);
+        require(stable && offset_cache.lookup(&tree, stable_key.value),
+                "first lookup did not populate the positive cache");
+        require(cached_lookup(stable_key).node == stable.node,
+                "cache hit changed the tuple address");
+        require(stable.header->lock.try_lock_shared(),
+                "cached tuple could not acquire its shared lock");
+        require(stable.header->valid.load(std::memory_order_acquire) == 1,
+                "cached tuple was not visible under its lock");
+        stable.header->lock.unlock_shared();
+
+        const TestKey new_key{3000};
+        require(!cached_lookup(new_key) && !offset_cache.lookup(&tree, new_key.value),
+                "absent key was cached");
+        require(tree.insert(new_key, TestValue{3000, 3001}),
+                "insert after negative lookup failed");
+        auto new_ref = cached_lookup(new_key);
+        require(new_ref && cached_lookup(stable_key).node == stable.node,
+                "insert or leaf split invalidated a stable cached tuple");
+        require(tree.erase(new_key), "cached-key erase failed");
+        require(!cached_lookup(new_key) && !offset_cache.lookup(&tree, new_key.value),
+                "tombstoned key remained cached");
+        require(tree.insert(new_key, TestValue{3002, 3003}),
+                "same-key reinsert after cached delete failed");
+        require(cached_lookup(new_key).node == new_ref.node,
+                "same-key reinsert changed the tuple address");
+
+        const star::UBGlobalPtr current = offset_cache.lookup(&tree, stable_key.value);
+        offset_cache.remember(&tree, stable_key.value,
+                star::UBGlobalPtr(0, current.generation + 1, current.offset));
+        require(cached_lookup(stable_key).node == stable.node &&
+                        offset_cache.lookup(&tree, stable_key.value).generation == current.generation,
+                "stale generation was not discarded and refreshed");
         return 0;
 }

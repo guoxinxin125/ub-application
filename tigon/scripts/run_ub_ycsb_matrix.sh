@@ -31,6 +31,7 @@ result_dir=${UB_RESULT_DIR:-}
 run_id=${UB_TIGON_RUN_ID:-$prefix_base}
 dry_run=${UB_TIGON_DRY_RUN:-0}
 repetition=${UB_TIGON_REPETITION:-}
+rmw_tuple_cache=${TIGON_UB_RMW_TUPLE_CACHE:-0}
 
 require_uint() { [[ "$2" =~ ^[0-9]+$ ]] || { echo "$1 must be a non-negative integer" >&2; exit 2; }; }
 require_percent() { require_uint "$1" "$2"; (( $2 <= 100 )) || { echo "$1 must be in [0,100]" >&2; exit 2; }; }
@@ -48,6 +49,9 @@ require_percent cross_ratio "$cross_ratio"
 [[ -z "$provider_numa" || "$provider_numa" =~ ^[0-9]+$ ]] || { echo "UB_PROVIDER_NUMA must be a non-negative integer" >&2; exit 2; }
 [[ -z "$cpu_list" || "$cpu_list" =~ ^[0-9,-]+$ ]] || { echo "UB_TIGON_CPU_LIST must be a Linux CPU list" >&2; exit 2; }
 [[ "$dry_run" == 1 || -x "$binary" ]] || { echo "missing executable: $binary" >&2; exit 1; }
+[[ "$rmw_tuple_cache" == 0 || "$rmw_tuple_cache" == 1 ]] || {
+  echo "TIGON_UB_RMW_TUPLE_CACHE must be 0 or 1" >&2; exit 2;
+}
 
 read -r -a modes <<< "${UB_TIGON_MODES:-one-sided nocache}"
 read -r -a queries <<< "${UB_TIGON_QUERIES:-rmw insert delete}"
@@ -59,9 +63,13 @@ run_one() {
   [[ "$mode" == one-sided || "$mode" == nocache ]] || { echo "unsupported mode: $mode" >&2; exit 2; }
   [[ "$transport" == false || "$transport" == true ]] || { echo "transport must be false or true" >&2; exit 2; }
   [[ "$transport" == true ]] && transport_name=ubq
+  local cache_active=0
+  if [[ "$mode" == one-sided && "$query" == rmw && "$rmw_tuple_cache" == 1 ]]; then
+    cache_active=1
+  fi
   local prefix="${prefix_base}_${mode}_${query}_${transport_name}"
   (( ${#prefix} <= 35 )) || { echo "UB region prefix exceeds 35 bytes: $prefix" >&2; exit 2; }
-  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off"
+  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off rmw_tuple_cache=$cache_active"
   local command=("$binary" "--id=$id" "--servers=$servers" --protocol=TwoPLPasha
     "--partition_num=$partitions" "--threads=$threads" --io=1 --shared_memory_backend=ub
     "--ub_memory_mode=$mode" "--ub_region_prefix=$prefix" "--ub_region_mb=$region_mb"

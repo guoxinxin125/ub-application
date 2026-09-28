@@ -4,10 +4,12 @@
 #include "common/Encoder.h"
 #include "common/StringPiece.h"
 #include "common/UBMemory.h"
+#include "common/UBTupleOffsetCache.h"
 #include "core/Table.h"
 #include "core/UBBPlusTree.h"
 
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <thread>
@@ -25,15 +27,20 @@ class TableUBBPlusTree : public ITable {
         // index_size_hint is retained in the constructor ABI so existing UB
         // command lines remain compatible. B+ Tree growth is allocator-driven.
         TableUBBPlusTree(std::size_t table_id, std::size_t partition_id,
-                         uint64_t index_size_hint = 0)
+                         uint64_t index_size_hint = 0,
+                         bool enable_rmw_cache = false)
                 : table_id_(table_id)
                 , partition_id_(partition_id)
                 , owner_region_(static_cast<uint32_t>(partition_id % ub_memory.region_count()))
                 , index_size_hint_(index_size_hint)
+                , rmw_cache_enabled_(enable_rmw_cache &&
+                        ub_memory.memory_mode() == UBMemory::MemoryMode::ONE_SIDED &&
+                        cache_requested())
         {
                 if (owner_region_ == ub_memory.local_region_id()) {
                         descriptor_ = NativeTree::create(owner_region_, table_id_,
                                                          partition_id_);
+                        descriptor_ptr_ = ub_memory.to_global(owner_region_, descriptor_);
                 }
         }
 
@@ -50,7 +57,30 @@ class TableUBBPlusTree : public ITable {
 
         std::tuple<MetaDataType *, void *> search(const void *key) override
         {
-                const auto ref = native_tree().search(*static_cast<const KeyType *>(key));
+                const KeyType &typed_key = *static_cast<const KeyType *>(key);
+                if (rmw_cache_enabled_ && owner_region_ != ub_memory.local_region_id()) {
+                        UBTupleOffsetCache &cache = local_cache();
+                        const uint64_t plain_key = typed_key.get_plain_key();
+                        const UBGlobalPtr cached = cache.lookup(descriptor_, plain_key);
+                        if (cached) {
+                                // resolve() rejects a previous region generation before
+                                // any tuple memory is dereferenced. No negative caching.
+                                auto *node = ub_memory.resolve_as<typename NativeTree::TupleNode>(cached);
+                                if (node != nullptr &&
+                                    node->tuple.valid.load(std::memory_order_acquire) == 1)
+                                        return std::make_tuple(&node->tuple.version,
+                                                               static_cast<void *>(&node->value));
+                                cache.forget(descriptor_, plain_key);
+                        }
+                        const auto ref = native_tree().search(typed_key);
+                        if (!ref)
+                                return std::make_tuple(nullptr, nullptr);
+                        cache.remember(descriptor_, plain_key,
+                                       ub_memory.to_global(owner_region_, ref.node));
+                        return std::make_tuple(&ref.header->version,
+                                               static_cast<void *>(ref.value));
+                }
+                const auto ref = native_tree().search(typed_key);
                 if (!ref)
                         return std::make_tuple(nullptr, nullptr);
                 return std::make_tuple(&ref.header->version,
@@ -113,9 +143,12 @@ class TableUBBPlusTree : public ITable {
         bool insert(const void *key, const void *value,
                     bool is_placeholder = false) override
         {
-                return native_tree().insert(*static_cast<const KeyType *>(key),
-                                            *static_cast<const ValueType *>(value),
-                                            is_placeholder ? 2U : 1U);
+                const bool inserted = native_tree().insert(*static_cast<const KeyType *>(key),
+                                                           *static_cast<const ValueType *>(value),
+                                                           is_placeholder ? 2U : 1U);
+                if (inserted && rmw_cache_enabled_)
+                        local_cache().forget(descriptor_, static_cast<const KeyType *>(key)->get_plain_key());
+                return inserted;
         }
 
         bool insert_lock_next_key(
@@ -124,7 +157,7 @@ class TableUBBPlusTree : public ITable {
                         next_key_processor,
                 bool is_placeholder = false) override
         {
-                return native_tree().insert_lock_next(
+                const bool inserted = native_tree().insert_lock_next(
                         *static_cast<const KeyType *>(key),
                         *static_cast<const ValueType *>(value),
                         [&](const typename NativeTree::TupleRef &next) {
@@ -133,6 +166,9 @@ class TableUBBPlusTree : public ITable {
                                         next.value);
                         },
                         is_placeholder ? 2U : 1U);
+                if (inserted && rmw_cache_enabled_)
+                        local_cache().forget(descriptor_, static_cast<const KeyType *>(key)->get_plain_key());
+                return inserted;
         }
 
         bool insert_and_process_adjacent_tuples(
@@ -141,7 +177,7 @@ class TableUBBPlusTree : public ITable {
                                    MetaDataType *, void *)> processor,
                 bool is_placeholder = false) override
         {
-                return native_tree().insert_and_process_adjacent(
+                const bool inserted = native_tree().insert_and_process_adjacent(
                         *static_cast<const KeyType *>(key),
                         *static_cast<const ValueType *>(value),
                         [&](const typename NativeTree::TupleRef *previous,
@@ -155,17 +191,26 @@ class TableUBBPlusTree : public ITable {
                                         next ? next->value : nullptr);
                         },
                         is_placeholder ? 2U : 1U);
+                if (inserted && rmw_cache_enabled_)
+                        local_cache().forget(descriptor_, static_cast<const KeyType *>(key)->get_plain_key());
+                return inserted;
         }
 
         bool remove(const void *key) override
         {
-                return native_tree().erase(*static_cast<const KeyType *>(key));
+                const bool removed = native_tree().erase(*static_cast<const KeyType *>(key));
+                if (removed && rmw_cache_enabled_)
+                        local_cache().forget(descriptor_, static_cast<const KeyType *>(key)->get_plain_key());
+                return removed;
         }
 
         bool discard_placeholder(const void *key) override
         {
-                return native_tree().discard_placeholder(
+                const bool discarded = native_tree().discard_placeholder(
                         *static_cast<const KeyType *>(key));
+                if (discarded && rmw_cache_enabled_)
+                        local_cache().forget(descriptor_, static_cast<const KeyType *>(key)->get_plain_key());
+                return discarded;
         }
 
         bool remove_and_process_adjacent_tuples(
@@ -222,12 +267,30 @@ class TableUBBPlusTree : public ITable {
         }
 
     private:
+        static bool cache_requested()
+        {
+                const char *value = std::getenv("TIGON_UB_RMW_TUPLE_CACHE");
+                return value != nullptr && value[0] == '1' && value[1] == '\0';
+        }
+
+        static UBTupleOffsetCache &local_cache()
+        {
+                static thread_local UBTupleOffsetCache cache;
+                return cache;
+        }
+
         NativeTree &native_tree()
         {
+                if (rmw_cache_enabled_ && descriptor_ != nullptr &&
+                    ub_memory.resolve(descriptor_ptr_, sizeof(typename NativeTree::Descriptor)) != descriptor_) {
+                        descriptor_ = nullptr;
+                        tree_ = NativeTree();
+                }
                 if (descriptor_ == nullptr) {
                         while ((descriptor_ = NativeTree::find(
                                         owner_region_, table_id_, partition_id_)) == nullptr)
                                 std::this_thread::yield();
+                        descriptor_ptr_ = ub_memory.to_global(owner_region_, descriptor_);
                 }
                 if (tree_.descriptor() != descriptor_)
                         tree_ = NativeTree(descriptor_);
@@ -238,7 +301,9 @@ class TableUBBPlusTree : public ITable {
         std::size_t partition_id_;
         uint32_t owner_region_;
         uint64_t index_size_hint_;
+        bool rmw_cache_enabled_;
         typename NativeTree::Descriptor *descriptor_ = nullptr;
+        UBGlobalPtr descriptor_ptr_;
         NativeTree tree_;
 };
 
