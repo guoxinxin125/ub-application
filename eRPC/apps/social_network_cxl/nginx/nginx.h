@@ -19,11 +19,17 @@ public:
     {
         forward_spsc_queue = new SPSC_QUEUE(kAppMaxBuffer);
         backward_spsc_queue = new SPSC_QUEUE(kAppMaxBuffer);
+        if (proxy_inline_enabled()) {
+            forward_inline_queue = new PROXY_INLINE_QUEUE(kAppMaxBuffer);
+            backward_inline_queue = new PROXY_INLINE_QUEUE(kAppMaxBuffer);
+        }
     }
     ~ClientContext()
     {
         delete forward_spsc_queue;
         delete backward_spsc_queue;
+        delete forward_inline_queue;
+        delete backward_inline_queue;
     }
     erpc::MsgBuffer req_forward_msgbuf[kAppMaxBuffer];
     erpc::MsgBuffer req_backward_msgbuf[kAppMaxBuffer];
@@ -46,6 +52,8 @@ public:
 
     SPSC_QUEUE *forward_spsc_queue;
     SPSC_QUEUE *backward_spsc_queue;
+    PROXY_INLINE_QUEUE *forward_inline_queue{};
+    PROXY_INLINE_QUEUE *backward_inline_queue{};
 };
 
 class ServerContext : public BasicContext
@@ -82,6 +90,8 @@ public:
 
     SPSC_QUEUE *forward_spsc_queue{};
     SPSC_QUEUE *backward_spsc_queue{};
+    PROXY_INLINE_QUEUE *forward_inline_queue{};
+    PROXY_INLINE_QUEUE *backward_inline_queue{};
     std::atomic<uint64_t> *forward_queue_start_ns{};
     std::atomic<uint64_t> *backward_queue_start_ns{};
 
@@ -103,6 +113,8 @@ public:
             auto *ctx = new ServerContext(i);
             ctx->forward_spsc_queue = client_contexts_[i]->forward_spsc_queue;
             ctx->backward_spsc_queue = client_contexts_[i]->backward_spsc_queue;
+            ctx->forward_inline_queue = client_contexts_[i]->forward_inline_queue;
+            ctx->backward_inline_queue = client_contexts_[i]->backward_inline_queue;
             ctx->forward_queue_start_ns = client_contexts_[i]->forward_queue_start_ns;
             ctx->backward_queue_start_ns = client_contexts_[i]->backward_queue_start_ns;
             ctx->req_forward_msgbuf_ptr = client_contexts_[i]->req_forward_msgbuf;

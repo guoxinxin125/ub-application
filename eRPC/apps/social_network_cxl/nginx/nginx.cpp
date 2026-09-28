@@ -97,7 +97,12 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context)
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
     const uint64_t pin_start = sn_profile::start();
-    erpc::MsgBuffer pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
+    const bool inline_copy = proxy_inline_enabled() &&
+        proxy_inline_timeline_type(req_type);
+    ProxyInlineMessage copied;
+    erpc::MsgBuffer pinned;
+    if (inline_copy) copied = proxy_inline_copy(*req_msgbuf);
+    else pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
     sn_profile::record(sn_profile::Stage::kProxyForwardRxPin, pin_start);
     const uint64_t queue_start = sn_profile::start();
     if (queue_start != 0) {
@@ -105,7 +110,8 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context)
         ctx->forward_queue_start_ns[slot].store(queue_start,
                                                  std::memory_order_relaxed);
     }
-    ctx->forward_spsc_queue->push(pinned);
+    if (inline_copy) ctx->forward_inline_queue->push(copied);
+    else ctx->forward_spsc_queue->push(pinned);
     sn_profile::record(sn_profile::Stage::kProxyForwardRxQueue, queue_start);
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
@@ -135,7 +141,12 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context)
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
     const uint64_t pin_start = sn_profile::start();
-    erpc::MsgBuffer pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
+    const bool inline_copy = proxy_inline_enabled() &&
+        proxy_inline_timeline_type(req_type);
+    ProxyInlineMessage copied;
+    erpc::MsgBuffer pinned;
+    if (inline_copy) copied = proxy_inline_copy(*req_msgbuf);
+    else pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
     sn_profile::record(sn_profile::Stage::kProxyReverseRxPin, pin_start);
     const uint64_t queue_start = sn_profile::start();
     if (queue_start != 0) {
@@ -143,7 +154,8 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context)
         ctx->backward_queue_start_ns[slot].store(queue_start,
                                                   std::memory_order_relaxed);
     }
-    ctx->backward_spsc_queue->push(pinned);
+    if (inline_copy) ctx->backward_inline_queue->push(copied);
+    else ctx->backward_spsc_queue->push(pinned);
     sn_profile::record(sn_profile::Stage::kProxyReverseRxQueue, queue_start);
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
@@ -228,15 +240,20 @@ void callback_common_req(void *_context, void *_tag)
     ctx->req_forward_msgbuf[req_id].buf_ = nullptr;
 }
 
-void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
+void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
+                        const ProxyInlineMessage *inline_msg = nullptr)
 {
-    const uint8_t req_type = req_msgbuf.get_hdr_req_type();
-    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
+    const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
+                                                    : inline_msg->req_type;
+    const size_t slot = (inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
+                                               : inline_msg->req_num) % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
                               "nginx.req_forward_msgbuf", slot);
     const uint64_t prepare_start = sn_profile::start();
-    ctx->req_forward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
+    ctx->req_forward_msgbuf[slot] = inline_msg == nullptr
+        ? prepare_forward_msgbuf(ctx->rpc_, req_msgbuf)
+        : proxy_inline_materialize(ctx->rpc_, *inline_msg);
     sn_profile::record(sn_profile::Stage::kProxyForwardTxPrepare,
                        prepare_start);
 
@@ -283,15 +300,20 @@ void callback_common_resp(void *_context, void *_tag)
     ctx->req_backward_msgbuf[req_id].buf_ = nullptr;
 }
 
-void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
+void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
+                         const ProxyInlineMessage *inline_msg = nullptr)
 {
-    const uint8_t req_type = req_msgbuf.get_hdr_req_type();
-    const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
+    const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
+                                                    : inline_msg->req_type;
+    const size_t slot = (inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
+                                               : inline_msg->req_num) % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
                               "nginx.req_backward_msgbuf", slot);
     const uint64_t prepare_start = sn_profile::start();
-    ctx->req_backward_msgbuf[slot] = prepare_forward_msgbuf(ctx->rpc_, req_msgbuf);
+    ctx->req_backward_msgbuf[slot] = inline_msg == nullptr
+        ? prepare_forward_msgbuf(ctx->rpc_, req_msgbuf)
+        : proxy_inline_materialize(ctx->rpc_, *inline_msg);
     sn_profile::record(sn_profile::Stage::kProxyReverseTxPrepare,
                        prepare_start);
 
@@ -368,6 +390,36 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                 handler_ping_resp(ctx, req_msg);
             } else {
                 handler_common_resp(ctx, req_msg);
+            }
+        }
+        if (ctx->forward_inline_queue != nullptr) {
+            ProxyInlineMessage msg;
+            for (size_t i = 0;
+                 i < kAppMaxBuffer && ctx->forward_inline_queue->try_pop(msg);
+                 ++i) {
+                if (sn_profile::enabled()) {
+                    const size_t slot = msg.req_num % kAppMaxBuffer;
+                    sn_profile::record(
+                        sn_profile::Stage::kProxyForwardQueueHandoff,
+                        ctx->forward_queue_start_ns[slot].exchange(
+                            0, std::memory_order_relaxed));
+                }
+                handler_common_req(ctx, erpc::MsgBuffer{}, &msg);
+            }
+        }
+        if (ctx->backward_inline_queue != nullptr) {
+            ProxyInlineMessage msg;
+            for (size_t i = 0;
+                 i < kAppMaxBuffer && ctx->backward_inline_queue->try_pop(msg);
+                 ++i) {
+                if (sn_profile::enabled()) {
+                    const size_t slot = msg.req_num % kAppMaxBuffer;
+                    sn_profile::record(
+                        sn_profile::Stage::kProxyReverseQueueHandoff,
+                        ctx->backward_queue_start_ns[slot].exchange(
+                            0, std::memory_order_relaxed));
+                }
+                handler_common_resp(ctx, erpc::MsgBuffer{}, &msg);
             }
         }
         ctx->rpc_->run_event_loop_once();

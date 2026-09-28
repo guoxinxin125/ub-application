@@ -596,6 +596,26 @@ With `ERPC_SN_PROFILE=1`, compare `client_fields` between modes. Contiguous
 runs additionally report `client_fields_contiguous`; the individual
 username/text/media/mentions/URL stages are present only in `fields` mode.
 
+## 9.2 UB proxy small-message A/B
+
+On machine 99, `ERPC_SN_PROXY_INLINE=0` (or unset) keeps the existing
+LB/Nginx borrowed-MsgBuffer forwarding path. Set `ERPC_SN_PROXY_INLINE=1`
+before `run_ub.sh` to copy only User/Home Timeline requests and their small
+PostStorage-reference responses into local queue values. The proxy sender
+thread then allocates its own outgoing MsgBuffer. This avoids retaining and
+releasing a remote borrowed buffer across the proxy thread boundary. Ping and
+Compose Post messages keep the existing path; service hops and response
+semantics are unchanged. Restart LB and Nginx after changing the variable.
+Confirm `SN_UB_PROXY_INLINE=0|1` in both `logs/ub-99/load_balance.log` and
+`logs/ub-99/nginx.log` before comparing results.
+
+For A/B, use the same `ERPC_SN_POST_READ_MODE`, pure-read workload, CPU/NUMA
+binding, request count, and binaries. Run once with `ERPC_SN_PROFILE=1` to
+compare proxy breakdown stages, then unset profiling on both hosts and compare
+end-to-end P50/P99. In inline mode `proxy_*_rx_pin` measures the small local
+copy, while `proxy_*_tx_prepare` includes materializing the sender-owned
+MsgBuffer; the stage names are retained for A/B log compatibility.
+
 ## 10. Shutdown and cleanup
 
 Stop worker processes before stopping their local `erpc_ub_manager`. A graceful

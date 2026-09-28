@@ -310,6 +310,14 @@ grep -E 'SN_UB_POST_READ_MODE|SN_UB_PROFILE.*stage=client_(import|metadata|field
 `scalar_copy_read` 微测试如果接近 `scalar_load`，再决定是否增加 Client 的第三种模式；
 不能把当前微测试结果说成应用的第三种实测模式。
 
+LB/Nginx 小消息转发 A/B：在 99 启动 `run_ub.sh` 前分别设置
+`ERPC_SN_PROXY_INLINE=0` 和 `ERPC_SN_PROXY_INLINE=1`，每轮重启 LB/Nginx，
+保持 `ERPC_SN_POST_READ_MODE=contiguous` 与纯 Home/User 负载一致。
+开关仅改变 Timeline 读请求及其引用响应在代理内部跨线程交接的方式；
+Ping/Compose 和服务跳数不变。先在两侧 `ERPC_SN_PROFILE=1` 下比较代理
+`proxy_*_rx_pin`、`proxy_*_queue_handoff`、`proxy_*_tx_prepare`，再关闭
+profiling 比较端到端 P50/P99。关闭是默认路径，`0` 和 unset 等价。
+
 两机都 `unset ERPC_SN_PROFILE`、`unset ERPC_UB_PROFILE`，保持其他参数相同，
 分别重跑 User/Home 两种纯读和 Compose 写入，保存无 profiling 的
 `latency1-*` P50/P90/P99。若要比较两个读取模式的端到端差异，两种模式都要各跑一轮

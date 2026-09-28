@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <array>
 #include <nlohmann/json.hpp>
 #include <csignal>
 #include <cstdio>
@@ -65,6 +66,75 @@ using AppRpc = erpc::Rpc<AppTransport>;
 
 using SPSC_QUEUE = atomic_queue::AtomicQueueB2<erpc::MsgBuffer, std::allocator<erpc::MsgBuffer>, true, false, false>;
 using MPMC_QUEUE = atomic_queue::AtomicQueueB2<erpc::MsgBuffer, std::allocator<erpc::MsgBuffer>, true, false, false>;
+
+// The Timeline request and returned PostStorage handle fit in one small value.
+// Passing this value across the proxy's thread boundary avoids holding a
+// remote shared-buffer reference while the sender creates its own MsgBuffer.
+static constexpr size_t kProxyInlineBytes = 64;
+static_assert(sizeof(RPCMsgReq<UserTimeLineReq>) <= kProxyInlineBytes,
+              "User Timeline request exceeds proxy inline capacity");
+static_assert(sizeof(RPCMsgReq<HomeTimeLineReq>) <= kProxyInlineBytes,
+              "Home Timeline request exceeds proxy inline capacity");
+static_assert(sizeof(RPCMsgReq<PostStorageReadCXLResp>) <= kProxyInlineBytes,
+              "Timeline response exceeds proxy inline capacity");
+struct ProxyInlineMessage {
+    size_t req_num{};
+    uint16_t data_size{};
+    uint8_t req_type{};
+    std::array<uint8_t, kProxyInlineBytes> data{};
+};
+using PROXY_INLINE_QUEUE = atomic_queue::AtomicQueueB2<ProxyInlineMessage, std::allocator<ProxyInlineMessage>, true, false, false>;
+
+inline bool proxy_inline_enabled() {
+#ifdef ERPC_UB
+    static const bool enabled = [] {
+        const char *value = std::getenv("ERPC_SN_PROXY_INLINE");
+        if (value == nullptr || (value[0] == '0' && value[1] == '\0')) {
+            std::fprintf(stderr, "SN_UB_PROXY_INLINE=0\n");
+            return false;
+        }
+        if (value[0] == '1' && value[1] == '\0') {
+            std::fprintf(stderr, "SN_UB_PROXY_INLINE=1\n");
+            return true;
+        }
+        throw std::invalid_argument("ERPC_SN_PROXY_INLINE must be 0 or 1");
+    }();
+    return enabled;
+#else
+    return false;
+#endif
+}
+
+inline bool proxy_inline_timeline_type(RPC_TYPE type) {
+    return type == RPC_TYPE::RPC_USER_TIMELINE_READ_REQ ||
+           type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ ||
+           type == RPC_TYPE::RPC_USER_TIMELINE_READ_RESP ||
+           type == RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP;
+}
+
+inline ProxyInlineMessage proxy_inline_copy(const erpc::MsgBuffer &src) {
+    const size_t size = src.get_data_size();
+    if (size > kProxyInlineBytes)
+        throw std::invalid_argument("proxy inline: message exceeds 64 bytes");
+    ProxyInlineMessage msg;
+    msg.req_num = src.get_hdr_req_num();
+    msg.req_type = src.get_hdr_req_type();
+    msg.data_size = static_cast<uint16_t>(size);
+    if (size != 0) std::memcpy(msg.data.data(), src.buf_, size);
+    return msg;
+}
+
+inline erpc::MsgBuffer proxy_inline_materialize(AppRpc *rpc,
+                                                const ProxyInlineMessage &msg) {
+    if (msg.data_size > kProxyInlineBytes)
+        throw std::invalid_argument("proxy inline: invalid queued size");
+    erpc::MsgBuffer dst = rpc->alloc_msg_buffer_or_die(msg.data_size);
+    if (msg.data_size != 0)
+        std::memcpy(dst.buf_, msg.data.data(), msg.data_size);
+    dst.set_hdr_req_type(msg.req_type);
+    dst.set_hdr_req_num(msg.req_num);
+    return dst;
+}
 
 static constexpr size_t kAppMaxConcurrency = 128;
 static constexpr size_t kAppMaxRPC = 12;
