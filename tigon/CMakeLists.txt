@@ -78,6 +78,9 @@ tigon_link_shared_memory_backend(bench_ycsb)
 
 if(TIGON_BUILD_UB_UNIT_TESTS)
         enable_testing()
+        add_executable(ub_map_retry_policy_test tests/ub_map_retry_policy_test.cpp)
+        add_test(NAME ub_map_retry_policy_test COMMAND ub_map_retry_policy_test)
+
         add_executable(ub_scalar_read_test tests/ub_scalar_read_test.cpp)
         add_test(NAME ub_scalar_read_test COMMAND ub_scalar_read_test)
 

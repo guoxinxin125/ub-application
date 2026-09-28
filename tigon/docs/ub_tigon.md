@@ -1189,9 +1189,11 @@ grep -E 'average commit|Worker [0-9]+ latency|txn commit latency|Executor .* exi
      inbox：4096 entries × 约 8 KiB/entry）。
 - `IpcCallShmMap response error : 606` / `Failed to mmap, name=<region>, mapSize=..., ret=606`（在
   `UB_RESULT_DIR` 或终端里出现，通常连着几行）：这是对端 region 此刻还不可映射（常见于两端启动
-  有时间差），`map_region_with_retry()` 会每 100 ms 重试（`UBMemory.cpp:178-195`）；**后续重试成功
-  就完全无影响**，日志里紧接着仍是正常跑完的 `TIGON_RUN_END ... exit_code=0`。只有一直失败到
-  `--ub_map_timeout`（默认 120 秒）才会抛 `map region ...`，那时按下面 peer timeout 那条排查。
+  有时间差），`map_region_with_retry()` 对 SDK 的 `UBSM_ERR_NOT_FOUND` 按 100 ms 到 1 s
+  退避重试，最长等 `--ub_map_timeout`（默认 120 秒）；**后续重试成功就完全无影响**。
+  其他 SDK 错误最多容许 16 次（兼容启动时的短暂错误），之后提前失败，避免持续轰击驱动。
+  内部日志的 `ret=606/800` 不一定等于 SDK 返回码；应以最终 `map region ... UBS Memory error=`
+  和服务日志判断。若一直失败，按下面 peer timeout 条目排查。
 - 运行结束但终端没有任何输出：不是故障。`bench_ycsb` 的运行信息和吞吐量都用 glog `LOG(INFO)`
   输出，默认写入 `/tmp` 下的日志文件；它也不会像 `ub_tigon_two_node_test` 那样打印 `PASS`。
   确认方法：`echo $?`（0 为正常退出；134 通常为 abort，139 通常为段错误）；运行时长应明显超过
@@ -1220,8 +1222,8 @@ grep -E 'average commit|Worker [0-9]+ latency|txn commit latency|Executor .* exi
   `db.check_consistency()`（`bench_tpcc.cpp:66`），它会完整扫描本机每张表。所以"初始化日志已经打完
   但终端仍然没有输出"也可能停在这里，同样不是故障。
   还有一段"卡住"是**有上界、不要提前 Ctrl-C** 的：region bootstrap 里
-  `map_region_with_retry()` 每 100 ms 重试一次，直到 `--ub_map_timeout`（默认 120 秒）才抛
-  `map region ...`；`validate_remote_header()` 等对端把 `header->ready` 置 1 也是同一个 deadline
+  `map_region_with_retry()` 对 `NOT_FOUND` 退避等待到 `--ub_map_timeout`（默认 120 秒），
+  对其他错误最多尝试 16 次就提前报错；`validate_remote_header()` 等对端把 `header->ready` 置 1 也是同一个 deadline
   （`UBMemory.cpp:178-256`）。两段都静默，所以前两分钟没有任何输出是正常的。
 - peer mapping/header timeout：真等到超时了，就对比两台主机的 prefix、mode、region size、
   coordinator count、provider hostname 和启动顺序（同一个 `--ub_map_timeout` deadline 同时约束

@@ -1,8 +1,10 @@
 #include "common/UBMemory.h"
+#include "common/UBMapRetryPolicy.h"
 #include "core/Context.h"
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <limits>
@@ -180,6 +182,7 @@ void UBMemory::map_region_with_retry(uint32_t region_id, MapDeadline deadline)
 #ifdef TIGON_ENABLE_UB
         RegionMapping &region = regions_.at(region_id);
         int last_result = UBSM_ERR_NOT_FOUND;
+        UBMapRetryPolicy retry;
         while (std::chrono::steady_clock::now() < deadline) {
                 void *base = nullptr;
                 last_result = ubsmem_shmem_map(nullptr, region.size,
@@ -190,9 +193,26 @@ void UBMemory::map_region_with_retry(uint32_t region_id, MapDeadline deadline)
                         region.header = static_cast<RegionHeader *>(base);
                         return;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                if (last_result == UBSM_OK)
+                        throw std::runtime_error("map region " + region.name +
+                                " returned success without a valid address");
+                if (!retry.record_failure(last_result == UBSM_ERR_NOT_FOUND))
+                        throw ub_error("map region " + region.name + " stopped after " +
+                                std::to_string(retry.other_errors()) +
+                                " non-NOT_FOUND errors in " +
+                                std::to_string(retry.attempts()) + " attempts",
+                                last_result);
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= deadline)
+                        break;
+                std::this_thread::sleep_for(
+                        std::min(retry.delay(),
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         deadline - now)));
         }
-        throw ub_error("map region " + region.name, last_result);
+        throw ub_error("map region " + region.name + " timed out after " +
+                       std::to_string(retry.attempts()) + " attempts",
+                       last_result);
 #else
         (void)region_id;
         (void)deadline;
