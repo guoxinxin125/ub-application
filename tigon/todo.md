@@ -1,4 +1,7 @@
 # UB-Tigon 双机 YCSB RMW 测试待办
+
+本页保留原有单边 UB YCSB RMW 流程。主项目现另有默认关闭的双机副本模式；它的部署、构建和 smoke 命令见 [UB_REPLICATED_RMW_RUNBOOK.md](docs/UB_REPLICATED_RMW_RUNBOOK.md)。运行本页旧流程时保持 `TIGON_UB_REPLICATED_RMW=0` 或不设置；不要将两种模式的结果混在同一个 campaign 中。
+
 ## 0. 两端必须先确认的配置
 
 - [ ] 为两套 A/B 实验选一个双方**手动设成相同值**的、此前未用过的 `CAMPAIGN_TAG`。不要在两端分别用 `date` 自动生成，时间差会让 region prefix 不匹配。

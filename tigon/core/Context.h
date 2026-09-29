@@ -20,6 +20,8 @@ class Context {
 	void configure_shared_memory_backend()
 	{
 		if (shared_memory_backend == "cxl") {
+			CHECK(!ub_replicated_rmw)
+				<< "UB replicated RMW requires shared_memory_backend=ub";
 			CHECK(use_ub_transport == false)
 				<< "UB message queues require shared_memory_backend=ub";
 			return;
@@ -30,6 +32,10 @@ class Context {
 		CHECK(coordinator_num == 1 || coordinator_num == 2)
 			<< "the current UB shutdown barrier supports one or two coordinators";
 		CHECK(io_thread_num == 1 || use_ub_transport == false);
+		if (ub_replicated_rmw) {
+			CHECK(coordinator_num == 2 && ub_memory_mode == "one-sided")
+				<< "UB replicated RMW requires two nodes and one-sided mappings";
+		}
 		enable_migration_optimization = false;
 		enable_scc = false;
                 CHECK(enable_phantom_detection == true)
@@ -140,6 +146,7 @@ class Context {
         uint32_t ub_provider_port = std::numeric_limits<uint32_t>::max();
         int ub_map_timeout_seconds = 120;
         bool use_ub_transport = false;
+        bool ub_replicated_rmw = false;
         // Retained for command-line compatibility; the UB B+ Tree grows on demand.
         uint64_t ub_index_buckets = 65536;
 

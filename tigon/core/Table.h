@@ -55,6 +55,12 @@ class ITable {
 
 	virtual std::tuple<MetaDataType *, void *> search(const void *key) = 0;
 
+	// Only the experimental UB two-copy YCSB table exposes its peer tuple.
+	virtual std::tuple<MetaDataType *, void *> search_replica(const void *)
+	{
+		return std::make_tuple(nullptr, nullptr);
+	}
+
 	virtual bool contains(const void *key)
 	{
 		return true;

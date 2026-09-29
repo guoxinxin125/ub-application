@@ -25,6 +25,7 @@
 #include <vector>
 #include <chrono>
 #include <memory>
+#include <functional>
 
 #include "protocol/Pasha/MigrationManager.h"
 
@@ -34,11 +35,13 @@ bool warmed_up = false;
 class Coordinator {
     public:
 	template <class Database, class Context>
-	Coordinator(std::size_t id, Database &db, Context &context)
+	Coordinator(std::size_t id, Database &db, Context &context,
+	            std::function<void()> replica_validation = {})
 		: id(id)
 		, coordinator_num(context.peers.size())
 		, peers(context.peers)
 		, context(context)
+		, replica_validation(std::move(replica_validation))
 	{
                 // init flags
                 workerStopFlag.store(false);
@@ -446,6 +449,12 @@ class Coordinator {
                 }
 
 		if (context.shared_memory_backend == "ub") {
+			if (context.ub_replicated_rmw) {
+				// Both hosts stop all workers before either scans its WB copy.
+				measure_round_trip();
+				CHECK(replica_validation);
+				replica_validation();
+			}
 			// All tuple users are stopped. Drop imported mappings before the
 			// final synchronization when a peer exists, then owner
 			// deallocation is safe. A one-node run has no importer to wait for.
@@ -726,6 +735,7 @@ class Coordinator {
 	std::size_t id, coordinator_num;
 	const std::vector<std::string> &peers;
 	Context &context;
+	std::function<void()> replica_validation;
 	std::vector<std::vector<Socket> > inSockets, outSockets;
 	std::atomic<bool> workerStopFlag, ioStopFlag;
 	std::vector<std::shared_ptr<Worker> > workers;

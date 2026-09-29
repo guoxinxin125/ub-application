@@ -30,6 +30,8 @@ int main(int argc, char *argv[])
 
 	star::tpcc::Context context;
 	SETUP_CONTEXT(context);
+	CHECK(!context.ub_replicated_rmw)
+		<< "UB replicated RMW is only implemented for YCSB rmw";
 
 	context.operation_replication = FLAGS_operation_replication;
 

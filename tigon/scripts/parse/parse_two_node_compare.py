@@ -16,20 +16,21 @@ META_PREFIX = "TIGON_RUN_META "
 END_RE = re.compile(r"TIGON_RUN_END\s+(.*)")
 TOTAL_COMMIT_RE = re.compile(r"\btotal_commit:\s*([0-9.eE+-]+)")
 ABORT_RATE_RE = re.compile(r"\babort_rate:\s*([0-9.eE+-]+)")
+REPLICA_CHECKSUM_RE = re.compile(r"UB_REPLICA_CHECKSUM count=([0-9]+) hash=([0-9a-fA-F]+)")
 
 CONFIG_FIELDS = [
     "system", "workload", "run_id", "host_id", "mode", "query", "transport",
     "partitions", "workers", "keys", "rw_ratio", "zipf", "cross_ratio",
-    "neworder_dist", "payment_dist", "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache",
+    "neworder_dist", "payment_dist", "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "replicated_rmw",
 ]
 RAW_FIELDS = CONFIG_FIELDS + [
-    "repetition", "throughput_txn_s", "abort_rate", "consistency_passed",
+    "repetition", "throughput_txn_s", "abort_rate", "consistency_passed", "replica_count", "replica_hash",
     "run_status", "peer_log_found", "peer_status", "source_log",
 ]
 SUMMARY_FIELDS = [
     "system", "workload", "mode", "query", "transport", "partitions", "workers",
     "keys", "rw_ratio", "zipf", "cross_ratio", "neworder_dist", "payment_dist",
-    "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "samples", "throughput_mean_txn_s",
+    "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "replicated_rmw", "samples", "throughput_mean_txn_s",
     "throughput_median_txn_s", "throughput_min_txn_s", "throughput_max_txn_s",
     "abort_rate_mean", "remote_efficiency_vs_local",
 ]
@@ -56,6 +57,8 @@ def parse_log(path: Path) -> dict[str, object] | None:
         return None
     meta = parse_kv(meta_line[len(META_PREFIX):])
     row: dict[str, object] = {field: meta.get(field, "") for field in CONFIG_FIELDS}
+    if row["system"] == "ub" and not row["replicated_rmw"]:
+        row["replicated_rmw"] = "0"
     rep = meta.get("repetition", "")
     if not rep:
         match = re.search(r"_r([0-9]+)$", meta.get("run_id", ""))
@@ -64,6 +67,8 @@ def parse_log(path: Path) -> dict[str, object] | None:
     row["throughput_txn_s"] = last_float(TOTAL_COMMIT_RE, text)
     row["abort_rate"] = last_float(ABORT_RATE_RE, text)
     row["consistency_passed"] = "yes" if "TPC-C consistency check passed!" in text else ""
+    checksums = REPLICA_CHECKSUM_RE.findall(text)
+    row["replica_count"], row["replica_hash"] = checksums[-1] if checksums else ("", "")
     ends = END_RE.findall(text)
     row["run_status"] = parse_kv(ends[-1]).get("status", "missing-end") if ends else "missing-end"
     row["peer_log_found"] = ""
@@ -84,7 +89,7 @@ def identity(row: dict[str, object]) -> tuple[object, ...]:
     return tuple(row.get(field, "") for field in (
         "system", "workload", "run_id", "mode", "query", "transport",
         "partitions", "workers", "keys", "rw_ratio", "zipf", "cross_ratio",
-        "neworder_dist", "payment_dist", "rmw_tuple_cache",
+        "neworder_dist", "payment_dist", "rmw_tuple_cache", "replicated_rmw",
     ))
 
 
@@ -98,17 +103,27 @@ def select_cluster_rows(rows: list[dict[str, object]]) -> list[dict[str, object]
             peer = peers.get(identity(row))
             row["peer_log_found"] = "yes" if peer else "no"
             row["peer_status"] = peer.get("run_status", "") if peer else ""
+            if row.get("replicated_rmw") == "1":
+                try:
+                    expected_count = int(str(row["partitions"])) * int(str(row["keys"]))
+                except ValueError:
+                    expected_count = -1
+                row["consistency_passed"] = (
+                    "yes" if peer and row.get("replica_count") == str(expected_count) and
+                    row.get("replica_count") == peer.get("replica_count") and
+                    row.get("replica_hash") == peer.get("replica_hash") else "no"
+                )
         selected.append(row)
     return selected
 
 
 def summary_key(row: dict[str, object]) -> tuple[object, ...]:
-    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:18])
+    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:19])
 
 
 def baseline_key(row: dict[str, object]) -> tuple[object, ...]:
     excluded = {"cross_ratio", "neworder_dist", "payment_dist"}
-    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:18] if field not in excluded)
+    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:19] if field not in excluded)
 
 
 def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -119,6 +134,8 @@ def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
             valid = valid and row.get("peer_log_found") == "yes" and row.get("peer_status") == "ok"
         if row.get("workload") == "tpcc":
             valid = valid and row.get("consistency_passed") == "yes"
+        if row.get("replicated_rmw") == "1":
+            valid = valid and row.get("consistency_passed") == "yes"
         if valid:
             groups[summary_key(row)].append(row)
 
@@ -127,7 +144,7 @@ def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         first = samples[0]
         values = [float(row["throughput_txn_s"]) for row in samples]
         aborts = [float(row["abort_rate"]) for row in samples if row.get("abort_rate") is not None]
-        summary = {field: first.get(field, "") for field in SUMMARY_FIELDS[:18]}
+        summary = {field: first.get(field, "") for field in SUMMARY_FIELDS[:19]}
         summary.update({
             "samples": len(values),
             "throughput_mean_txn_s": statistics.fmean(values),

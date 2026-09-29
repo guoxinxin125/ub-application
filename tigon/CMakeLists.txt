@@ -3,6 +3,8 @@ project(tigon)
 
 option(TIGON_ENABLE_UB "Build the UBS Memory backend" OFF)
 option(TIGON_BUILD_UB_UNIT_TESTS "Build host-only UB ABI/lock tests" OFF)
+option(TIGON_BUILD_UB_REPLICA_PROTOTYPE
+        "Build the host-only two-copy UB tuple protocol test" OFF)
 set(UBSM_INCLUDE_DIR "/usr/local/ubs_mem/include" CACHE PATH "UBS Memory SDK include directory")
 set(UBSM_LIBRARY "/usr/local/ubs_mem/lib/libubsm_sdk.so" CACHE FILEPATH "UBS Memory SDK library")
 set(TIGON_CXLALLOC_LIBRARY
@@ -109,6 +111,13 @@ if(TIGON_BUILD_UB_UNIT_TESTS)
         add_executable(ub_twopl_compile_test tests/ub_twopl_compile_test.cpp)
         target_link_libraries(ub_twopl_compile_test misc_cpp ${jemalloc_lib} glog)
         add_test(NAME ub_twopl_compile_test COMMAND ub_twopl_compile_test)
+endif()
+
+if(TIGON_BUILD_UB_REPLICA_PROTOTYPE)
+        enable_testing()
+        add_executable(ub_replicated_tuple_test tests/ub_replicated_tuple_test.cpp)
+        target_link_libraries(ub_replicated_tuple_test pthread)
+        add_test(NAME ub_replicated_tuple_test COMMAND ub_replicated_tuple_test)
 endif()
 
 # # SmallBank benchmark

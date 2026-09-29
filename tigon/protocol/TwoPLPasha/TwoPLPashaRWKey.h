@@ -6,11 +6,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
+#include <utility>
 #include <thread>
 
 #include <glog/logging.h>
 
 #include "core/Table.h"
+#include "common/UBReplicatedTuple.h"
 
 namespace star
 {
@@ -329,6 +332,16 @@ class TwoPLPashaRWKey {
                 this->cached_migrated_row = cached_migrated_row;
 	}
 
+        std::shared_ptr<UBReplicatedTuple::WriteGuard> get_replica_guard() const
+        {
+                return replica_guard;
+        }
+
+        void set_replica_guard(std::shared_ptr<UBReplicatedTuple::WriteGuard> guard)
+        {
+                replica_guard = std::move(guard);
+        }
+
     private:
 	/*
 	 * A bitvec is a 64-bit word.
@@ -374,6 +387,7 @@ class TwoPLPashaRWKey {
         // local cache to avoid extra index search
         std::tuple<star::ITable::MetaDataType *, void *> cached_local_row;
         char *cached_migrated_row = nullptr;
+        std::shared_ptr<UBReplicatedTuple::WriteGuard> replica_guard;
 
     public:
 	static constexpr uint64_t TABLE_ID_MASK = 0x1f;

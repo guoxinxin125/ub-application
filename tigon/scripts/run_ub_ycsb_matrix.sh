@@ -32,6 +32,7 @@ run_id=${UB_TIGON_RUN_ID:-$prefix_base}
 dry_run=${UB_TIGON_DRY_RUN:-0}
 repetition=${UB_TIGON_REPETITION:-}
 rmw_tuple_cache=${TIGON_UB_RMW_TUPLE_CACHE:-0}
+replicated_rmw=${TIGON_UB_REPLICATED_RMW:-0}
 
 require_uint() { [[ "$2" =~ ^[0-9]+$ ]] || { echo "$1 must be a non-negative integer" >&2; exit 2; }; }
 require_percent() { require_uint "$1" "$2"; (( $2 <= 100 )) || { echo "$1 must be in [0,100]" >&2; exit 2; }; }
@@ -52,6 +53,13 @@ require_percent cross_ratio "$cross_ratio"
 [[ "$rmw_tuple_cache" == 0 || "$rmw_tuple_cache" == 1 ]] || {
   echo "TIGON_UB_RMW_TUPLE_CACHE must be 0 or 1" >&2; exit 2;
 }
+[[ "$replicated_rmw" == 0 || "$replicated_rmw" == 1 ]] || {
+  echo "TIGON_UB_REPLICATED_RMW must be 0 or 1" >&2; exit 2;
+}
+if [[ "$replicated_rmw" == 1 && "$rmw_tuple_cache" == 1 ]]; then
+  echo "TIGON_UB_RMW_TUPLE_CACHE must be 0 in replica mode (all reads are local)" >&2
+  exit 2
+fi
 
 read -r -a modes <<< "${UB_TIGON_MODES:-one-sided nocache}"
 read -r -a queries <<< "${UB_TIGON_QUERIES:-rmw insert delete}"
@@ -63,16 +71,22 @@ run_one() {
   [[ "$mode" == one-sided || "$mode" == nocache ]] || { echo "unsupported mode: $mode" >&2; exit 2; }
   [[ "$transport" == false || "$transport" == true ]] || { echo "transport must be false or true" >&2; exit 2; }
   [[ "$transport" == true ]] && transport_name=ubq
+  if [[ "$replicated_rmw" == 1 && ( "$mode" != one-sided || "$query" != rmw ) ]]; then
+    echo "UB replication supports only one-sided YCSB rmw" >&2; exit 2
+  fi
   local cache_active=0
   if [[ "$mode" == one-sided && "$query" == rmw && "$rmw_tuple_cache" == 1 ]]; then
     cache_active=1
   fi
-  local prefix="${prefix_base}_${mode}_${query}_${transport_name}"
+  local replica_tag=""
+  [[ "$replicated_rmw" == 0 ]] || replica_tag="_rep"
+  local prefix="${prefix_base}_${mode}_${query}_${transport_name}${replica_tag}"
   (( ${#prefix} <= 35 )) || { echo "UB region prefix exceeds 35 bytes: $prefix" >&2; exit 2; }
-  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off rmw_tuple_cache=$cache_active"
+  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off rmw_tuple_cache=$cache_active replicated_rmw=$replicated_rmw"
   local command=("$binary" "--id=$id" "--servers=$servers" --protocol=TwoPLPasha
     "--partition_num=$partitions" "--threads=$threads" --io=1 --shared_memory_backend=ub
     "--ub_memory_mode=$mode" "--ub_region_prefix=$prefix" "--ub_region_mb=$region_mb"
+    "--ub_replicated_rmw=$([[ $replicated_rmw == 1 ]] && echo true || echo false)"
     "--ub_provider_host=$provider_host" "--use_ub_transport=$transport" "--query=$query"
     "--keys=$keys" "--read_write_ratio=$rw_ratio" "--zipf=$zipf" "--cross_ratio=$cross_ratio"
     "--time_to_run=$run_seconds" "--time_to_warmup=$warmup_seconds" --lotus_checkpoint=0)
@@ -92,7 +106,7 @@ run_one() {
     echo "TIGON_RUN_END run_id=$run_id host_id=$id status=dry-run exit_code=0"
   elif [[ -n "$result_dir" ]]; then
     mkdir -p "$result_dir"
-    local log="$result_dir/ub_ycsb_${run_id}_host${id}_${mode}_${query}_${transport_name}.log"
+    local log="$result_dir/ub_ycsb_${run_id}_host${id}_${mode}_${query}_${transport_name}${replica_tag}.log"
     set +e
     { echo "$meta"; "${runner[@]}" "${command[@]}"; rc=$?; echo "TIGON_RUN_END run_id=$run_id host_id=$id status=$([[ $rc -eq 0 ]] && echo ok || echo failed) exit_code=$rc"; exit "$rc"; } 2>&1 | tee "$log"
     local rc=${PIPESTATUS[0]}

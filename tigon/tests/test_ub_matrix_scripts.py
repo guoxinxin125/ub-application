@@ -71,6 +71,8 @@ class MatrixScriptTests(unittest.TestCase):
             self.assertIn(flag, result.stdout)
         self.assertIn("taskset -c 4-6", result.stdout)
         self.assertIn("rmw_tuple_cache=0", result.stdout)
+        self.assertIn("replicated_rmw=0", result.stdout)
+        self.assertIn("--ub_replicated_rmw=false", result.stdout)
         env["TIGON_UB_RMW_TUPLE_CACHE"] = "1"
         cached = subprocess.run(
             [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
@@ -78,6 +80,32 @@ class MatrixScriptTests(unittest.TestCase):
             env=env, text=True, capture_output=True, check=True,
         )
         self.assertIn("rmw_tuple_cache=1", cached.stdout)
+        env["TIGON_UB_RMW_TUPLE_CACHE"] = "0"
+        env["TIGON_UB_REPLICATED_RMW"] = "1"
+        replicated = subprocess.run(
+            [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
+             "0", "h0:30000;h1:30000", "u12345678"],
+            env=env, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("replicated_rmw=1", replicated.stdout)
+        self.assertIn("--ub_replicated_rmw=true", replicated.stdout)
+        self.assertIn("_rep", replicated.stdout)
+
+    @unittest.skipUnless(BASH, "bash is required")
+    def test_replica_rejects_non_rmw(self) -> None:
+        env = os.environ.copy()
+        env.update({
+            "UB_TIGON_DRY_RUN": "1", "UB_PROVIDER_HOST": "provider0",
+            "TIGON_UB_REPLICATED_RMW": "1", "UB_TIGON_MODES": "one-sided",
+            "UB_TIGON_QUERIES": "insert", "UB_TIGON_TRANSPORTS": "true",
+        })
+        result = subprocess.run(
+            [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
+             "0", "h0:30000;h1:30000", "u12345678"],
+            env=env, text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("supports only one-sided YCSB rmw", result.stderr)
 
     @unittest.skipUnless(BASH, "bash is required")
     def test_ub_tpcc_default_partition_count_matches_spr4(self) -> None:
@@ -161,6 +189,66 @@ class MatrixScriptTests(unittest.TestCase):
 
 
 class ParserTests(unittest.TestCase):
+    def test_parser_keeps_replica_variants_separate(self) -> None:
+        parser = TIGON / "scripts/parse/parse_two_node_compare.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for replicated in (0, 1):
+                for host in (0, 1):
+                    run_id = f"replica{replicated}_c0_r1"
+                    (root / f"{run_id}_host{host}.log").write_text(
+                        f"TIGON_RUN_META system=ub workload=ycsb run_id={run_id} "
+                        f"host_id={host} repetition=1 mode=one-sided query=rmw "
+                        f"transport=ubq partitions=2 workers=3 keys=300000 "
+                        f"rw_ratio=95 zipf=0.7 cross_ratio=0 "
+                        f"warmup_seconds=30 run_seconds=30 total_seconds=60 "
+                        f"logging=off rmw_tuple_cache=0 replicated_rmw={replicated}\n"
+                        f"Global Stats: total_commit: {1000 + 100 * replicated}\n"
+                        + ("UB_REPLICA_CHECKSUM count=600000 hash=abcdef\n" if replicated else "")
+                        +
+                        f"TIGON_RUN_END run_id={run_id} host_id={host} "
+                        "status=ok exit_code=0\n",
+                        encoding="utf-8",
+                    )
+            summary = root / "summary.csv"
+            subprocess.run(
+                [sys.executable, str(parser), str(root),
+                 "--raw-output", str(root / "raw.csv"),
+                 "--summary-output", str(summary)], check=True,
+            )
+            with summary.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 2)
+            self.assertEqual({row["replicated_rmw"] for row in rows}, {"0", "1"})
+            peer_log = root / "replica1_c0_r1_host1.log"
+            original_peer_log = peer_log.read_text(encoding="utf-8")
+            peer_log.write_text(
+                original_peer_log.replace("count=600000", "count=600002"),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [sys.executable, str(parser), str(root),
+                 "--raw-output", str(root / "raw.csv"),
+                 "--summary-output", str(summary)], check=True,
+            )
+            with summary.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["replicated_rmw"], "0")
+            peer_log.write_text(
+                original_peer_log.replace("hash=abcdef", "hash=badbad"),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [sys.executable, str(parser), str(root),
+                 "--raw-output", str(root / "raw.csv"),
+                 "--summary-output", str(summary)], check=True,
+            )
+            with summary.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["replicated_rmw"], "0")
+
     def test_parser_keeps_rmw_cache_variants_separate(self) -> None:
         parser = TIGON / "scripts/parse/parse_two_node_compare.py"
         with tempfile.TemporaryDirectory() as tmp:

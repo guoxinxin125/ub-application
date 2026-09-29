@@ -96,6 +96,43 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
                         ITable *table = this->db.find_table(table_id, partition_id);
 
 			if (this->context.shared_memory_backend == "ub" && !local_index_read) {
+				if (this->context.ub_replicated_rmw) {
+					auto local = table->search(key);
+					auto peer = write_lock ? table->search_replica(key) :
+						std::make_tuple(nullptr, nullptr);
+					success = false;
+					remote = false;
+					if (std::get<0>(local) == nullptr || std::get<1>(local) == nullptr)
+						return 0;
+					cached_local_row = local;
+					if (!write_lock) {
+						return twopl_pasha_global_helper->take_read_lock_and_read(
+							local, value, table->value_size(), success,
+							this->n_local_cxl_access);
+					}
+					if (std::get<0>(peer) == nullptr || std::get<1>(peer) == nullptr)
+						return 0;
+					const uint32_t local_region = ub_memory.local_region_id();
+					const uint32_t peer_region = 1U - local_region;
+					const UBGlobalPtr local_ptr = ub_memory.to_global(
+						local_region, UBTupleHeader::from_version(std::get<0>(local)));
+					const UBGlobalPtr peer_ptr = ub_memory.to_global(
+						peer_region, UBTupleHeader::from_version(std::get<0>(peer)));
+					auto guard = std::make_shared<UBReplicatedTuple::WriteGuard>(
+						UBReplicaTupleView{UBTupleHeader::from_version(std::get<0>(local)),
+							std::get<1>(local), local_region, local_ptr.generation},
+						UBReplicaTupleView{UBTupleHeader::from_version(std::get<0>(peer)),
+							std::get<1>(peer), peer_region, peer_ptr.generation},
+						local_ptr.generation, peer_ptr.generation);
+					if (!guard->acquired())
+						return 0;
+					uint64_t version = 0;
+					if (!guard->read_local(value, table->value_size(), version))
+						return 0;
+					txn.readSet[key_offset].set_replica_guard(guard);
+					success = true;
+					return version;
+				}
 				const bool sampled = UBPointProfile::should_sample();
 				UBPointProfile::Sample profile;
 				UBPointProfile::Clock::time_point lookup_start;

@@ -104,7 +104,8 @@ class Database {
 					std::make_unique<TableUBBPlusTree<ycsb::key, ycsb::value,
 						ycsb::KeyComparator, ycsb::ValueComparator> >(
 							 ycsbTableID, partitionID, context.ub_index_buckets,
-							 context.workloadType == YCSBWorkloadType::RMW));
+							 context.workloadType == YCSBWorkloadType::RMW,
+							 context.ub_replicated_rmw));
 			} else if (context.protocol == "Sundial") {
 				tbl_ycsb_vec.push_back(
 					std::make_unique<TableBTreeOLC<ycsb::key, ycsb::value, ycsb::KeyComparator, ycsb::ValueComparator, MetaInitFuncSundial> >(ycsbTableID, partitionID));
@@ -139,7 +140,8 @@ class Database {
 
 		using std::placeholders::_1;
 		initTables(
-			"ycsb", [&context, this](std::size_t partitionID) { ycsbInit(context, partitionID); }, partitionNum, threadsNum, partitioner.get());
+			"ycsb", [&context, this](std::size_t partitionID) { ycsbInit(context, partitionID); },
+			partitionNum, threadsNum, context.ub_replicated_rmw ? nullptr : partitioner.get());
 	}
 
 	void apply_operation(const Operation &operation)

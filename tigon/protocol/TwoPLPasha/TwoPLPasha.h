@@ -66,6 +66,19 @@ template <class Database> class TwoPLPasha {
 
 	void abort(TransactionType &txn, std::vector<std::unique_ptr<Message> > &messages)
 	{
+                if (this->context.ub_replicated_rmw) {
+                        CHECK(txn.insertSet.empty() && txn.deleteSet.empty() && txn.scanSet.empty());
+                        for (auto &readKey : txn.readSet) {
+                                if (readKey.get_replica_guard()) {
+                                        readKey.set_replica_guard(nullptr);
+                                } else if (readKey.get_read_lock_bit()) {
+                                        auto row = readKey.get_cached_local_row();
+                                        CHECK(std::get<0>(row) != nullptr);
+                                        TwoPLPashaHelper::read_lock_release(*std::get<0>(row));
+                                }
+                        }
+                        return;
+                }
                 if (this->context.enable_phantom_detection == true) {
                         // rollback inserts
                         auto &insertSet = txn.insertSet;
@@ -367,6 +380,43 @@ template <class Database> class TwoPLPasha {
 
 	bool commit(TransactionType &txn, std::vector<std::unique_ptr<Message> > &messages)
 	{
+		if (this->context.ub_replicated_rmw) {
+			if (txn.should_abort()) {
+				abort(txn, messages);
+				return false;
+			}
+			CHECK(txn.insertSet.empty() && txn.deleteSet.empty() && txn.scanSet.empty());
+			const uint64_t commit_tid = generate_tid(txn);
+			std::vector<std::unique_ptr<UBCheckedReplicaWriteOps>> ops(txn.readSet.size());
+			for (std::size_t i = 0; i < txn.readSet.size(); ++i) {
+				auto &key = txn.readSet[i];
+				if (!key.get_write_lock_bit())
+					continue;
+				auto guard = key.get_replica_guard();
+				CHECK(guard && guard->acquired());
+				ops[i].reset(new UBCheckedReplicaWriteOps());
+				auto *table = db.find_table(key.get_table_id(), key.get_partition_id());
+				CHECK(guard->write_data(key.get_value(), table->value_size(), *ops[i]))
+					<< "UB replica data write was not read back; rebuild both regions";
+			}
+			for (std::size_t i = 0; i < txn.readSet.size(); ++i) {
+				auto &key = txn.readSet[i];
+				if (key.get_write_lock_bit())
+					CHECK(key.get_replica_guard()->publish(commit_tid, *ops[i]))
+						<< "UB replica version publication failed; rebuild both regions";
+			}
+			for (auto &key : txn.readSet) {
+				if (key.get_replica_guard()) {
+					key.get_replica_guard()->unlock();
+					key.set_replica_guard(nullptr);
+				} else if (key.get_read_lock_bit()) {
+					auto row = key.get_cached_local_row();
+					CHECK(std::get<0>(row) != nullptr);
+					TwoPLPashaHelper::read_lock_release(*std::get<0>(row));
+				}
+			}
+			return true;
+		}
 		if (txn.abort_lock) {
 			abort(txn, messages);
 			return false;

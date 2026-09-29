@@ -65,6 +65,9 @@ if [[ "$workload" == ycsb ]]; then
     done
   done
 else
+  [[ "${TIGON_UB_REPLICATED_RMW:-0}" == 0 ]] || {
+    echo "UB replica mode supports only YCSB rmw, not TPCC" >&2; exit 2;
+  }
   export UB_REGION_MB=${UB_COMPARE_REGION_MB:-8192}
   export UB_TIGON_PARTITIONS=${UB_COMPARE_PARTITIONS:-$((2 * threads))}
   export UB_TPCC_QUERIES=${UB_COMPARE_TPCC_QUERIES:-mixed}

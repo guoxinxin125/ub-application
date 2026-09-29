@@ -86,6 +86,7 @@ DEFINE_uint32(ub_provider_numa, UINT32_MAX, "UBSM provider NUMA id");
 DEFINE_uint32(ub_provider_port, UINT32_MAX, "UBSM provider port id");
 DEFINE_int32(ub_map_timeout, 120, "seconds to wait for every peer UB region");
 DEFINE_bool(use_ub_transport, false, "place Tigon message queues in UB memory");
+DEFINE_bool(ub_replicated_rmw, false, "experimental two-copy UB YCSB RMW path");
 DEFINE_uint64(ub_index_buckets, 65536,
               "deprecated UB index size hint (B+ Tree grows from the region allocator)");
 
@@ -171,6 +172,7 @@ DEFINE_string(pre_migrate, "None", "what tuples to pre-migrate?");
         context.ub_provider_port = FLAGS_ub_provider_port;                                      \
         context.ub_map_timeout_seconds = FLAGS_ub_map_timeout;                                  \
         context.use_ub_transport = FLAGS_use_ub_transport;                                      \
+        context.ub_replicated_rmw = FLAGS_ub_replicated_rmw;                                    \
         context.ub_index_buckets = FLAGS_ub_index_buckets;                                      \
         context.enable_migration_optimization = FLAGS_enable_migration_optimization;            \
         context.migration_policy = FLAGS_migration_policy;                                      \

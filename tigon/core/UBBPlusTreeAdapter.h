@@ -29,11 +29,16 @@ class TableUBBPlusTree : public ITable {
         // command lines remain compatible. B+ Tree growth is allocator-driven.
         TableUBBPlusTree(std::size_t table_id, std::size_t partition_id,
                          uint64_t index_size_hint = 0,
-                         bool enable_rmw_cache = false)
+                         bool enable_rmw_cache = false,
+                         bool replicated_rmw = false)
                 : table_id_(table_id)
                 , partition_id_(partition_id)
-                , owner_region_(static_cast<uint32_t>(partition_id % ub_memory.region_count()))
+                , owner_region_(replicated_rmw ? ub_memory.local_region_id() :
+                        static_cast<uint32_t>(partition_id % ub_memory.region_count()))
+                , peer_region_(replicated_rmw ? 1U - ub_memory.local_region_id() :
+                        UBGlobalPtr::null_region)
                 , index_size_hint_(index_size_hint)
+                , replicated_rmw_(replicated_rmw)
                 , rmw_cache_enabled_(enable_rmw_cache &&
                         ub_memory.memory_mode() == UBMemory::MemoryMode::ONE_SIDED &&
                         cache_requested())
@@ -42,6 +47,8 @@ class TableUBBPlusTree : public ITable {
                         descriptor_ = NativeTree::create(owner_region_, table_id_,
                                                          partition_id_);
                         descriptor_ptr_ = ub_memory.to_global(owner_region_, descriptor_);
+                        if (replicated_rmw_)
+                                tree_ = NativeTree(descriptor_);
                 }
         }
 
@@ -105,6 +112,25 @@ class TableUBBPlusTree : public ITable {
                                                static_cast<void *>(ref.value));
                 }
                 const auto ref = tree_search();
+                if (!ref)
+                        return std::make_tuple(nullptr, nullptr);
+                return std::make_tuple(&ref.header->version,
+                                       static_cast<void *>(ref.value));
+        }
+
+        std::tuple<MetaDataType *, void *> search_replica(const void *key) override
+        {
+                if (!replicated_rmw_)
+                        return std::make_tuple(nullptr, nullptr);
+                auto *descriptor = peer_descriptor_.load(std::memory_order_acquire);
+                if (descriptor == nullptr) {
+                        while ((descriptor = NativeTree::find(
+                                        peer_region_, table_id_, partition_id_)) == nullptr)
+                                std::this_thread::yield();
+                        peer_descriptor_.store(descriptor, std::memory_order_release);
+                }
+                NativeTree peer_tree(descriptor);
+                const auto ref = peer_tree.search(*static_cast<const KeyType *>(key));
                 if (!ref)
                         return std::make_tuple(nullptr, nullptr);
                 return std::make_tuple(&ref.header->version,
@@ -324,11 +350,14 @@ class TableUBBPlusTree : public ITable {
         std::size_t table_id_;
         std::size_t partition_id_;
         uint32_t owner_region_;
+        uint32_t peer_region_;
         uint64_t index_size_hint_;
+        bool replicated_rmw_;
         bool rmw_cache_enabled_;
         typename NativeTree::Descriptor *descriptor_ = nullptr;
         UBGlobalPtr descriptor_ptr_;
         NativeTree tree_;
+        std::atomic<typename NativeTree::Descriptor *> peer_descriptor_{nullptr};
 };
 
 } // namespace star

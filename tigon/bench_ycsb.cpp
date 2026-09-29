@@ -5,6 +5,10 @@
 #include "common/CXLMemory.h"
 #include "common/UBMemory.h"
 #include "core/UBBTreeCatalog.h"
+#include <cstdint>
+#include <functional>
+#include <iomanip>
+#include <limits>
 
 DEFINE_string(query, "rmw", "ycsb query, mixed, rmw, scan");
 DEFINE_bool(lotus_sp_parallel_exec_commit, false, "parallel execution and commit for Lotus");
@@ -84,6 +88,8 @@ int main(int argc, char *argv[])
 
         check_context(context);
 	if (context.shared_memory_backend == "ub") {
+		CHECK(!context.ub_replicated_rmw || context.workloadType == star::ycsb::YCSBWorkloadType::RMW)
+			<< "UB replicated mode supports only YCSB RMW";
 		CHECK(FLAGS_query == "rmw" || FLAGS_query == "insert" ||
 		      FLAGS_query == "delete" || FLAGS_query == "scan" ||
 		      FLAGS_query == "mixed")
@@ -99,7 +105,41 @@ int main(int argc, char *argv[])
 	db.initialize(context);
 
 	do_tid_check = false;
-	star::Coordinator c(FLAGS_id, db, context);
+	std::function<void()> replica_validation;
+	if (context.ub_replicated_rmw) {
+		replica_validation = [&]() {
+			uint64_t hash = 1469598103934665603ULL;
+			uint64_t count = 0;
+			auto mix = [&](const void *data, std::size_t size) {
+				const auto *bytes = static_cast<const unsigned char *>(data);
+				for (std::size_t i = 0; i < size; ++i) {
+					hash ^= bytes[i];
+					hash *= 1099511628211ULL;
+				}
+			};
+			star::ycsb::key first(0);
+			for (std::size_t partition = 0; partition < context.partition_num; ++partition) {
+				auto *table = db.find_table(star::ycsb::tableID, partition);
+				table->scan(&first, [&](const void *key, star::ITable::MetaDataType *meta,
+							void *value, bool) {
+					// Each partition has an internal +infinity row for next-key
+					// locking. It is not one of the configured YCSB keys.
+					if (static_cast<const star::ycsb::key *>(key)->Y_KEY ==
+					    std::numeric_limits<int32_t>::max())
+						return false;
+					mix(key, table->key_size());
+					const uint64_t version = meta->load(std::memory_order_acquire);
+					mix(&version, sizeof(version));
+					mix(value, table->value_size());
+					++count;
+					return false;
+				});
+			}
+			LOG(INFO) << "UB_REPLICA_CHECKSUM count=" << count << " hash="
+				  << std::hex << hash << std::dec;
+		};
+	}
+	star::Coordinator c(FLAGS_id, db, context, replica_validation);
 	c.connectToPeers();
 	c.start();
 	return 0;

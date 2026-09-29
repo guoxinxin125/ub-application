@@ -150,7 +150,7 @@ void UBMemory::allocate_local_region(const Context &context)
         const uint64_t flags = (memory_mode_ == MemoryMode::ONE_SIDED
                                         ? UBSM_FLAG_ONLY_IMPORT_NONCACHE
                                         : UBSM_FLAG_NONCACHE) |
-                               UBSM_FLAG_WR_DELAY_COMP;
+                               (context.ub_replicated_rmw ? 0 : UBSM_FLAG_WR_DELAY_COMP);
         int result;
         if (context.ub_provider_host.empty()) {
                 result = ubsmem_shmem_allocate("default", region.name.c_str(), region.size,
