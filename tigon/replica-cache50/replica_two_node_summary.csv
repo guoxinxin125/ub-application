@@ -1,0 +1,4 @@
+system,workload,mode,query,transport,partitions,workers,keys,rw_ratio,zipf,cross_ratio,neworder_dist,payment_dist,warmup_seconds,run_seconds,total_seconds,logging,rmw_tuple_cache,replicated_rmw,samples,throughput_mean_txn_s,throughput_median_txn_s,throughput_min_txn_s,throughput_max_txn_s,abort_rate_mean,remote_efficiency_vs_local
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,50,0.7,0,,,30,30,60,off,0,1,3,41571.666666666664,41767.5,40619.4,42328.1,0.0176541,1.0
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,50,0.7,100,,,30,30,60,off,0,1,3,40855.700000000004,40128.4,40071.2,42367.5,0.025672199999999996,0.9607565691027713
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,50,0.7,50,,,30,30,60,off,0,1,3,40884.06666666667,40091.9,40085.0,42475.3,0.024235466666666667,0.95988268390495
