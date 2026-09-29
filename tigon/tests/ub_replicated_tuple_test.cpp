@@ -116,16 +116,32 @@ int main()
                 require(first.acquired() && second.acquired(), "multi-key guards failed");
                 uint64_t one = 11, two = 22;
                 star::UBCheckedReplicaWriteOps one_ops, two_ops;
-                require(first.write_data(&one, sizeof(one), one_ops), "first data write failed");
-                require(second.write_data(&two, sizeof(two), two_ops), "second data write failed");
+                star::UBReplicaProfile::CommitSample profile;
+                require(first.write_data(&one, sizeof(one), one_ops, &profile), "first data write failed");
+                require(second.write_data(&two, sizeof(two), two_ops, &profile), "second data write failed");
                 require(!star::UBReplicatedTuple::read_local(vf, 1, &result, sizeof(result)) &&
                         !star::UBReplicatedTuple::read_local(vh, 1, &result, sizeof(result)),
                         "partial multi-key write became readable");
-                require(first.publish(1, one_ops) && second.publish(1, two_ops),
+                require(first.publish(1, one_ops, &profile) && second.publish(1, two_ops, &profile),
                         "multi-key versions failed");
                 first.unlock();
                 second.unlock();
+                require(profile.write_keys == 2 && profile.write_bytes == 2 * sizeof(uint64_t),
+                        "profile did not count both written keys");
+                star::UBReplicaProfile::record_commit(profile);
+                require(star::UBReplicaProfile::commit_counters().transactions.load() == 1 &&
+                        star::UBReplicaProfile::commit_counters().write_keys.load() == 2,
+                        "commit profile counters were not updated");
         }
+        star::UBReplicaProfile::LookupSample lookup;
+        lookup.found = true;
+        lookup.success = true;
+        lookup.local_lookup_ns = 5;
+        star::UBReplicaProfile::record_lookup(true, lookup);
+        require(star::UBReplicaProfile::lookup_counters(true).samples.load() == 1 &&
+                star::UBReplicaProfile::lookup_counters(true).local_lookup_ns.load() == 5 &&
+                star::UBReplicaProfile::lookup_counters(false).samples.load() == 0,
+                "lookup profile counters were not separated by operation");
         require(e.value == f.value && f.value == 11 &&
                 g.value == h.value && h.value == 22,
                 "multi-key replica contents differ");

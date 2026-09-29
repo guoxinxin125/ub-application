@@ -13,6 +13,7 @@
 #include "common/CXL_EBR.h"
 #include "common/UBMemory.h"
 #include "common/UBPointProfile.h"
+#include "common/UBReplicaProfile.h"
 #include "common/UBMPSCRingBuffer.h"
 #include "core/ControlMessage.h"
 #include "core/Dispatcher.h"
@@ -371,6 +372,39 @@ class Coordinator {
 		}
 
                 if (context.shared_memory_backend == "ub" && UBPointProfile::enabled()) {
+                        if (context.ub_replicated_rmw) {
+                                auto avg = [](const std::atomic<uint64_t> &total, uint64_t count) {
+                                        return count ? total.load(std::memory_order_relaxed) / count : uint64_t{0};
+                                };
+                                for (bool write : {false, true}) {
+                                        const auto &c = UBReplicaProfile::lookup_counters(write);
+                                        const uint64_t n = c.samples.load(std::memory_order_relaxed);
+                                        LOG(INFO) << "UB_REPLICA_LOOKUP_PROFILE op=" << (write ? "write" : "read")
+                                                  << " period=" << UBReplicaProfile::sample_period
+                                                  << " phase=all_including_warmup samples=" << n
+                                                  << " found=" << c.found.load(std::memory_order_relaxed)
+                                                  << " success=" << c.success.load(std::memory_order_relaxed)
+                                                  << " local_lookup_avg_ns=" << avg(c.local_lookup_ns, n)
+                                                  << " peer_lookup_avg_ns=" << avg(c.peer_lookup_ns, n)
+                                                  << " lock_read_avg_ns=" << avg(c.lock_read_ns, n)
+                                                  << " local_copy_avg_ns=" << avg(c.local_copy_ns, n);
+                                }
+                                const auto &c = UBReplicaProfile::commit_counters();
+                                const uint64_t keys = c.write_keys.load(std::memory_order_relaxed);
+                                LOG(INFO) << "UB_REPLICA_COMMIT_PROFILE period=" << UBReplicaProfile::sample_period
+                                          << " phase=all_including_warmup sampled_txns="
+                                          << c.transactions.load(std::memory_order_relaxed)
+                                          << " write_keys=" << keys
+                                          << " write_bytes=" << c.write_bytes.load(std::memory_order_relaxed)
+                                          << " local_write_avg_ns=" << avg(c.local_write_ns, keys)
+                                          << " peer_write_avg_ns=" << avg(c.peer_write_ns, keys)
+                                          << " data_complete_avg_ns=" << avg(c.data_complete_ns, keys)
+                                          << " local_version_avg_ns=" << avg(c.local_version_ns, keys)
+                                          << " peer_version_avg_ns=" << avg(c.peer_version_ns, keys)
+                                          << " version_complete_avg_ns=" << avg(c.version_complete_ns, keys)
+                                          << " peer_version_verify_avg_ns=" << avg(c.peer_version_verify_ns, keys)
+                                          << " unlock_avg_ns=" << avg(c.unlock_ns, keys);
+                        }
                         for (bool remote : {false, true}) {
                                 const auto &profile = UBPointProfile::counters(remote);
                                 const uint64_t n = profile.samples.load(std::memory_order_relaxed);

@@ -2,6 +2,7 @@
 
 #include "common/UBTuple.h"
 #include "common/UBScalarRead.h"
+#include "common/UBReplicaProfile.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -143,27 +144,62 @@ class UBReplicatedTuple {
                 }
 
                 bool write_data(const void *value, std::size_t size,
-                                UBReplicaWriteOps &ops)
+                                UBReplicaWriteOps &ops,
+                                UBReplicaProfile::CommitSample *profile = nullptr)
                 {
                         if (!acquired_ || in_doubt_ || value == nullptr ||
                             size != local_.header->value_size)
                                 return false;
                         in_doubt_ = true;
+                        UBReplicaProfile::Clock::time_point start;
+                        if (profile) start = UBReplicaProfile::Clock::now();
                         ops.copy(local_.value, value, size);
+                        if (profile) {
+                                profile->local_write_ns += UBReplicaProfile::elapsed_ns(start);
+                                start = UBReplicaProfile::Clock::now();
+                        }
                         ops.copy(peer_.value, value, size);
-                        return ops.complete();
+                        if (profile) {
+                                profile->peer_write_ns += UBReplicaProfile::elapsed_ns(start);
+                                start = UBReplicaProfile::Clock::now();
+                        }
+                        const bool completed = ops.complete();
+                        if (profile) {
+                                profile->data_complete_ns += UBReplicaProfile::elapsed_ns(start);
+                                ++profile->write_keys;
+                                profile->write_bytes += size;
+                        }
+                        return completed;
                 }
 
-                bool publish(uint64_t new_version, UBReplicaWriteOps &ops)
+                bool publish(uint64_t new_version, UBReplicaWriteOps &ops,
+                             UBReplicaProfile::CommitSample *profile = nullptr)
                 {
                         if (!acquired_ || !in_doubt_ ||
                             new_version <= local_.header->version.load(std::memory_order_acquire))
                                 return false;
+                        UBReplicaProfile::Clock::time_point start;
+                        if (profile) start = UBReplicaProfile::Clock::now();
                         local_.header->version.store(new_version, std::memory_order_release);
+                        if (profile) {
+                                profile->local_version_ns += UBReplicaProfile::elapsed_ns(start);
+                                start = UBReplicaProfile::Clock::now();
+                        }
                         peer_.header->version.store(new_version, std::memory_order_release);
-                        if (!ops.complete())
+                        if (profile) {
+                                profile->peer_version_ns += UBReplicaProfile::elapsed_ns(start);
+                                start = UBReplicaProfile::Clock::now();
+                        }
+                        const bool completed = ops.complete();
+                        if (profile) {
+                                profile->version_complete_ns += UBReplicaProfile::elapsed_ns(start);
+                                start = UBReplicaProfile::Clock::now();
+                        }
+                        if (!completed)
                                 return false;
-                        if (peer_.header->version.load(std::memory_order_acquire) != new_version)
+                        const bool verified = peer_.header->version.load(std::memory_order_acquire) == new_version;
+                        if (profile) profile->peer_version_verify_ns += UBReplicaProfile::elapsed_ns(start);
+                        if (!verified)
                                 return false;
                         in_doubt_ = false;
                         return true;

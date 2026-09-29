@@ -205,3 +205,29 @@ PY
 - [ ] 保存运行前后 `free -h`、`numactl --hardware`、`cat /proc/pressure/memory`；有异常再保存对应时段 `vmstat 1`、`journalctl` 与 `dmesg`，不要无证据删除波动样本。
 
 实现边界与协议说明见 `tigon/docs/UB_REPLICATED_RMW_EXPERIMENT.md`；UB 映射/`ret=800` 排查见 `tigon/docs/ub_tigon.md`。
+
+## 7. 双副本路径拆分计时（单独 campaign）
+
+`TIGON_UB_POINT_PROFILE=1` 现在也启用双副本路径的每 256 次采样；默认 `0` 不采样。先保留第 2 节的两端环境设置，在**两端**使用相同的新 campaign，仅跑诊断点，不把计时运行的吞吐与第 5 节正式矩阵混合：
+
+```bash
+export CAMPAIGN_TAG=replica_profile01
+export TIGON_UB_POINT_PROFILE=1
+export UB_COMPARE_FIRST_REP=1
+export UB_COMPARE_REPETITIONS=1
+export UB_COMPARE_RW_RATIOS='95'
+export UB_COMPARE_CROSS_RATIOS='0 100'
+export UB_COMPARE_WARMUP_SECONDS=5
+export UB_COMPARE_RUN_SECONDS=10
+export UB_RESULT_DIR="$TIGON_REPO_ROOT/tigon/results/${CAMPAIGN_TAG}"
+
+bash tigon/scripts/run_ub_two_node_compare.sh \
+  ycsb "$UB_ID" "$SERVERS" "$CAMPAIGN_TAG"
+
+grep -hE 'UB_REPLICA_(LOOKUP|COMMIT)_PROFILE|UB_REPLICA_CHECKSUM|TIGON_RUN_END' \
+  "$UB_RESULT_DIR"/ub_ycsb_*.log
+```
+
+每台机器各自输出 `UB_REPLICA_LOOKUP_PROFILE op=read|write` 和 `UB_REPLICA_COMMIT_PROFILE`；它们不是两个 host 的合计值。lookup 的均值分母是对应 `op` 的采样 key 次数：`local_lookup` 是本地 B+ 树查找；仅写操作执行第二次 `peer_lookup`。读操作的 `lock_read` 是本地读锁和版本检查、`local_copy` 是 value 拷贝；写操作的 `lock_read` 为双锁获取（含 guard 构造），`local_copy` 为锁内旧值拷贝和版本读取。lookup 的 `found`、`success` 有助于识别失败/重试，失败样本的后续阶段记为零，不能将各阶段均值简单相加。
+
+commit 的 `sampled_txns` 包括抽中的只读事务，`write_keys` 是这些事务实际写入的 key 数；所有 `*_avg_ns` **以 `write_keys` 为分母**。`local_write`/`peer_write` 是两份 value 拷贝，`data_complete` 是写后 fence、远端 value scalar readback 和比较；`local_version`/`peer_version` 是版本发布，`version_complete` 再次执行同一个 value readback 检查，`peer_version_verify` 是版本读回，`unlock` 是双锁释放。`phase=all_including_warmup` 表示预热期也计入采样。看完后两端恢复 `TIGON_UB_POINT_PROFILE=0`。

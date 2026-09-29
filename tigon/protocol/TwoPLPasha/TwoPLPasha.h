@@ -10,6 +10,7 @@
 
 #include "core/Partitioner.h"
 #include "core/Table.h"
+#include "common/UBReplicaProfile.h"
 #include "protocol/TwoPLPasha/TwoPLPashaHelper.h"
 #include "protocol/TwoPLPasha/TwoPLPashaMessage.h"
 #include "protocol/TwoPLPasha/TwoPLPashaTransaction.h"
@@ -385,6 +386,8 @@ template <class Database> class TwoPLPasha {
 				abort(txn, messages);
 				return false;
 			}
+			const bool sampled = UBReplicaProfile::sample_commit();
+			UBReplicaProfile::CommitSample profile;
 			CHECK(txn.insertSet.empty() && txn.deleteSet.empty() && txn.scanSet.empty());
 			const uint64_t commit_tid = generate_tid(txn);
 			std::vector<std::unique_ptr<UBCheckedReplicaWriteOps>> ops(txn.readSet.size());
@@ -396,25 +399,31 @@ template <class Database> class TwoPLPasha {
 				CHECK(guard && guard->acquired());
 				ops[i].reset(new UBCheckedReplicaWriteOps());
 				auto *table = db.find_table(key.get_table_id(), key.get_partition_id());
-				CHECK(guard->write_data(key.get_value(), table->value_size(), *ops[i]))
+				CHECK(guard->write_data(key.get_value(), table->value_size(), *ops[i],
+							sampled ? &profile : nullptr))
 					<< "UB replica data write was not read back; rebuild both regions";
 			}
 			for (std::size_t i = 0; i < txn.readSet.size(); ++i) {
 				auto &key = txn.readSet[i];
 				if (key.get_write_lock_bit())
-					CHECK(key.get_replica_guard()->publish(commit_tid, *ops[i]))
+					CHECK(key.get_replica_guard()->publish(commit_tid, *ops[i],
+								sampled ? &profile : nullptr))
 						<< "UB replica version publication failed; rebuild both regions";
 			}
 			for (auto &key : txn.readSet) {
 				if (key.get_replica_guard()) {
+					UBReplicaProfile::Clock::time_point start;
+					if (sampled) start = UBReplicaProfile::Clock::now();
 					key.get_replica_guard()->unlock();
 					key.set_replica_guard(nullptr);
+					if (sampled) profile.unlock_ns += UBReplicaProfile::elapsed_ns(start);
 				} else if (key.get_read_lock_bit()) {
 					auto row = key.get_cached_local_row();
 					CHECK(std::get<0>(row) != nullptr);
 					TwoPLPashaHelper::read_lock_release(*std::get<0>(row));
 				}
 			}
+			if (sampled) UBReplicaProfile::record_commit(profile);
 			return true;
 		}
 		if (txn.abort_lock) {

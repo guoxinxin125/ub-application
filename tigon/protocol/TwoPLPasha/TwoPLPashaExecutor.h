@@ -7,6 +7,7 @@
 #include "common/CCSet.h"
 #include "common/CCHashTable.h"
 #include "common/UBPointProfile.h"
+#include "common/UBReplicaProfile.h"
 #include "core/Executor.h"
 #include "protocol/TwoPLPasha/TwoPLPasha.h"
 #include "protocol/TwoPLPasha/TwoPLPashaHelper.h"
@@ -97,38 +98,74 @@ class TwoPLPashaExecutor : public Executor<Workload, TwoPLPasha<typename Workloa
 
 			if (this->context.shared_memory_backend == "ub" && !local_index_read) {
 				if (this->context.ub_replicated_rmw) {
+					const bool sampled = UBReplicaProfile::sample_lookup();
+					UBReplicaProfile::LookupSample profile;
+					UBReplicaProfile::Clock::time_point start;
+					if (sampled) start = UBReplicaProfile::Clock::now();
 					auto local = table->search(key);
+					if (sampled) {
+						profile.local_lookup_ns = UBReplicaProfile::elapsed_ns(start);
+						if (write_lock) start = UBReplicaProfile::Clock::now();
+					}
 					auto peer = write_lock ? table->search_replica(key) :
 						std::make_tuple(nullptr, nullptr);
+					if (sampled && write_lock)
+						profile.peer_lookup_ns = UBReplicaProfile::elapsed_ns(start);
 					success = false;
 					remote = false;
-					if (std::get<0>(local) == nullptr || std::get<1>(local) == nullptr)
+					if (std::get<0>(local) == nullptr || std::get<1>(local) == nullptr) {
+						if (sampled) UBReplicaProfile::record_lookup(write_lock, profile);
 						return 0;
+					}
 					cached_local_row = local;
 					if (!write_lock) {
-						return twopl_pasha_global_helper->take_read_lock_and_read(
+						UBPointProfile::Sample read_profile;
+						const uint64_t version = twopl_pasha_global_helper->take_read_lock_and_read(
 							local, value, table->value_size(), success,
-							this->n_local_cxl_access);
+							this->n_local_cxl_access, sampled ? &read_profile : nullptr);
+						if (sampled) {
+							profile.found = true;
+							profile.success = success;
+							profile.lock_read_ns = read_profile.lock_ns;
+							profile.local_copy_ns = read_profile.copy_ns;
+							UBReplicaProfile::record_lookup(false, profile);
+						}
+						return version;
 					}
-					if (std::get<0>(peer) == nullptr || std::get<1>(peer) == nullptr)
+					if (std::get<0>(peer) == nullptr || std::get<1>(peer) == nullptr) {
+						if (sampled) UBReplicaProfile::record_lookup(true, profile);
 						return 0;
+					}
+					profile.found = true;
 					const uint32_t local_region = ub_memory.local_region_id();
 					const uint32_t peer_region = 1U - local_region;
 					const UBGlobalPtr local_ptr = ub_memory.to_global(
 						local_region, UBTupleHeader::from_version(std::get<0>(local)));
 					const UBGlobalPtr peer_ptr = ub_memory.to_global(
 						peer_region, UBTupleHeader::from_version(std::get<0>(peer)));
+					if (sampled) start = UBReplicaProfile::Clock::now();
 					auto guard = std::make_shared<UBReplicatedTuple::WriteGuard>(
 						UBReplicaTupleView{UBTupleHeader::from_version(std::get<0>(local)),
 							std::get<1>(local), local_region, local_ptr.generation},
 						UBReplicaTupleView{UBTupleHeader::from_version(std::get<0>(peer)),
 							std::get<1>(peer), peer_region, peer_ptr.generation},
 						local_ptr.generation, peer_ptr.generation);
-					if (!guard->acquired())
+					if (sampled) profile.lock_read_ns = UBReplicaProfile::elapsed_ns(start);
+					if (!guard->acquired()) {
+						if (sampled) UBReplicaProfile::record_lookup(true, profile);
 						return 0;
+					}
 					uint64_t version = 0;
-					if (!guard->read_local(value, table->value_size(), version))
+					if (sampled) start = UBReplicaProfile::Clock::now();
+					if (!guard->read_local(value, table->value_size(), version)) {
+						if (sampled) UBReplicaProfile::record_lookup(true, profile);
 						return 0;
+					}
+					if (sampled) {
+						profile.local_copy_ns = UBReplicaProfile::elapsed_ns(start);
+						profile.success = true;
+						UBReplicaProfile::record_lookup(true, profile);
+					}
 					txn.readSet[key_offset].set_replica_guard(guard);
 					success = true;
 					return version;
