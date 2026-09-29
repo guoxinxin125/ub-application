@@ -72,6 +72,7 @@ class MatrixScriptTests(unittest.TestCase):
         self.assertIn("taskset -c 4-6", result.stdout)
         self.assertIn("rmw_tuple_cache=0", result.stdout)
         self.assertIn("replicated_rmw=0", result.stdout)
+        self.assertIn("replica_lookup_dir=0", result.stdout)
         self.assertIn("--ub_replicated_rmw=false", result.stdout)
         env["TIGON_UB_RMW_TUPLE_CACHE"] = "1"
         cached = subprocess.run(
@@ -88,8 +89,16 @@ class MatrixScriptTests(unittest.TestCase):
             env=env, text=True, capture_output=True, check=True,
         )
         self.assertIn("replicated_rmw=1", replicated.stdout)
+        self.assertIn("replica_lookup_dir=1", replicated.stdout)
         self.assertIn("--ub_replicated_rmw=true", replicated.stdout)
         self.assertIn("_rep", replicated.stdout)
+        env["TIGON_UB_REPLICA_LOOKUP_DIR"] = "0"
+        uncached = subprocess.run(
+            [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
+             "0", "h0:30000;h1:30000", "u12345678"],
+            env=env, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("replica_lookup_dir=0", uncached.stdout)
 
     @unittest.skipUnless(BASH, "bash is required")
     def test_replica_rejects_non_rmw(self) -> None:

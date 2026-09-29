@@ -105,7 +105,12 @@ class Database {
 						ycsb::KeyComparator, ycsb::ValueComparator> >(
 							 ycsbTableID, partitionID, context.ub_index_buckets,
 							 context.workloadType == YCSBWorkloadType::RMW,
-							 context.ub_replicated_rmw));
+							 context.ub_replicated_rmw,
+							 context.ub_replicated_rmw ? context.keysPerPartition : 0,
+							 context.strategy == PartitionStrategy::ROUND_ROBIN
+								? partitionID : partitionID * context.keysPerPartition,
+							 context.strategy == PartitionStrategy::ROUND_ROBIN
+								? partitionNum : 1));
 			} else if (context.protocol == "Sundial") {
 				tbl_ycsb_vec.push_back(
 					std::make_unique<TableBTreeOLC<ycsb::key, ycsb::value, ycsb::KeyComparator, ycsb::ValueComparator, MetaInitFuncSundial> >(ycsbTableID, partitionID));

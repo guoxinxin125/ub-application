@@ -1,5 +1,6 @@
 #include "core/UBBPlusTree.h"
 #include "common/UBTupleOffsetCache.h"
+#include "common/UBReplicaLookupDirectory.h"
 
 #include <atomic>
 #include <cstdint>
@@ -358,6 +359,23 @@ int main()
         require(cached_lookup(stable_key).node == stable.node &&
                         offset_cache.lookup(&tree, stable_key.value).generation == current.generation,
                 "stale generation was not discarded and refreshed");
+
+        // Dense replica directory supports both YCSB partition layouts.
+        star::UBReplicaLookupDirectory range_directory(4, 100, 1);
+        const star::UBGlobalPtr tuple_pointer =
+                star::ub_memory.to_global(0, stable.node);
+        require(range_directory.remember(101, tuple_pointer),
+                "range directory rejected an in-range key");
+        require(range_directory.lookup(101).offset == tuple_pointer.offset &&
+                        !range_directory.lookup(100) &&
+                        !range_directory.lookup(104),
+                "range directory returned an incorrect tuple");
+        star::UBReplicaLookupDirectory round_robin_directory(4, 1, 2);
+        require(round_robin_directory.remember(5, tuple_pointer) &&
+                        round_robin_directory.lookup(5).offset == tuple_pointer.offset &&
+                        !round_robin_directory.lookup(4) &&
+                        !round_robin_directory.remember(9, tuple_pointer),
+                "round-robin directory accepted a foreign/out-of-range key");
 
         star::UBPointProfile::Sample lookup_profile;
         {

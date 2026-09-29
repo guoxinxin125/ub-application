@@ -33,6 +33,7 @@ dry_run=${UB_TIGON_DRY_RUN:-0}
 repetition=${UB_TIGON_REPETITION:-}
 rmw_tuple_cache=${TIGON_UB_RMW_TUPLE_CACHE:-0}
 replicated_rmw=${TIGON_UB_REPLICATED_RMW:-0}
+replica_lookup_dir=${TIGON_UB_REPLICA_LOOKUP_DIR:-1}
 
 require_uint() { [[ "$2" =~ ^[0-9]+$ ]] || { echo "$1 must be a non-negative integer" >&2; exit 2; }; }
 require_percent() { require_uint "$1" "$2"; (( $2 <= 100 )) || { echo "$1 must be in [0,100]" >&2; exit 2; }; }
@@ -55,6 +56,9 @@ require_percent cross_ratio "$cross_ratio"
 }
 [[ "$replicated_rmw" == 0 || "$replicated_rmw" == 1 ]] || {
   echo "TIGON_UB_REPLICATED_RMW must be 0 or 1" >&2; exit 2;
+}
+[[ "$replica_lookup_dir" == 0 || "$replica_lookup_dir" == 1 ]] || {
+  echo "TIGON_UB_REPLICA_LOOKUP_DIR must be 0 or 1" >&2; exit 2;
 }
 if [[ "$replicated_rmw" == 1 && "$rmw_tuple_cache" == 1 ]]; then
   echo "TIGON_UB_RMW_TUPLE_CACHE must be 0 in replica mode (all reads are local)" >&2
@@ -82,7 +86,7 @@ run_one() {
   [[ "$replicated_rmw" == 0 ]] || replica_tag="_rep"
   local prefix="${prefix_base}_${mode}_${query}_${transport_name}${replica_tag}"
   (( ${#prefix} <= 35 )) || { echo "UB region prefix exceeds 35 bytes: $prefix" >&2; exit 2; }
-  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off rmw_tuple_cache=$cache_active replicated_rmw=$replicated_rmw"
+  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off rmw_tuple_cache=$cache_active replicated_rmw=$replicated_rmw replica_lookup_dir=$([[ $replicated_rmw == 1 ]] && echo "$replica_lookup_dir" || echo 0)"
   local command=("$binary" "--id=$id" "--servers=$servers" --protocol=TwoPLPasha
     "--partition_num=$partitions" "--threads=$threads" --io=1 --shared_memory_backend=ub
     "--ub_memory_mode=$mode" "--ub_region_prefix=$prefix" "--ub_region_mb=$region_mb"

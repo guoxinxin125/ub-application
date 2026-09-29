@@ -5,6 +5,7 @@
 #include "common/StringPiece.h"
 #include "common/UBMemory.h"
 #include "common/UBPointProfile.h"
+#include "common/UBReplicaLookupDirectory.h"
 #include "common/UBTupleOffsetCache.h"
 #include "core/Table.h"
 #include "core/UBBPlusTree.h"
@@ -13,8 +14,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <thread>
 #include <tuple>
+#include <glog/logging.h>
 
 namespace star
 {
@@ -30,7 +34,10 @@ class TableUBBPlusTree : public ITable {
         TableUBBPlusTree(std::size_t table_id, std::size_t partition_id,
                          uint64_t index_size_hint = 0,
                          bool enable_rmw_cache = false,
-                         bool replicated_rmw = false)
+                         bool replicated_rmw = false,
+                         std::size_t replica_key_count = 0,
+                         uint64_t replica_first_key = 0,
+                         uint64_t replica_key_stride = 1)
                 : table_id_(table_id)
                 , partition_id_(partition_id)
                 , owner_region_(replicated_rmw ? ub_memory.local_region_id() :
@@ -39,6 +46,11 @@ class TableUBBPlusTree : public ITable {
                         UBGlobalPtr::null_region)
                 , index_size_hint_(index_size_hint)
                 , replicated_rmw_(replicated_rmw)
+                , replica_key_count_(replica_key_count)
+                , replica_first_key_(replica_first_key)
+                , replica_key_stride_(replica_key_stride)
+                , replica_lookup_enabled_(replicated_rmw && replica_key_count != 0 &&
+                        replica_lookup_requested())
                 , rmw_cache_enabled_(enable_rmw_cache &&
                         ub_memory.memory_mode() == UBMemory::MemoryMode::ONE_SIDED &&
                         cache_requested())
@@ -122,15 +134,69 @@ class TableUBBPlusTree : public ITable {
         {
                 if (!replicated_rmw_)
                         return std::make_tuple(nullptr, nullptr);
-                auto *descriptor = peer_descriptor_.load(std::memory_order_acquire);
-                if (descriptor == nullptr) {
-                        while ((descriptor = NativeTree::find(
-                                        peer_region_, table_id_, partition_id_)) == nullptr)
-                                std::this_thread::yield();
-                        peer_descriptor_.store(descriptor, std::memory_order_release);
+                const KeyType &typed_key = *static_cast<const KeyType *>(key);
+                if (!replica_lookup_enabled_) {
+                        auto *descriptor = peer_descriptor_.load(std::memory_order_acquire);
+                        if (descriptor == nullptr) {
+                                descriptor = find_peer_descriptor();
+                                peer_descriptor_.store(descriptor, std::memory_order_release);
+                        }
+                        const auto ref = NativeTree(descriptor).search(typed_key);
+                        if (!ref)
+                                return std::make_tuple(nullptr, nullptr);
+                        return std::make_tuple(&ref.header->version,
+                                               static_cast<void *>(ref.value));
                 }
-                NativeTree peer_tree(descriptor);
-                const auto ref = peer_tree.search(*static_cast<const KeyType *>(key));
+                if (replica_lookup_enabled_) {
+                        auto directory = std::atomic_load_explicit(
+                                &replica_directory_, std::memory_order_acquire);
+                        if (!directory ||
+                            ub_memory.resolve(directory->descriptor_ptr,
+                                    sizeof(typename NativeTree::Descriptor)) == nullptr) {
+                                std::lock_guard<std::mutex> guard(replica_directory_mutex_);
+                                directory = std::atomic_load_explicit(
+                                        &replica_directory_, std::memory_order_acquire);
+                                if (!directory ||
+                                    ub_memory.resolve(directory->descriptor_ptr,
+                                            sizeof(typename NativeTree::Descriptor)) == nullptr) {
+                                        auto *descriptor = find_peer_descriptor();
+                                        auto fresh = std::make_shared<ReplicaDirectory>(
+                                                replica_key_count_, replica_first_key_,
+                                                replica_key_stride_,
+                                                ub_memory.to_global(peer_region_, descriptor));
+                                        NativeTree(descriptor).scan(KeyType{},
+                                                [&](const typename NativeTree::TupleRef &ref) {
+                                                        if (fresh->keys.remember(ref.key->get_plain_key(),
+                                                                ub_memory.to_global(peer_region_, ref.node)))
+                                                                ++fresh->entry_count;
+                                                        return false;
+                                                });
+                                        directory = fresh;
+                                        std::atomic_store_explicit(&replica_directory_,
+                                                std::shared_ptr<const ReplicaDirectory>(fresh),
+                                                std::memory_order_release);
+                                        LOG(INFO) << "UB_REPLICA_LOOKUP_DIR table=" << table_id_
+                                                  << " partition=" << partition_id_
+                                                  << " entries=" << fresh->entry_count
+                                                  << " expected=" << replica_key_count_
+                                                  << " generation=" << fresh->descriptor_ptr.generation;
+                                }
+                        }
+                        const UBGlobalPtr cached = directory->keys.lookup(
+                                typed_key.get_plain_key());
+                        if (cached) {
+                                auto *node = ub_memory.resolve_as<typename NativeTree::TupleNode>(cached);
+                                if (node != nullptr &&
+                                    node->tuple.valid.load(std::memory_order_acquire) == 1 &&
+                                    KeyComparator()(node->key, typed_key) == 0)
+                                        return std::make_tuple(&node->tuple.version,
+                                                               static_cast<void *>(&node->value));
+                        }
+                }
+                // Missing/invalid keys are never trusted as negative cache
+                // entries. This also handles a later insertion or tombstone.
+                NativeTree peer_tree(find_peer_descriptor());
+                const auto ref = peer_tree.search(typed_key);
                 if (!ref)
                         return std::make_tuple(nullptr, nullptr);
                 return std::make_tuple(&ref.header->version,
@@ -323,6 +389,30 @@ class TableUBBPlusTree : public ITable {
                 return value != nullptr && value[0] == '1' && value[1] == '\0';
         }
 
+        static bool replica_lookup_requested()
+        {
+                const char *value = std::getenv("TIGON_UB_REPLICA_LOOKUP_DIR");
+                return value == nullptr || !(value[0] == '0' && value[1] == '\0');
+        }
+
+        typename NativeTree::Descriptor *find_peer_descriptor() const
+        {
+                typename NativeTree::Descriptor *descriptor;
+                while ((descriptor = NativeTree::find(
+                                peer_region_, table_id_, partition_id_)) == nullptr)
+                        std::this_thread::yield();
+                return descriptor;
+        }
+
+        struct ReplicaDirectory {
+                ReplicaDirectory(std::size_t count, uint64_t first_key,
+                                 uint64_t stride, UBGlobalPtr descriptor)
+                        : keys(count, first_key, stride), descriptor_ptr(descriptor) {}
+                UBReplicaLookupDirectory keys;
+                UBGlobalPtr descriptor_ptr;
+                std::size_t entry_count = 0;
+        };
+
         static UBTupleOffsetCache &local_cache()
         {
                 static thread_local UBTupleOffsetCache cache;
@@ -353,11 +443,17 @@ class TableUBBPlusTree : public ITable {
         uint32_t peer_region_;
         uint64_t index_size_hint_;
         bool replicated_rmw_;
+        std::size_t replica_key_count_;
+        uint64_t replica_first_key_;
+        uint64_t replica_key_stride_;
+        bool replica_lookup_enabled_;
         bool rmw_cache_enabled_;
         typename NativeTree::Descriptor *descriptor_ = nullptr;
         UBGlobalPtr descriptor_ptr_;
         NativeTree tree_;
         std::atomic<typename NativeTree::Descriptor *> peer_descriptor_{nullptr};
+        std::mutex replica_directory_mutex_;
+        std::shared_ptr<const ReplicaDirectory> replica_directory_;
 };
 
 } // namespace star

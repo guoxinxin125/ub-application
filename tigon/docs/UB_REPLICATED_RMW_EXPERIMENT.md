@@ -71,6 +71,17 @@ checksums differ or are missing. The checksum excludes the internal `INT32_MAX`
 next-key-locking sentinel in each partition: with two partitions and 300000
 configured keys per partition, the expected count is 600000.
 
+For fixed-key YCSB RMW, the first write to each local table builds a
+process-local dense key-to-peer-tuple directory by scanning the peer's B+ tree
+once. Later writes use the saved generation-tagged tuple offset instead of
+traversing the remote tree. Every hit still resolves the current region
+generation and checks the tuple key and valid bit; neither values nor locks
+are cached. A miss or invalid entry falls back to the peer tree. This changes
+neither two-copy locking nor version publication. The directory is enabled by
+default only in replica RMW mode; set `TIGON_UB_REPLICA_LOOKUP_DIR=0` on both
+hosts to use the old per-write peer lookup for an A/B run. The first scan can
+be expensive, so retain the normal 30-second warmup for throughput runs.
+
 The following remain hardware-validation gates or unsupported cases:
 
 1. Prove remote NC write/readback ordering against the peer's WB owner mapping
