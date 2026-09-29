@@ -117,14 +117,14 @@ int main(int argc, char *argv[])
 					hash *= 1099511628211ULL;
 				}
 			};
-			star::ycsb::key first(0);
+			star::ycsb::ycsb::key first(0);
 			for (std::size_t partition = 0; partition < context.partition_num; ++partition) {
-				auto *table = db.find_table(star::ycsb::tableID, partition);
+				auto *table = db.find_table(star::ycsb::ycsb::tableID, partition);
 				table->scan(&first, [&](const void *key, star::ITable::MetaDataType *meta,
 							void *value, bool) {
 					// Each partition has an internal +infinity row for next-key
 					// locking. It is not one of the configured YCSB keys.
-					if (static_cast<const star::ycsb::key *>(key)->Y_KEY ==
+					if (static_cast<const star::ycsb::ycsb::key *>(key)->Y_KEY ==
 					    std::numeric_limits<int32_t>::max())
 						return false;
 					mix(key, table->key_size());
