@@ -1,0 +1,72 @@
+2026/09/29 10:11:03.0542: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+Rpc 9: Created Server session_num = 0 for client [H: 76.53.137.98:31857, R: 27, S: 2] from 76.53.137.98 (rpc 27)
+Rpc 9: Created Server session_num = 1 for client [H: 76.53.137.98:31856, R: 26, S: 2] from 76.53.137.98 (rpc 26)
+Rpc 9: Created Server session_num = 2 for client [H: 76.53.137.99:31855, R: 25, S: 7] from 76.53.137.99 (rpc 25)
+Rpc 9: Created Server session_num = 3 for client [H: 76.53.137.99:31851, R: 21, S: 1] from 76.53.137.99 (rpc 21)
+2026/09/29 10:11:04.0064: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:04.0564: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:05.0064: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:05.0564: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:06.0064: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:06.0564: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:07.0064: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:07.0564: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:08.0068: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:08.0568: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:09.0068: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:09.0568: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:10.0068: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:10.0568: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:11.0068: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:11.0568: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:12.0072: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:12.0572: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:13.0072: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:13.0572: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:14.0072: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:14.0572: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:15.0072: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:15.0572: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:16.0076: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:16.0576: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:17.0076: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:17.0576: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:18.0076: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:18.0576: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:19.0076: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:19.0576: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:20.0080: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:20.0580: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:21.0080: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:21.0580: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:22.0080: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:22.0580: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:23.0080: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:23.0580: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:24.0084: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:24.0584: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:25.0084: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:25.0584: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:26.0084: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:26.0584: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:27.0084: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:27.0584: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:28.0088: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:28.0588: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:29.0088: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:29.0588: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:30.0088: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:30.0588: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:31.0088: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:31.0588: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:32.0092: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:32.0592: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:33.0092: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:33.0592: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+post_storage mongodb init finished. loaded 0 posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+2026/09/29 10:11:34.0092: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+2026/09/29 10:11:44.0092: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014
+post_storage released 1500 stored posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+2026/09/29 10:11:54.0092: [40285]:    DEBUG:      monitor: [127.0.0.1:20014] command or network error occurred: Failed to connect to target host: 127.0.0.1:20014

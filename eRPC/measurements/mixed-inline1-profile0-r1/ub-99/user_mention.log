@@ -1,0 +1,67 @@
+2026/09/29 10:10:51.0324: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:51.0824: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:52.0324: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:52.0824: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:53.0329: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+Rpc 8: Created Server session_num = 0 for client [H: 76.53.137.99:31855, R: 25, S: 3] from 76.53.137.99 (rpc 25)
+2026/09/29 10:10:53.0831: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:54.0337: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:54.0841: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:55.0345: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:55.0849: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:56.0353: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:56.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:57.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:57.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:58.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:58.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:59.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:10:59.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:00.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:00.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:01.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:01.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:02.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:02.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:03.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:03.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:04.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:04.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:05.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:05.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:06.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:06.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:07.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:07.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:08.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:08.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:09.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:09.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:10.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:10.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:11.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:11.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:12.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:12.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:13.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:13.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:14.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:14.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect toUB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+ target host: 76.53.137.98:20011
+2026/09/29 10:11:15.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:15.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:16.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:16.0856: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:17.0356: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:17.0857: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:18.0361: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:18.0865: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:19.0369: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:19.0873: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:20.0377: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:20.0881: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+[user_mention] mongodb init finished! Total user num: 0
+2026/09/29 10:11:21.0385: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:31.0389: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
+2026/09/29 10:11:41.0393: [567074]:    DEBUG:      monitor: [76.53.137.98:20011] command or network error occurred: Failed to connect to target host: 76.53.137.98:20011
