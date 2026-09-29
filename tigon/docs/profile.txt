@@ -1,0 +1,22 @@
+===== host=0 file=/home/gxx/ub-application/tigon/results/replica_profile_cache/ub_ycsb_replica_profile_cache_y_rw95_c100_r1_host0_one-sided_rmw_ubq_rep.log =====
+===== 配置、目录、计时、吞吐、校验、结束状态 =====
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_profile_cache_y_rw95_c100_r1 host_id=0 repetition=1 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=10 total_seconds=15 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 12:53:24.059754 116352 UBBPlusTreeAdapter.h:178] UB_REPLICA_LOOKUP_DIR table=0 partition=0 entries=300000 expected=300000 generation=3046041880
+I20260929 12:53:25.061734 116351 UBBPlusTreeAdapter.h:178] UB_REPLICA_LOOKUP_DIR table=0 partition=1 entries=300000 expected=300000 generation=3046041880
+I20260929 12:53:38.088388 116294 Coordinator.h:382] UB_REPLICA_LOOKUP_PROFILE op=write period=256 phase=all_including_warmup samples=2708 found=2708 success=2698 local_lookup_avg_ns=757 peer_lookup_avg_ns=2706 lock_read_avg_ns=3355 local_copy_avg_ns=524
+I20260929 12:53:38.088424 116294 Coordinator.h:723] Global Stats: total_commit: 212606 total_size_index_usage: 0 total_size_metadata_usage: 0 total_size_data_usage: 0 total_size_transport_usage: 0 total_size_misc_usage: 0 total_hw_cc_usage: 0 total_usage: 0
+I20260929 12:53:40.596204 116294 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=226deadbbd044a46
+TIGON_RUN_END run_id=replica_profile_cache_y_rw95_c100_r1 host_id=0 status=ok exit_code=0
+I20260929 12:53:38.075799 116294 Coordinator.h:353] average commit: 105570 abort: 383.8 (0/383.8/0), abort_rate: 0.00362234, network size: 0, avg network size: 0, si_in_serializable: 0 0 %, local: 0 %, local_access: 0, local_cxl_access: 0 (nan%), remote_access: 0, remote_access_with_req: 0 (nan%), data_move_in: 0, data_move_out: 0
+===== 错误（无输出表示未匹配到） =====
+
+===== host=1 file=/home/gxx/ub-application/tigon/results/replica_profile_cache/ub_ycsb_replica_profile_cache_y_rw95_c100_r1_host1_one-sided_rmw_ubq_rep.log =====
+===== 配置、目录、计时、吞吐、校验、结束状态 =====
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_profile_cache_y_rw95_c100_r1 host_id=1 repetition=1 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=5 run_seconds=10 total_seconds=15 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 12:53:14.460269 647554 UBBPlusTreeAdapter.h:178] UB_REPLICA_LOOKUP_DIR table=0 partition=1 entries=300000 expected=300000 generation=1207786172
+I20260929 12:53:14.460558 647552 UBBPlusTreeAdapter.h:178] UB_REPLICA_LOOKUP_DIR table=0 partition=0 entries=300000 expected=300000 generation=1207786172
+I20260929 12:53:28.289047 647485 Coordinator.h:382] UB_REPLICA_LOOKUP_PROFILE op=write period=256 phase=all_including_warmup samples=2805 found=2805 success=2730 local_lookup_avg_ns=659 peer_lookup_avg_ns=844911 lock_read_avg_ns=4266 local_copy_avg_ns=303
+I20260929 12:53:30.602733 647485 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=226deadbbd044a46
+TIGON_RUN_END run_id=replica_profile_cache_y_rw95_c100_r1 host_id=1 status=ok exit_code=0
+I20260929 12:53:28.278431 647485 Coordinator.h:353] average commit: 107036 abort: 383.5 (0/383.5/0), abort_rate: 0.0035701, network size: 0, avg network size: 0, si_in_serializable: 0 0 %, local: 0 %, local_access: 0, local_cxl_access: 0 (nan%), remote_access: 0, remote_access_with_req: 0 (nan%), data_move_in: 0, data_move_out: 0
+===== 错误（无输出表示未匹配到） =====
