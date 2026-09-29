@@ -1,0 +1,46 @@
+grep -hE 'TIGON_RUN_META|UB_REPLICA_(LOOKUP|COMMIT)_PROFILE|UB_REPLICA_CHECKSUM|TIGON_RUN_END'   "$UB_RESULT_DIR"/ub_ycsb_*.log
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce01_y_rw95_c0_r1 host_id=0 repetition=1 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=0 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:02:36.320230 119903 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=b3eeb59e2a825001
+TIGON_RUN_END run_id=replica_formal-cahce01_y_rw95_c0_r1 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce01_y_rw95_c0_r2 host_id=0 repetition=2 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=0 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:05:03.347636 120961 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=f403959496ddc700
+TIGON_RUN_END run_id=replica_formal-cahce01_y_rw95_c0_r2 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce01_y_rw95_c0_r3 host_id=0 repetition=3 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=0 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:07:29.139480 122014 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=52bf264c46238001
+TIGON_RUN_END run_id=replica_formal-cahce01_y_rw95_c0_r3 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce01_y_rw95_c100_r1 host_id=0 repetition=1 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:03:49.494143 120438 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=f87bdd266626589b
+TIGON_RUN_END run_id=replica_formal-cahce01_y_rw95_c100_r1 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce01_y_rw95_c100_r2 host_id=0 repetition=2 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:06:16.387501 121499 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=84990f4da8351ae4
+TIGON_RUN_END run_id=replica_formal-cahce01_y_rw95_c100_r2 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce01_y_rw95_c100_r3 host_id=0 repetition=3 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=100 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:08:41.859858 122534 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=f0e8d2b4d1e25f62
+TIGON_RUN_END run_id=replica_formal-cahce01_y_rw95_c100_r3 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c25_r1 host_id=0 repetition=1 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=25 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:21:05.751911 127807 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=dbc2e8a7589abfff
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c25_r1 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c25_r2 host_id=0 repetition=2 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=25 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:24:45.603363 129401 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=c7c267bb9c73f093
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c25_r2 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c25_r3 host_id=0 repetition=3 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=25 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:28:27.251165 131005 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=696d00ac37035948
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c25_r3 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c50_r1 host_id=0 repetition=1 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=50 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:22:18.916292 128365 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=9ea389a7f2d3f26f
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c50_r1 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c50_r2 host_id=0 repetition=2 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=50 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:25:59.409479 129942 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=720ed1797bc11cf8
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c50_r2 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c50_r3 host_id=0 repetition=3 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=50 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:29:40.564090 131514 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=81a36aa9e6c5d172
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c50_r3 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c75_r1 host_id=0 repetition=1 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=75 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:23:32.518626 128899 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=4ae2730f46dda2d5
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c75_r1 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c75_r2 host_id=0 repetition=2 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=75 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:27:12.855351 130468 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=e708e0ef337958df
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c75_r2 host_id=0 status=ok exit_code=0
+TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c75_r3 host_id=0 repetition=3 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=75 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
+I20260929 13:30:54.451061 132045 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=e2c33aea1ffa1c5e
+TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c75_r3 host_id=0 status=ok exit_code=0
