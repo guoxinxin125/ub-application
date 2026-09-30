@@ -1,0 +1,7 @@
+system,workload,mode,query,transport,partitions,workers,keys,rw_ratio,zipf,cross_ratio,neworder_dist,payment_dist,warmup_seconds,run_seconds,total_seconds,logging,rmw_tuple_cache,rmw_lookup_dir,replicated_rmw,samples,throughput_mean_txn_s,throughput_median_txn_s,throughput_min_txn_s,throughput_max_txn_s,abort_rate_mean,remote_efficiency_vs_local
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,50,0.7,0,,,30,30,60,off,0,1,0,3,97849.43333333333,97841.4,97799.2,97907.7,0.0171443,1.0
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,50,0.7,100,,,30,30,60,off,0,1,0,3,46101.86666666667,46189.4,44744.0,47372.2,0.020501033333333335,0.4720844141641473
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,50,0.7,50,,,30,30,60,off,0,1,0,3,56234.73333333334,56248.1,56102.4,56353.7,0.022183266666666663,0.574890588237699
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,95,0.7,0,,,30,30,60,off,0,1,0,3,327860.0,327960.0,327381.0,328239.0,0.0025687266666666667,1.0
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,95,0.7,100,,,30,30,60,off,0,1,0,3,73671.09999999999,73784.4,70655.1,76573.8,0.004134816666666667,0.22497987559458468
+ub,ycsb,one-sided,rmw,ubq,2,3,300000,95,0.7,50,,,30,30,60,off,0,1,0,3,106673.0,106732.0,106117.0,107170.0,0.0033436933333333336,0.3254421270886694
