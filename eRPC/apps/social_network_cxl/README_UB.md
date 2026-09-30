@@ -114,8 +114,16 @@ include timestamp overhead and should not be treated as uninstrumented latency.
   including scheduling delay.
 - `timeline_rx_*` and `timeline_worker_*` in the Home/User Timeline logs
   separate receive-side handoff from post-ID lookup plus result construction.
-  In UB read handlers, `timeline_rx_copy` replaces the earlier
-  `timeline_rx_pin`; `timeline_worker_release` now frees the local copy.
+  With `ERPC_SN_TIMELINE_INLINE=1` on the Timeline host, `timeline_rx_copy`
+  copies the small read request into a by-value worker-queue item without
+  allocating or pinning a MsgBuffer. `timeline_worker_release` therefore has
+  no sample for these inline reads. The default (`0` or unset) retains the
+  previous local MsgBuffer clone and its worker-side release for A/B testing.
+  Write requests and callbacks retain their existing MsgBuffer ownership and
+  share the same ordered worker queue with reads.
+  Set `ERPC_SN_TIMELINE_INLINE=1` before starting Home/User Timeline on the
+  Timeline host, then compare against `0` with the same workload and CPU/NUMA
+  bindings; their logs print `SN_UB_TIMELINE_INLINE=1` or `0`.
   `timeline_queue_handoff` measures server-thread push to worker-thread pop;
   `timeline_forward_queue_handoff` measures worker-thread push to client-RPC-
   thread pop. They include scheduling delay, not just queue instructions.

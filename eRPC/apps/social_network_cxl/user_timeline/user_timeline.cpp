@@ -50,7 +50,8 @@ void ping_handler(erpc::ReqHandle *req_handle, void *_context)
 
     ctx->init_mutex.lock();
     if(ctx->mongodb_init_finished.load(std::memory_order_acquire)){
-        ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
+        timeline_push_msgbuf(ctx->forward_all_mpmc_queue,
+                             pin_msgbuf(ctx->rpc_, *req_msgbuf));
         
     } else {
         ctx->is_pinged = true;
@@ -84,7 +85,8 @@ void user_timeline_write_req_handler(erpc::ReqHandle *req_handle, void *_context
 //        ctx->rpc_->free_msg_buffer(ctx->req_backward_msgbuf_ptr[req->req_common.req_number % kAppMaxBuffer]);
 //    }
 
-    ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
+    timeline_push_msgbuf(ctx->forward_all_mpmc_queue,
+                         pin_msgbuf(ctx->rpc_, *req_msgbuf));
     
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
@@ -116,9 +118,13 @@ void user_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
 
     const uint64_t pin_start = sn_profile::start();
 #ifdef ERPC_UB
-    // The worker only needs this small request. Copy it locally instead of
-    // holding another reference to the borrowed remote payload.
-    erpc::MsgBuffer pinned = clone_msgbuf_with_header(ctx->rpc_, *req_msgbuf);
+    TimelineWorkItem read_item;
+    if (timeline_inline_enabled()) {
+        // The queue owns a by-value copy after RX acknowledgement.
+        timeline_fill_inline_read(&read_item, *req_msgbuf);
+    } else {
+        read_item.msgbuf = clone_msgbuf_with_header(ctx->rpc_, *req_msgbuf);
+    }
     sn_profile::record(sn_profile::Stage::kTimelineRxCopy, pin_start);
 #else
     erpc::MsgBuffer pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
@@ -130,7 +136,11 @@ void user_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
         ctx->read_queue_start_ns[slot].store(queue_start,
                                               std::memory_order_relaxed);
     }
-    ctx->forward_all_mpmc_queue->push(pinned);
+#ifdef ERPC_UB
+    ctx->forward_all_mpmc_queue->push(read_item);
+#else
+    timeline_push_msgbuf(ctx->forward_all_mpmc_queue, pinned);
+#endif
     sn_profile::record(sn_profile::Stage::kTimelineRxQueue, queue_start);
     
 
@@ -154,7 +164,8 @@ void post_storage_read_resp_handler(erpc::ReqHandle *req_handle, void *_context)
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, 0);
 
-    ctx->forward_all_mpmc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
+    timeline_push_msgbuf(ctx->forward_all_mpmc_queue,
+                         pin_msgbuf(ctx->rpc_, *req_msgbuf));
     
 
     ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
@@ -443,7 +454,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
         }
     }
 }
-void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *consumer_back, MPMC_QUEUE *consumer_fwd, AppRpc *rpc_, AppRpc *server_rpc_, std::atomic<uint64_t> *read_queue_start_ns, std::atomic<uint64_t> *forward_queue_start_ns)
+void worker_thread_func(size_t thread_id, TIMELINE_WORK_QUEUE *producer, MPMC_QUEUE *consumer_back, MPMC_QUEUE *consumer_fwd, AppRpc *rpc_, AppRpc *server_rpc_, std::atomic<uint64_t> *read_queue_start_ns, std::atomic<uint64_t> *forward_queue_start_ns)
 {
     link_worker_cacheable(server_rpc_->get_rpc_id());
     // printf("[user_timeline] worker_thread_func %zu: STARTED, producer=%p\n", thread_id, (void*)producer);
@@ -451,12 +462,25 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
     _unused(rpc_);
     while (true)
     {
+#ifdef ERPC_UB
+        TimelineWorkItem work_item;
+        TimelineWorkItem &queue_item = work_item;
+#else
         erpc::MsgBuffer req_msg;
+        erpc::MsgBuffer &queue_item = req_msg;
+#endif
         for (size_t i = 0;
-             i < kAppMaxBuffer && producer->try_pop(req_msg);
+             i < kAppMaxBuffer && producer->try_pop(queue_item);
              i++) {
-
-            auto *req = reinterpret_cast<CommonReq *>(req_msg.buf_);
+#ifdef ERPC_UB
+            erpc::MsgBuffer &req_msg = work_item.msgbuf;
+            uint8_t *req_data = work_item.is_inline_read
+                                    ? work_item.inline_data.data()
+                                    : req_msg.buf_;
+#else
+            uint8_t *req_data = req_msg.buf_;
+#endif
+            auto *req = reinterpret_cast<CommonReq *>(req_data);
             // printf("[user_timeline] worker_thread_func: got msg type=%u\n", static_cast<uint32_t>(req->type));
             // printf("read req %u, type %u\n", req->req_number, static_cast<uint32_t>(req->type));
             my_assert(req->type == RPC_TYPE::RPC_PING || req->type == RPC_TYPE::RPC_USER_TIMELINE_WRITE_REQ ||
@@ -471,13 +495,18 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
                             0, std::memory_order_relaxed));
                 }
                 const uint64_t lookup_start = sn_profile::start();
-                read_post_details(req_msg.buf_,rpc_,consumer_fwd,consumer_back,forward_queue_start_ns);
+                read_post_details(req_data,rpc_,consumer_fwd,consumer_back,forward_queue_start_ns);
                 sn_profile::record(sn_profile::Stage::kTimelineWorkerLookupQueue,
                                    lookup_start);
-                const uint64_t release_start = sn_profile::start();
-                release_msgbuf(server_rpc_, req_msg);
-                sn_profile::record(sn_profile::Stage::kTimelineWorkerRelease,
-                                   release_start);
+#ifdef ERPC_UB
+                if (!work_item.is_inline_read)
+#endif
+                {
+                    const uint64_t release_start = sn_profile::start();
+                    release_msgbuf(server_rpc_, req_msg);
+                    sn_profile::record(sn_profile::Stage::kTimelineWorkerRelease,
+                                       release_start);
+                }
             } else if(req->type == RPC_TYPE::RPC_USER_TIMELINE_WRITE_REQ){
                 write_post_ids_and_return(req_msg.buf_,rpc_,consumer_back);
                 release_msgbuf(server_rpc_, req_msg);
@@ -560,7 +589,7 @@ void mongodb_init(AppContext *ctx){
             req->req_common.req_number = item->ping_req_number;
             req->req_control.timestamp = 0;
 
-            item->forward_all_mpmc_queue->push(_buf);
+            timeline_push_msgbuf(item->forward_all_mpmc_queue, _buf);
         }
 
 

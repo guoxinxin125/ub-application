@@ -142,6 +142,61 @@ inline erpc::MsgBuffer proxy_inline_materialize(AppRpc *rpc,
     return dst;
 }
 
+// Timeline workers also receive write requests and callbacks on this queue.
+// Keep their MsgBuffer ownership unchanged, while carrying small UB read
+// requests by value so the server can acknowledge and release the RX buffer.
+#ifdef ERPC_UB
+struct TimelineWorkItem {
+    erpc::MsgBuffer msgbuf{};
+    alignas(8) std::array<uint8_t, kProxyInlineBytes> inline_data{};
+    bool is_inline_read{};
+};
+static_assert(alignof(RPCMsgReq<UserTimeLineReq>) <= 8 &&
+                  alignof(RPCMsgReq<HomeTimeLineReq>) <= 8,
+              "timeline inline: request alignment exceeds inline storage");
+using TIMELINE_WORK_QUEUE = atomic_queue::AtomicQueueB2<
+    TimelineWorkItem, std::allocator<TimelineWorkItem>, true, false, false>;
+
+inline bool timeline_inline_enabled() {
+    static const bool enabled = [] {
+        const char *value = std::getenv("ERPC_SN_TIMELINE_INLINE");
+        if (value == nullptr || (value[0] == '0' && value[1] == '\0')) {
+            std::fprintf(stderr, "SN_UB_TIMELINE_INLINE=0\n");
+            return false;
+        }
+        if (value[0] == '1' && value[1] == '\0') {
+            std::fprintf(stderr, "SN_UB_TIMELINE_INLINE=1\n");
+            return true;
+        }
+        throw std::invalid_argument("ERPC_SN_TIMELINE_INLINE must be 0 or 1");
+    }();
+    return enabled;
+}
+
+inline void timeline_push_msgbuf(TIMELINE_WORK_QUEUE *queue,
+                                const erpc::MsgBuffer &msgbuf) {
+    TimelineWorkItem item;
+    item.msgbuf = msgbuf;
+    queue->push(item);
+}
+
+inline void timeline_fill_inline_read(TimelineWorkItem *item,
+                                     const erpc::MsgBuffer &msgbuf) {
+    const size_t size = msgbuf.get_data_size();
+    if (size > kProxyInlineBytes)
+        throw std::invalid_argument("timeline inline: read request too large");
+    item->is_inline_read = true;
+    if (size != 0) std::memcpy(item->inline_data.data(), msgbuf.buf_, size);
+}
+#else
+using TIMELINE_WORK_QUEUE = MPMC_QUEUE;
+
+inline void timeline_push_msgbuf(TIMELINE_WORK_QUEUE *queue,
+                                const erpc::MsgBuffer &msgbuf) {
+    queue->push(msgbuf);
+}
+#endif
+
 static constexpr size_t kAppMaxConcurrency = 128;
 static constexpr size_t kAppMaxRPC = 12;
 

@@ -34,7 +34,7 @@ public:
     ClientContext(size_t cid, size_t sid, size_t rid) : client_id_(cid), server_sender_id_(sid), server_receiver_id_(rid)
     {
         forward_mpmc_queue = new MPMC_QUEUE(kAppMaxBuffer);
-        forward_all_mpmc_queue = new MPMC_QUEUE(kAppMaxBuffer);
+        forward_all_mpmc_queue = new TIMELINE_WORK_QUEUE(kAppMaxBuffer);
         backward_mpmc_queue = new MPMC_QUEUE(kAppMaxBuffer);
     }
     ~ClientContext()
@@ -62,7 +62,7 @@ public:
     int post_storage_session_number{};
 
     MPMC_QUEUE *forward_mpmc_queue;
-    MPMC_QUEUE *forward_all_mpmc_queue;
+    TIMELINE_WORK_QUEUE *forward_all_mpmc_queue;
     MPMC_QUEUE *backward_mpmc_queue;
 };
 
@@ -95,7 +95,7 @@ public:
         stat_req_err_tot = 0;
     }
 
-    MPMC_QUEUE *forward_all_mpmc_queue{};
+    TIMELINE_WORK_QUEUE *forward_all_mpmc_queue{};
     std::atomic<uint64_t> *read_queue_start_ns{};
 
     erpc::MsgBuffer *req_forward_msgbuf_ptr{};
