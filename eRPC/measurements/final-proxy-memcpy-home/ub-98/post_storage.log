@@ -1,0 +1,8 @@
+Rpc 9: Created Server session_num = 0 for client [H: 76.53.137.98:31856, R: 26, S: 2] from 76.53.137.98 (rpc 26)
+Rpc 9: Created Server session_num = 1 for client [H: 76.53.137.98:31857, R: 27, S: 2] from 76.53.137.98 (rpc 27)
+Rpc 9: Created Server session_num = 2 for client [H: 76.53.137.99:31851, R: 21, S: 1] from 76.53.137.99 (rpc 21)
+Rpc 9: Created Server session_num = 3 for client [H: 76.53.137.99:31855, R: 25, S: 7] from 76.53.137.99 (rpc 25)
+post_storage mongodb init finished. loaded 9424 posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+post_storage released 9424 stored posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock

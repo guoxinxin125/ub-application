@@ -1,0 +1,8 @@
+SN_UB_POST_READ_MODE=contiguous
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+Rpc 1: Created Server session_num = 0 for client [H: 76.53.137.99:31850, R: 20, S: 1] from 76.53.137.99 (rpc 20)
+Rpc 1: Created Server session_num = 1 for client [H: 76.53.137.98:31859, R: 29, S: 0] from 76.53.137.98 (rpc 29)
+writing latency file ./latency1-write, count=2500
+writing latency file ./latency1-user, count=0
+writing latency file ./latency1-home, count=2500
