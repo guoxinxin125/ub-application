@@ -1,0 +1,22 @@
+SN_UB_TIMELINE_INLINE=1
+SN_UB_PROFILE thread=1277088726474271252 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=1277088726474271252 interval=1 stage=timeline_queue_handoff calls=1500 avg_ns=2934.0 p50_upper_ns=2048 p90_upper_ns=16384 p95_upper_ns=16384 p99_upper_ns=32768 max_ns=23880
+SN_UB_PROFILE thread=1277088726474271252 interval=1 stage=timeline_worker_lookup_queue calls=1500 avg_ns=641.8 p50_upper_ns=1024 p90_upper_ns=1024 p95_upper_ns=2048 p99_upper_ns=2048 max_ns=14760
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=5712578192392222967 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=5712578192392222967 interval=1 stage=timeline_forward_queue_handoff calls=1410 avg_ns=624.6 p50_upper_ns=1024 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=1260
+SN_UB_PROFILE thread=5712578192392222967 interval=1 stage=timeline_tx_prepare calls=1410 avg_ns=160.5 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=512 max_ns=2150
+SN_UB_PROFILE thread=5712578192392222967 interval=1 stage=timeline_tx_enqueue calls=1410 avg_ns=301.6 p50_upper_ns=512 p90_upper_ns=512 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=800
+SN_UB_PROFILE thread=5712578192392222967 interval=1 stage=timeline_storage_rtt calls=1410 avg_ns=3034.8 p50_upper_ns=4096 p90_upper_ns=4096 p95_upper_ns=4096 p99_upper_ns=8192 max_ns=49360
+SN_UB_PROFILE thread=5712578192392222967 interval=1 stage=timeline_callback_build calls=1410 avg_ns=236.4 p50_upper_ns=256 p90_upper_ns=256 p95_upper_ns=512 p99_upper_ns=512 max_ns=450
+SN_UB_PROFILE thread=5712578192392222967 interval=1 stage=timeline_callback_release calls=1410 avg_ns=155.5 p50_upper_ns=256 p90_upper_ns=256 p95_upper_ns=256 p99_upper_ns=512 max_ns=530
+SN_UB_PROFILE thread=5712578192392222967 interval=1 stage=timeline_callback_forward calls=1410 avg_ns=203.6 p50_upper_ns=128 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=13440
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=5969465245684455735 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=5969465245684455735 interval=1 stage=timeline_rx_copy calls=1500 avg_ns=2679.6 p50_upper_ns=1024 p90_upper_ns=16384 p95_upper_ns=16384 p99_upper_ns=32768 max_ns=282230
+SN_UB_PROFILE thread=5969465245684455735 interval=1 stage=timeline_rx_queue calls=1500 avg_ns=2736.2 p50_upper_ns=2048 p90_upper_ns=16384 p95_upper_ns=16384 p99_upper_ns=32768 max_ns=23710
+SN_UB_PROFILE thread=5969465245684455735 interval=1 stage=timeline_rx_ack calls=1500 avg_ns=1560.4 p50_upper_ns=2048 p90_upper_ns=2048 p95_upper_ns=2048 p99_upper_ns=16384 max_ns=17180
+[user_timeline] mongodb init finished! Total init 908 users
+Rpc 6: Created Server session_num = 0 for client [H: 76.53.137.98:31859, R: 29, S: 1] from 76.53.137.98 (rpc 29)
+Rpc 6: Created Server session_num = 1 for client [H: 76.53.137.99:31855, R: 25, S: 5] from 76.53.137.99 (rpc 25)
+Rpc 6: Created Server session_num = 2 for client [H: 76.53.137.99:31852, R: 22, S: 1] from 76.53.137.99 (rpc 22)

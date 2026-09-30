@@ -1,0 +1,23 @@
+Rpc 9: Created Server session_num = 0 for client [H: 76.53.137.98:31857, R: 27, S: 2] from 76.53.137.98 (rpc 27)
+Rpc 9: Created Server session_num = 1 for client [H: 76.53.137.98:31856, R: 26, S: 2] from 76.53.137.98 (rpc 26)
+Rpc 9: Created Server session_num = 2 for client [H: 76.53.137.99:31855, R: 25, S: 7] from 76.53.137.99 (rpc 25)
+Rpc 9: Created Server session_num = 3 for client [H: 76.53.137.99:31851, R: 21, S: 1] from 76.53.137.99 (rpc 21)
+post_storage mongodb init finished. loaded 9424 posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+post_storage released 10924 stored posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=4130256905972184818 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_read_lock calls=3410 avg_ns=43.5 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=64 p99_upper_ns=64 max_ns=70
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_read_lookup calls=3410 avg_ns=233.1 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=3990
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_read_retain calls=3410 avg_ns=310.4 p50_upper_ns=512 p90_upper_ns=512 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=3500
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_read_response calls=3410 avg_ns=152.9 p50_upper_ns=256 p90_upper_ns=256 p95_upper_ns=256 p99_upper_ns=256 max_ns=990
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_alloc calls=1500 avg_ns=221.1 p50_upper_ns=128 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=1790
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_copy calls=1500 avg_ns=6360.4 p50_upper_ns=4096 p90_upper_ns=16384 p95_upper_ns=32768 p99_upper_ns=65536 max_ns=66860
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_validate calls=1500 avg_ns=35.9 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=64 p99_upper_ns=64 max_ns=390
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_map calls=1500 avg_ns=674.0 p50_upper_ns=512 p90_upper_ns=1024 p95_upper_ns=2048 p99_upper_ns=4096 max_ns=41050
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_lock calls=1500 avg_ns=43.2 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=64 p99_upper_ns=64 max_ns=50
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_lookup calls=1500 avg_ns=220.1 p50_upper_ns=128 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=1880
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_insert calls=1500 avg_ns=259.2 p50_upper_ns=128 p90_upper_ns=128 p95_upper_ns=256 p99_upper_ns=4096 max_ns=40320
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_response calls=1500 avg_ns=2480.5 p50_upper_ns=4096 p90_upper_ns=4096 p95_upper_ns=4096 p99_upper_ns=32768 max_ns=32480
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_response_build calls=1500 avg_ns=1002.9 p50_upper_ns=1024 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=16384 max_ns=18110
+SN_UB_PROFILE thread=4130256905972184818 interval=1 stage=storage_write_response_enqueue calls=1500 avg_ns=1371.5 p50_upper_ns=2048 p90_upper_ns=2048 p95_upper_ns=2048 p99_upper_ns=16384 max_ns=22400
