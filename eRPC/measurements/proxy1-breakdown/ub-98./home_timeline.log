@@ -1,0 +1,122 @@
+SN_SLOW_TRACE=1
+SN_SLOW_TRACE thread=8455967658389084039 stage_threshold_ns=5000 e2e_threshold_ns=50000 events=1 dropped=0
+SN_SLOW_TRACE thread=8455967658389084039 req_number=2733 stage=timeline_worker_lookup_queue wall_ns=7820 cpu_ns=8310 offcpu_ns=0 cpu_valid=1
+SN_UB_PROFILE thread=8455967658389084039 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=8455967658389084039 interval=1 stage=timeline_queue_handoff calls=2000 avg_ns=671.3 p50_upper_ns=1024 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=4720
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_SLOW_TRACE thread=15762180707228234587 stage_threshold_ns=5000 e2e_threshold_ns=50000 events=103 dropped=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3 stage=timeline_storage_rtt wall_ns=7280 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=43 stage=timeline_storage_rtt wall_ns=44740 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=45 stage=timeline_storage_rtt wall_ns=22220 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=46 stage=timeline_storage_rtt wall_ns=10690 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=53 stage=timeline_storage_rtt wall_ns=49680 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=133 stage=timeline_storage_rtt wall_ns=12980 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=143 stage=timeline_storage_rtt wall_ns=17890 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=153 stage=timeline_storage_rtt wall_ns=7670 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=256 stage=timeline_storage_rtt wall_ns=6210 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=273 stage=timeline_storage_rtt wall_ns=12170 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=385 stage=timeline_storage_rtt wall_ns=13790 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=393 stage=timeline_storage_rtt wall_ns=14870 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=395 stage=timeline_storage_rtt wall_ns=11220 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=424 stage=timeline_storage_rtt wall_ns=6680 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=515 stage=timeline_storage_rtt wall_ns=6470 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=516 stage=timeline_storage_rtt wall_ns=15910 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=524 stage=timeline_storage_rtt wall_ns=14110 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=533 stage=timeline_storage_rtt wall_ns=15580 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=535 stage=timeline_storage_rtt wall_ns=11310 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=655 stage=timeline_storage_rtt wall_ns=5750 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=663 stage=timeline_storage_rtt wall_ns=14460 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=665 stage=timeline_storage_rtt wall_ns=11140 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=744 stage=timeline_storage_rtt wall_ns=5290 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=796 stage=timeline_storage_rtt wall_ns=19060 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=803 stage=timeline_storage_rtt wall_ns=15890 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=814 stage=timeline_storage_rtt wall_ns=11590 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=816 stage=timeline_storage_rtt wall_ns=9690 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=923 stage=timeline_storage_rtt wall_ns=11580 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=933 stage=timeline_storage_rtt wall_ns=10840 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=935 stage=timeline_storage_rtt wall_ns=12570 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=936 stage=timeline_storage_rtt wall_ns=12510 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=943 stage=timeline_storage_rtt wall_ns=5350 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1063 stage=timeline_storage_rtt wall_ns=32890 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1064 stage=timeline_storage_rtt wall_ns=17450 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1073 stage=timeline_storage_rtt wall_ns=6020 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1194 stage=timeline_storage_rtt wall_ns=9040 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1203 stage=timeline_storage_rtt wall_ns=13900 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1204 stage=timeline_storage_rtt wall_ns=11810 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1356 stage=timeline_storage_rtt wall_ns=14200 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1485 stage=timeline_storage_rtt wall_ns=7850 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1486 stage=timeline_storage_rtt wall_ns=8880 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1493 stage=timeline_storage_rtt wall_ns=20520 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1633 stage=timeline_storage_rtt wall_ns=8360 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1634 stage=timeline_storage_rtt wall_ns=7230 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1643 stage=timeline_storage_rtt wall_ns=12580 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1645 stage=timeline_storage_rtt wall_ns=11900 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1793 stage=timeline_storage_rtt wall_ns=9630 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1923 stage=timeline_storage_rtt wall_ns=16910 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1924 stage=timeline_storage_rtt wall_ns=16230 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=1925 stage=timeline_storage_rtt wall_ns=16060 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2056 stage=timeline_storage_rtt wall_ns=13820 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2074 stage=timeline_storage_rtt wall_ns=6060 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2196 stage=timeline_storage_rtt wall_ns=18400 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2205 stage=timeline_storage_rtt wall_ns=14240 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2206 stage=timeline_storage_rtt wall_ns=14230 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2333 stage=timeline_storage_rtt wall_ns=9800 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2344 stage=timeline_storage_rtt wall_ns=21130 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2353 stage=timeline_storage_rtt wall_ns=16190 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2473 stage=timeline_storage_rtt wall_ns=16070 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2475 stage=timeline_storage_rtt wall_ns=13690 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2483 stage=timeline_storage_rtt wall_ns=14850 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2485 stage=timeline_storage_rtt wall_ns=9410 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2605 stage=timeline_storage_rtt wall_ns=61930 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2623 stage=timeline_storage_rtt wall_ns=63390 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2734 stage=timeline_storage_rtt wall_ns=13460 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2735 stage=timeline_storage_rtt wall_ns=12610 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2743 stage=timeline_storage_rtt wall_ns=12640 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2746 stage=timeline_storage_rtt wall_ns=7090 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2874 stage=timeline_storage_rtt wall_ns=16010 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=2996 stage=timeline_storage_rtt wall_ns=24450 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3003 stage=timeline_storage_rtt wall_ns=13460 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3004 stage=timeline_storage_rtt wall_ns=12850 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3144 stage=timeline_storage_rtt wall_ns=13960 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3166 stage=timeline_storage_rtt wall_ns=5720 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3303 stage=timeline_storage_rtt wall_ns=17780 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3304 stage=timeline_storage_rtt wall_ns=22680 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3576 stage=timeline_storage_rtt wall_ns=11110 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3585 stage=timeline_storage_rtt wall_ns=17380 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3593 stage=timeline_storage_rtt wall_ns=14770 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3595 stage=timeline_storage_rtt wall_ns=15040 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3596 stage=timeline_storage_rtt wall_ns=9150 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3703 stage=timeline_storage_rtt wall_ns=12150 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3713 stage=timeline_storage_rtt wall_ns=16240 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3834 stage=timeline_storage_rtt wall_ns=6340 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3853 stage=timeline_storage_rtt wall_ns=11270 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=3985 stage=timeline_storage_rtt wall_ns=17870 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4104 stage=timeline_storage_rtt wall_ns=11860 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4113 stage=timeline_storage_rtt wall_ns=14400 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4244 stage=timeline_storage_rtt wall_ns=13560 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4373 stage=timeline_storage_rtt wall_ns=11530 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4386 stage=timeline_storage_rtt wall_ns=16520 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4394 stage=timeline_storage_rtt wall_ns=11440 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4395 stage=timeline_storage_rtt wall_ns=12090 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4514 stage=timeline_storage_rtt wall_ns=15610 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4523 stage=timeline_storage_rtt wall_ns=13290 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4525 stage=timeline_storage_rtt wall_ns=10600 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4526 stage=timeline_storage_rtt wall_ns=10550 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4663 stage=timeline_storage_rtt wall_ns=10170 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4803 stage=timeline_storage_rtt wall_ns=18550 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4813 stage=timeline_storage_rtt wall_ns=19590 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4943 stage=timeline_storage_rtt wall_ns=13880 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4953 stage=timeline_storage_rtt wall_ns=33140 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15762180707228234587 req_number=4956 stage=timeline_storage_rtt wall_ns=15460 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_UB_PROFILE thread=15762180707228234587 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=15762180707228234587 interval=1 stage=timeline_tx_enqueue calls=2000 avg_ns=82.3 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=128 p99_upper_ns=512 max_ns=50140
+SN_UB_PROFILE thread=15762180707228234587 interval=1 stage=timeline_storage_rtt calls=2000 avg_ns=2381.6 p50_upper_ns=2048 p90_upper_ns=2048 p95_upper_ns=8192 p99_upper_ns=32768 max_ns=206530
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_SLOW_TRACE thread=7432417924301185137 stage_threshold_ns=5000 e2e_threshold_ns=50000 events=1 dropped=0
+SN_SLOW_TRACE thread=7432417924301185137 req_number=2733 stage=timeline_rx_ack wall_ns=7890 cpu_ns=8380 offcpu_ns=0 cpu_valid=1
+SN_UB_PROFILE thread=7432417924301185137 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=7432417924301185137 interval=1 stage=timeline_rx_queue calls=2000 avg_ns=605.1 p50_upper_ns=1024 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=1024 max_ns=4650
+[home_timeline] mongodb init finished! Total init 9424 posts
+Rpc 7: Created Server session_num = 0 for client [H: 76.53.137.98:31859, R: 29, S: 2] from 76.53.137.98 (rpc 29)
+Rpc 7: Created Server session_num = 1 for client [H: 76.53.137.99:31855, R: 25, S: 6] from 76.53.137.99 (rpc 25)
+Rpc 7: Created Server session_num = 2 for client [H: 76.53.137.99:31852, R: 22, S: 2] from 76.53.137.99 (rpc 22)

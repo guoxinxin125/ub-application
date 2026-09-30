@@ -1,0 +1,74 @@
+SN_UB_PROXY_INLINE=1
+SN_UB_PROXY_POLL_BATCH=8
+SN_SLOW_TRACE=1
+UB: endpoint unregister failed: UB machine context: invalid response from ub_manager
+SN_SLOW_TRACE thread=698034849504583091 stage_threshold_ns=5000 e2e_threshold_ns=50000 events=58 dropped=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=336 stage=nginx_forward_queue_handoff wall_ns=43590 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=488 stage=nginx_reverse_queue_handoff wall_ns=45490 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=1856 stage=nginx_forward_queue_handoff wall_ns=37740 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=800 stage=nginx_reverse_queue_handoff wall_ns=6310 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=2584 stage=nginx_forward_queue_handoff wall_ns=21150 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=1112 stage=nginx_reverse_queue_handoff wall_ns=34760 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=3320 stage=nginx_forward_queue_handoff wall_ns=60350 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=2344 stage=nginx_reverse_queue_handoff wall_ns=6640 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=2352 stage=nginx_reverse_queue_handoff wall_ns=19700 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=4128 stage=nginx_forward_queue_handoff wall_ns=53020 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=2360 stage=nginx_reverse_queue_handoff wall_ns=10370 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=4880 stage=nginx_forward_queue_handoff wall_ns=38820 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=5624 stage=nginx_forward_queue_handoff wall_ns=55640 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=2424 stage=nginx_reverse_queue_handoff wall_ns=17720 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=9640 stage=nginx_forward_queue_handoff wall_ns=16470 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=4136 stage=nginx_reverse_queue_handoff wall_ns=5040 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=4464 stage=nginx_reverse_queue_handoff wall_ns=17600 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=6384 stage=nginx_reverse_queue_handoff wall_ns=46410 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=11184 stage=nginx_forward_queue_handoff wall_ns=15360 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=6848 stage=nginx_reverse_queue_handoff wall_ns=29120 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=7304 stage=nginx_reverse_queue_handoff wall_ns=29010 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=13536 stage=nginx_forward_queue_handoff wall_ns=11210 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=7736 stage=nginx_reverse_queue_handoff wall_ns=78150 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=13544 stage=nginx_forward_queue_handoff wall_ns=24110 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=14288 stage=nginx_forward_queue_handoff wall_ns=35300 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=6128 stage=nginx_reverse_queue_handoff wall_ns=43220 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=14296 stage=nginx_forward_queue_handoff wall_ns=17970 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=6408 stage=nginx_reverse_queue_handoff wall_ns=7650 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=14960 stage=nginx_forward_queue_handoff wall_ns=61140 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=6760 stage=nginx_reverse_queue_handoff wall_ns=17560 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=15760 stage=nginx_forward_queue_handoff wall_ns=64160 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=6768 stage=nginx_reverse_queue_handoff wall_ns=19330 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=16472 stage=nginx_forward_queue_handoff wall_ns=33170 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=7064 stage=nginx_reverse_queue_handoff wall_ns=19950 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=7416 stage=nginx_reverse_queue_handoff wall_ns=26430 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=17280 stage=nginx_forward_queue_handoff wall_ns=59940 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=9872 stage=nginx_reverse_queue_handoff wall_ns=8140 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=17288 stage=nginx_forward_queue_handoff wall_ns=14130 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=18056 stage=nginx_forward_queue_handoff wall_ns=27830 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=7752 stage=nginx_reverse_queue_handoff wall_ns=43590 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=18064 stage=nginx_forward_queue_handoff wall_ns=11720 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=10824 stage=nginx_reverse_queue_handoff wall_ns=29040 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=19672 stage=nginx_forward_queue_handoff wall_ns=66630 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=8768 stage=nginx_reverse_queue_handoff wall_ns=62580 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=21176 stage=nginx_forward_queue_handoff wall_ns=33470 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=12536 stage=nginx_reverse_queue_handoff wall_ns=15710 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=21944 stage=nginx_forward_queue_handoff wall_ns=33000 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=22688 stage=nginx_forward_queue_handoff wall_ns=11480 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=9728 stage=nginx_reverse_queue_handoff wall_ns=50640 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=23432 stage=nginx_forward_queue_handoff wall_ns=62940 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=13808 stage=nginx_reverse_queue_handoff wall_ns=12310 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=14256 stage=nginx_reverse_queue_handoff wall_ns=23290 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=24960 stage=nginx_forward_queue_handoff wall_ns=40980 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=11048 stage=nginx_reverse_queue_handoff wall_ns=10020 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=11384 stage=nginx_reverse_queue_handoff wall_ns=53240 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=27392 stage=nginx_forward_queue_handoff wall_ns=57600 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=27400 stage=nginx_forward_queue_handoff wall_ns=13570 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=698034849504583091 req_number=11752 stage=nginx_reverse_queue_handoff wall_ns=10300 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_UB_PROFILE thread=698034849504583091 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=698034849504583091 interval=1 stage=proxy_forward_queue_handoff calls=3500 avg_ns=744.2 p50_upper_ns=512 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=4096 max_ns=66740
+SN_UB_PROFILE thread=698034849504583091 interval=1 stage=proxy_reverse_queue_handoff calls=3500 avg_ns=696.5 p50_upper_ns=512 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=2048 max_ns=110750
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=10295933672191152191 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=10295933672191152191 interval=1 stage=proxy_forward_rx_queue calls=3500 avg_ns=243.7 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=2040
+SN_UB_PROFILE thread=10295933672191152191 interval=1 stage=proxy_reverse_rx_queue calls=3500 avg_ns=240.8 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=1320
+Rpc 2: Created Server session_num = 0 for client [H: 76.53.137.99:31855, R: 25, S: 0] from 76.53.137.99 (rpc 25)
+Rpc 2: Created Server session_num = 1 for client [H: 76.53.137.99:31850, R: 20, S: 0] from 76.53.137.99 (rpc 20)
+Rpc 2: Created Server session_num = 2 for client [H: 76.53.137.98:31857, R: 27, S: 1] from 76.53.137.98 (rpc 27)
+Rpc 2: Created Server session_num = 3 for client [H: 76.53.137.98:31856, R: 26, S: 1] from 76.53.137.98 (rpc 26)
