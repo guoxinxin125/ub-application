@@ -262,7 +262,7 @@ void generate_compose_post_req_msgbuf(AppRpc *rpc_,
       text += "http://" + generate_random_string(64);
     }
     // fill text
-    post.text_length = set_post_string(post.text, text);
+    post.text_length = set_post_text_truncated(post.text, text);
     // media
     for (size_t tmp = 0; tmp < 10; tmp++) {
       post.media_ids[tmp] = rand();

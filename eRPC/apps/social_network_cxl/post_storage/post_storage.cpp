@@ -96,6 +96,7 @@ void mongodb_init(AppContext *ctx) {
   link_worker_cacheable(ctx->server_contexts_[0]->rpc_->get_rpc_id());
 
   int64_t count = 0;
+  int64_t truncated_text_count = 0;
   while (mongoc_cursor_next(cursor, &doc)) {
     char *str = bson_as_json(doc, nullptr);
     nlohmann::json post_json = nlohmann::json::parse(str);
@@ -111,7 +112,8 @@ void mongodb_init(AppContext *ctx) {
       post.timestamp = post_json["timestamp"].get<int64_t>();
     if (post_json.contains("text")) {
       auto t = post_json["text"].get<std::string>();
-      post.text_length = set_post_string(post.text, t);
+      post.text_length = set_post_text_truncated(post.text, t);
+      if (post.text_length < t.size()) ++truncated_text_count;
     }
     if (post_json.contains("post_type"))
       post.post_type = post_json["post_type"].get<int>();
@@ -203,7 +205,9 @@ void mongodb_init(AppContext *ctx) {
 
   unlink_worker_cacheable();
 
-  printf("post_storage mongodb init finished. loaded %ld posts\n", count);
+  printf("post_storage mongodb init finished. loaded %ld posts; "
+         "truncated_text=%ld; post_bytes=%zu\n",
+         count, truncated_text_count, sizeof(PostData));
   fflush(stdout);
   while (!ctrl_c_pressed) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));

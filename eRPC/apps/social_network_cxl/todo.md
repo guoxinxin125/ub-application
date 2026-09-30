@@ -197,8 +197,8 @@ grep SN_UB_STORAGE_WRITE_PROBE \
 ```text
 local_machine_id=98
 source_is_local=0
-request_bytes=2064
-post_bytes=2048
+request_bytes=<check current PostStorageWrite request size in the probe log>
+post_bytes=1024
 post_offset_from_backing=32
 ```
 
@@ -228,7 +228,7 @@ grep -n -E 'memcpy@|__memcpy|benchmark_scalar_copy' \
   /tmp/ubsm_remote_rw_latency_test.disasm
 ```
 
-目标是确认 PostStorage 固定 2048 B copy 是否内联、微测试是否调用通用 libc
+目标是确认 PostStorage 当前固定 1024 B copy 是否内联、微测试是否调用通用 libc
 `memcpy`，并观察 Client 两种读取模式的目标机指令。反汇编不能证明 UB 总线事务次数。
 
 ## 5. Social Network：分段测量
@@ -304,9 +304,10 @@ grep -E 'SN_UB_POST_READ_MODE|SN_UB_PROFILE.*stage=client_(import|metadata|field
 ```
 
 比较 `client_metadata + client_fields` 以及端到端 `latency1-home`、
-`latency1-user`。`client_fields_contiguous` 只覆盖连续模式 header 后的 1944 B
-扫描；`client_fields` 还包含本地长度校验和 checksum 汇总。`fields` 只读有效字段，
-`contiguous` 读完整 2048 B；两者 checksum 数值语义不同，都只作为消费结果的 sink。
+`latency1-user`。当前 1 KiB 布局下，`client_fields_contiguous` 只覆盖
+104 B header 后的 920 B 扫描；`client_fields` 还包含本地长度校验和
+checksum 汇总。`fields` 只读有效字段，`contiguous` 读完整 1024 B；
+两者 checksum 数值语义不同，都只作为消费结果的 sink。
 `scalar_copy_read` 微测试如果接近 `scalar_load`，再决定是否增加 Client 的第三种模式；
 不能把当前微测试结果说成应用的第三种实测模式。
 

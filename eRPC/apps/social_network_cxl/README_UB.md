@@ -41,36 +41,34 @@ compile-time offsets in the imported object
 and retains a checksum before stopping the Timeline timer. Reference release
 is outside the timer. The former fixed 1300-byte copy is no longer used.
 
-`PostData` layout version 4 is exactly **2048 bytes**, enforced by
+`PostData` layout version 5 is exactly **1024 bytes**, enforced by
 `static_assert`. Every field has a compile-time fixed position: text capacity
-is 1168 bytes, creator/mention usernames 16 bytes each, 10 media types 4 bytes
+is 144 bytes (at most 143 text bytes plus a trailing NUL), creator/mention usernames 16 bytes each, 10 media types 4 bytes
 each, 5 shortened URLs 32 bytes each, and 5 expanded URLs 72 bytes each.
 Lengths and counts are stored in the contiguous metadata prefix. Strings keep
 a local trailing NUL for service code, but the NUL and unused capacity are not
 consumed by the Timeline checksum. There are no string offsets or shared string
 pool, so a remote reader does not perform an offset-dependent lookup.
 
-Both UB and DmRPC clients now generate **500 B** of initial Compose text,
-then append the existing 5 mentions and 5 URLs and retain 10 media. With
-three-digit generated user IDs the final text is 921 B. The complete fixture
-fits every field without dropping data.
-Oversized input fails explicitly; no truncation or automatic spill allocation.
-Both initialization scripts now use the same 500-byte initial text for newly
-generated datasets. Existing MongoDB documents are not rewritten. Post Storage
-fills the fixed arrays and lengths when loading them. Real dataset capacity still
-needs validation at startup; BSON size alone is not an exact capacity test.
+The UB client still constructs the original Compose text, but stores only its
+first 143 bytes in the 1 KiB request and records the retained length. Post
+Storage applies the same text truncation when loading MongoDB posts; other
+field capacities and their overflow checks are unchanged. Truncation changes
+the text visible to User Mention and URL Shorten (the current synthetic text
+places mentions and URLs after its first 500 random bytes). For a fair RDMA
+comparison, use the same truncated workload and verify matching successful
+results; the DmRPC baseline is not changed by this UB-only patch.
 
 Rebuild all UB application services together and recreate their in-memory posts.
 The 32-byte Timeline handle is unchanged. The Compose RPC envelope is larger
-than the 2048-byte Post itself, so a request may still use a 4 KiB allocator
-size class. Stored posts, pregenerated requests and RPC buffers all count
+than the 1024-byte Post itself, so its allocator size class can exceed 1 KiB.
+Stored posts, pregenerated requests and RPC buffers all count
 toward `ERPC_UB_ARENA_MB` and `ERPC_UB_REGION_MB`; object size is distinct
 from allocator capacity and the effective bytes consumed.
 
 The launcher therefore defaults to a **64 MiB arena per endpoint** and a
-**2048 MiB machine region**. A stored 2048-byte `PostData` uses the allocator's
-2048-byte size class plus one 64-byte block header, so a 64 MiB arena holds at
-most about 31,774 such objects after the arena header. Leave additional
+**2048 MiB machine region**. Allocator headers and size-class rounding mean a
+64 MiB arena holds less than 64,000 stored 1 KiB posts; leave additional
 headroom for RPC buffers. Check the source dataset size before launch:
 
 ```bash
@@ -78,7 +76,7 @@ mongosh --port 20014 --quiet --eval \
   'db.getSiblingDB("post").post.countDocuments({})'
 ```
 
-If the result is near or above 30,000, increase `ERPC_UB_ARENA_MB` on **both**
+If the result approaches available arena capacity, increase `ERPC_UB_ARENA_MB` on **both**
 machines. The machine region must also cover every endpoint's inbox and arena;
 for example, use `ERPC_UB_ARENA_MB=128` with `ERPC_UB_REGION_MB=4096`, subject
 to the available UB shared-memory capacity. Both values are fixed when the UB
@@ -129,7 +127,7 @@ include timestamp overhead and should not be treated as uninstrumented latency.
 - `storage_read_*` separates map-lock acquisition, lookup, reference retain,
   response build, and response enqueue. `storage_read_response` contains its
   build/enqueue stages and must not be added to them. `storage_write_*`
-  separates allocation, the 2 KiB
+  separates allocation, the 1 KiB
   remote-to-local copy, validation, map lock/lookup/insert, and response
   construction/enqueue. `storage_write_map` and `storage_write_response` are
   enclosing totals and must not be added to their nested stages.
@@ -176,7 +174,7 @@ export ERPC_SN_STORAGE_WRITE_PROBE=1
 
 The first write prints one `SN_UB_STORAGE_WRITE_PROBE` line containing the
 request backing/payload/PostData addresses, source and destination alignment,
-`source_is_local`, request/PostData sizes, and two consecutive 2 KiB copy
+`source_is_local`, request/PostData sizes, and two consecutive 1 KiB copy
 times. For the documented machine-99 Client to machine-98 Post Storage
 placement, `local_machine_id=98` and `source_is_local=0` are required. The
 second copy and full local checksum deliberately perturb the first request, so
@@ -615,12 +613,12 @@ export ERPC_SN_POST_READ_MODE=contiguous
 ```
 
 `contiguous` still materializes and validates the 104-byte header, then
-consumes the remainder of the fixed 2048-byte `PostData` layout sequentially
+consumes the remainder of the fixed 1024-byte `PostData` layout sequentially
 with eight independent scalar accumulation lanes. On UB AArch64 and x86-64,
 each 8-byte payload read uses an explicit scalar load instruction; this avoids
 compiler conversion of the loop into wide/vector loads. Other architectures
 fall back to the previous 8-byte `memcpy` expression. It does not copy the
-object into a local 2 KiB buffer. The
+object into a local 1 KiB buffer. The
 two modes therefore compare fewer but potentially scattered remote bytes with
 more but contiguous remote bytes. Set the variable before starting `run_ub.sh`;
 the client process reads it once. Restart the processes to change modes.
@@ -661,7 +659,7 @@ MsgBuffer; the stage names are retained for A/B log compatibility.
 ## 9.3 UB Post Storage write-copy A/B
 
 On machine 98, `ERPC_SN_STORAGE_WRITE_COPY_MODE=memcpy` (or unset) preserves
-the existing 2048-byte remote-to-local `memcpy`. Set it to `scalar` to copy the
+the existing 1024-byte remote-to-local `memcpy`. Set it to `scalar` to copy the
 same bytes using individual 8-byte source loads and local stores. Both modes
 validate and publish the same `PostData`; this switch does not change the
 wire format or the read path. Restart Post Storage after changing it, and

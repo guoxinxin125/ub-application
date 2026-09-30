@@ -6,17 +6,17 @@
 #include <string>
 #include <type_traits>
 
-// Fixed-position, fixed-capacity 2 KiB Post layout.
+// Fixed-position, fixed-capacity 1 KiB Post layout.
 // String lengths exclude the local trailing NUL.
 constexpr size_t SN_USERNAME_LEN = 16;
-constexpr size_t SN_TEXT_LEN = 1168;
+constexpr size_t SN_TEXT_LEN = 144;
 constexpr size_t SN_MEDIA_TYPE_LEN = 4;
 constexpr size_t SN_MAX_MEDIA = 10;
 constexpr size_t SN_MAX_MENTIONS = 5;
 constexpr size_t SN_MAX_URLS = 5;
 constexpr size_t SN_SHORT_URL_LEN = 32;
 constexpr size_t SN_EXPANDED_URL_LEN = 72;
-constexpr uint32_t SN_POST_LAYOUT_VERSION = 4;
+constexpr uint32_t SN_POST_LAYOUT_VERSION = 5;
 
 // Helper-service response representation; stored PostData uses fixed arrays.
 struct PostUrlData {
@@ -69,6 +69,23 @@ inline uint16_t set_post_string(char (&target)[N], const std::string &source) {
   return static_cast<uint16_t>(source.size());
 }
 
+// Benchmark input may contain more text than the 1 KiB PostData can hold.
+// Truncate only text; other fields retain their original capacity checks.
+template <size_t N>
+inline uint16_t set_post_text_truncated(char (&target)[N],
+                                        const std::string &source) {
+  size_t length = source.size() < N ? source.size() : N - 1;
+  // MongoDB text is UTF-8; do not leave a partial code point at the end.
+  if (length < source.size()) {
+    while (length > 0 &&
+           (static_cast<unsigned char>(source[length]) & 0xc0) == 0x80)
+      --length;
+  }
+  std::memcpy(target, source.data(), length);
+  target[length] = '\0';
+  return static_cast<uint16_t>(length);
+}
+
 template <size_t N>
 inline std::string local_post_string(const char (&source)[N], uint16_t length) {
   if (length >= N)
@@ -98,9 +115,9 @@ inline void validate_post_data(const PostData &p) {
 static_assert(offsetof(PostData, creator_username) == 104,
               "metadata header ABI changed");
 static_assert(offsetof(PostData, text) == 120, "text offset ABI changed");
-static_assert(offsetof(PostData, media_ids) == 1288,
+static_assert(offsetof(PostData, media_ids) == 264,
               "media ID offset ABI changed");
-static_assert(sizeof(PostData) == 2048, "PostData must be exactly 2 KiB");
+static_assert(sizeof(PostData) == 1024, "PostData must be exactly 1 KiB");
 static_assert(std::is_trivially_copyable<PostData>::value &&
                   std::is_standard_layout<PostData>::value,
               "PostData must remain a native shared-memory layout");

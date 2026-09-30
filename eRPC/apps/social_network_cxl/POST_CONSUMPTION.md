@@ -6,17 +6,19 @@ RDMA reads, Post protobuf parsing and the same field checksum. Compose retains
 its existing short-path timing boundary, but UB's inline request size changes.
 This is an application-consumption metric, not just a transport latency.
 
-The current native layout is version 4 and exactly 2048 bytes. Every array has
-a compile-time position: 1168 bytes for text, 10 media, 5 mentions and 5 URLs.
+The current UB native layout is version 5 and exactly 1024 bytes. Every array has
+a compile-time position: 144 bytes for text, 10 media, 5 mentions and 5 URLs.
 The contiguous 104-byte prefix holds scalar fields, counts and every string
 length. The reader copies that prefix once logically and then addresses each
 effective field with `offsetof(PostData, field)`; there is no remote offset
-lookup. Fixed arrays keep a trailing NUL for local service code. Capacity
-overflow fails explicitly rather than truncating data.
+lookup. Fixed arrays keep a trailing NUL for local service code. Text longer
+than 143 bytes is truncated on UB request generation and MongoDB import;
+other field overflows still fail explicitly.
 
-Both active client generators use 500 initial random text bytes, preserving
-5 appended mentions, 5 appended URLs and 10 media. With the test's three-digit
-user IDs, the complete fixture has 921 text bytes and fits all fixed fields.
+The UB client still constructs 500 initial random text bytes and appends
+5 mentions and 5 URLs, but only the first 143 bytes enter PostData. This
+changes the input seen by the helper services; DmRPC needs a matching dataset
+and truncation policy before comparing 1 KiB UB numbers with its baseline.
 
 Canonical field order: post_id, req_id, timestamp, post_type, creator user_id,
 creator username, text, media count and each ID/type, mention count and each

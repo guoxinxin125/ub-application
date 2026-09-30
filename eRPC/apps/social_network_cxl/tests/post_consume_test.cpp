@@ -118,8 +118,9 @@ static void set_common(PostData &native, TestPost &post,
   native.creator_username_length =
       set_post_string(native.creator_username, "username_961");
   post.mutable_creator()->set_username("username_961");
-  native.text_length = set_post_string(native.text, text);
-  post.set_text(text);
+  native.text_length = set_post_text_truncated(native.text, text);
+  const std::string retained_text = text.substr(0, SN_TEXT_LEN - 1);
+  post.set_text(retained_text);
 }
 
 static void check_post(const std::string &text, bool populated) {
@@ -231,8 +232,8 @@ static void check_compose() {
   text += " ";
   for (const auto &url : expanded) text += url;
   require(text.size() == 921, "Compose text size differs from generator");
-  native.text_length = set_post_string(native.text, text);
-  post.set_text(text);
+  native.text_length = set_post_text_truncated(native.text, text);
+  post.set_text(text.substr(0, SN_TEXT_LEN - 1));
 
   for (size_t i = 0; i < SN_MAX_MEDIA; ++i) {
     native.media_ids[i] = static_cast<int64_t>(i + 10);
@@ -269,8 +270,9 @@ static void check_compose() {
   require(sn_consume::native_post(&native, sizeof(native)) ==
               expected_checksum(post),
           "complete Compose fields differ");
-  require(local_post_string(native.text, native.text_length) == text,
-          "Compose text lost");
+  require(local_post_string(native.text, native.text_length) ==
+              text.substr(0, SN_TEXT_LEN - 1),
+          "Compose text truncation mismatch");
   std::cout << "Compose initial=500 final_text=" << native.text_length
             << " media=" << native.media_count
             << " mentions=" << native.mentions_count
@@ -309,7 +311,7 @@ int main() {
   empty.text[SN_TEXT_LEN - 1] = 0;
 
   for (size_t length : {size_t{0}, size_t{1}, size_t{7}, size_t{8}, size_t{63},
-                        size_t{64}, size_t{65}, size_t{150}, SN_TEXT_LEN - 1}) {
+                        size_t{64}, size_t{65}, size_t{127}, SN_TEXT_LEN - 1}) {
     std::string text(length, 'a');
     if (length > 8) text[7] = '\0';
     check_post(text, false);
@@ -319,6 +321,17 @@ int main() {
 
   require_invalid(
       [&] { set_post_string(empty.text, std::string(SN_TEXT_LEN, 'x')); });
+  require(set_post_text_truncated(empty.text,
+                                  std::string(SN_TEXT_LEN + 50, 'x')) ==
+              SN_TEXT_LEN - 1,
+          "long text was not truncated to the 1 KiB layout");
+  require(empty.text[SN_TEXT_LEN - 1] == '\0',
+          "truncated text is not terminated");
+  const std::string utf8_boundary =
+      std::string(SN_TEXT_LEN - 2, 'a') + "\xe4\xb8\xad";
+  require(set_post_text_truncated(empty.text, utf8_boundary) ==
+              SN_TEXT_LEN - 2,
+          "truncation split a UTF-8 code point");
   require_invalid([&] { sn_consume::native_post(&empty, sizeof(empty) - 1); });
   require_invalid([&] { sn_consume::native_post(nullptr, sizeof(empty)); });
   require_invalid(
