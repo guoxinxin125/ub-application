@@ -635,13 +635,14 @@ semantics are unchanged. Restart LB and Nginx after changing the variable.
 Confirm `SN_UB_PROXY_INLINE=0|1` in both `logs/ub-99/load_balance.log` and
 `logs/ub-99/nginx.log` before comparing results.
 
-Both modes now drain at most eight queued messages per direction before
-polling the RPC event loop. This prevents a busy proxy queue from delaying
-response callbacks and makes the A/B comparison use the same poll budget.
-`ERPC_SN_PROXY_POLL_BATCH` may override the batch on both proxy processes
-(`1..15360`); its selected value is logged as `SN_UB_PROXY_POLL_BATCH`.
-Set it to `15360` only to reproduce the former unbounded-drain behavior.
-Keep the same value in both modes when comparing `ERPC_SN_PROXY_INLINE`.
+The default queue-drain limit is `15360` for `ERPC_SN_PROXY_INLINE=0`, matching
+the pre-inline code, and `8` for `ERPC_SN_PROXY_INLINE=1`. Set
+`ERPC_SN_PROXY_POLL_BATCH=8` in both modes when testing whether a bounded
+drain helps tail latency, or set it to `15360` in both modes to isolate the
+inline-copy change. The allowed range is `1..15360`; confirm the selected
+`SN_UB_PROXY_POLL_BATCH` value in both proxy logs. Unset
+`ERPC_SN_SLOW_TRACE`, `ERPC_SN_PROFILE`, and `ERPC_UB_PROFILE` for final
+end-to-end latency measurements.
 
 For A/B, use the same `ERPC_SN_POST_READ_MODE`, pure-read workload, CPU/NUMA
 binding, request count, and binaries. Run once with `ERPC_SN_PROFILE=1` to

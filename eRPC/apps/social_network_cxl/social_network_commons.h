@@ -152,9 +152,13 @@ inline size_t proxy_poll_batch() {
     static const size_t batch = [] {
         const char *value = std::getenv("ERPC_SN_PROXY_POLL_BATCH");
         if (value == nullptr) {
+            // Preserve the pre-inline polling policy for the borrowed-buffer
+            // baseline. Inline mode uses a smaller batch by default.
+            const size_t default_batch = proxy_inline_enabled()
+                ? kProxyInlinePollBatch : kAppMaxBuffer;
             std::fprintf(stderr, "SN_UB_PROXY_POLL_BATCH=%zu\n",
-                         kProxyInlinePollBatch);
-            return kProxyInlinePollBatch;
+                         default_batch);
+            return default_batch;
         }
         char *end = nullptr;
         const unsigned long long parsed = std::strtoull(value, &end, 10);

@@ -348,7 +348,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     connect_sessions(ctx);
 
-    // Bound both proxy modes equally so queued work cannot starve RPC polling.
+    // The borrowed-buffer baseline retains its historical polling batch.
     const size_t queue_batch = proxy_poll_batch();
     while (true)
     {
