@@ -316,6 +316,7 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
   auto *req =
       reinterpret_cast<RPCMsgReq<PostStorageWriteCXLReq> *>(req_msgbuf->buf_);
+  const uint32_t req_number = req->req_common.req_number;
   my_assert(req_msgbuf->get_data_size() ==
             sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
 #ifdef ERPC_UB
@@ -330,6 +331,7 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   uint64_t second_copy_checksum = 0;
   try {
     const uint64_t copy_start = sn_profile::start();
+    const sn_slow_trace::Stamp copy_trace = sn_slow_trace::start();
     if (run_write_probe) {
       const auto first_begin = std::chrono::steady_clock::now();
       std::memcpy(stored, &req->req_control.post, sizeof(PostData));
@@ -347,6 +349,7 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
     } else {
       std::memcpy(stored, &req->req_control.post, sizeof(PostData));
     }
+    sn_slow_trace::record("storage_write_copy", req_number, copy_trace);
     sn_profile::record(sn_profile::Stage::kStorageWriteCopy, copy_start);
     const uint64_t validate_start = sn_profile::start();
     validate_post_data(*stored);
@@ -398,6 +401,7 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
 
   SharedPostBuffer old_buffer;
   const uint64_t map_start = sn_profile::start();
+  const sn_slow_trace::Stamp map_trace = sn_slow_trace::start();
   const uint64_t lock_start = sn_profile::start();
   ctx->map_mutex.lock();
   sn_profile::record(sn_profile::Stage::kStorageWriteLock, lock_start);
@@ -420,6 +424,7 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
 #endif
   sn_profile::record(sn_profile::Stage::kStorageWriteInsert, insert_start);
   ctx->map_mutex.unlock();
+  sn_slow_trace::record("storage_write_map", req_number, map_trace);
   sn_profile::record(sn_profile::Stage::kStorageWriteMap, map_start);
 
   if (old_buffer.buffer.buf_ != nullptr) {
@@ -430,18 +435,26 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   }
 
   const uint64_t response_start = sn_profile::start();
+  const sn_slow_trace::Stamp response_trace = sn_slow_trace::start();
   const uint64_t build_start = sn_profile::start();
+  const sn_slow_trace::Stamp build_trace = sn_slow_trace::start();
   new (req_handle->pre_resp_msgbuf_.buf_)
       RPCMsgResp<CommonRPCResp>(RPC_TYPE::RPC_POST_STORAGE_WRITE_RESP,
                                 req->req_common.req_number, 0, {0});
   ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_,
                                sizeof(RPCMsgResp<CommonRPCResp>));
+  sn_slow_trace::record("storage_write_response_build", req_number,
+                        build_trace);
   sn_profile::record(sn_profile::Stage::kStorageWriteResponseBuild,
                      build_start);
   const uint64_t enqueue_start = sn_profile::start();
+  const sn_slow_trace::Stamp enqueue_trace = sn_slow_trace::start();
   ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+  sn_slow_trace::record("storage_write_response_enqueue", req_number,
+                        enqueue_trace);
   sn_profile::record(sn_profile::Stage::kStorageWriteResponseEnqueue,
                      enqueue_start);
+  sn_slow_trace::record("storage_write_response", req_number, response_trace);
   sn_profile::record(sn_profile::Stage::kStorageWriteResponse, response_start);
 }
 

@@ -129,8 +129,12 @@ inline PostHeader checked_header(const void *data, size_t size) {
 
   const auto *p = static_cast<const unsigned char *>(data);
   const uint64_t metadata_start = sn_profile::start();
+  const sn_slow_trace::Stamp metadata_trace = sn_slow_trace::start();
   const PostHeader h = load_header(p);
   validate_header(h);
+  sn_slow_trace::record("client_metadata",
+                        sn_slow_trace::current_request_number(),
+                        metadata_trace);
   sn_profile::record(sn_profile::Stage::kClientMetadata, metadata_start);
   return h;
 }
@@ -140,6 +144,7 @@ inline uint64_t native_post_fields(const void *data, size_t size) {
   const PostHeader h = checked_header(data, size);
 
   const uint64_t fields_start = sn_profile::start();
+  const sn_slow_trace::Stamp fields_trace = sn_slow_trace::start();
   Checksum sum;
   uint64_t phase_start = sn_profile::start();
   sum.integer(static_cast<uint64_t>(h.post_id));
@@ -198,6 +203,8 @@ inline uint64_t native_post_fields(const void *data, size_t size) {
   sn_profile::record(sn_profile::Stage::kClientFieldsUrls, phase_start);
 
   const uint64_t value = sum.value();
+  sn_slow_trace::record("client_fields",
+                        sn_slow_trace::current_request_number(), fields_trace);
   sn_profile::record(sn_profile::Stage::kClientFields, fields_start);
   return value;
 }
@@ -207,6 +214,7 @@ inline uint64_t native_post_contiguous(const void *data, size_t size) {
   const PostHeader h = checked_header(data, size);
 
   const uint64_t fields_start = sn_profile::start();
+  const sn_slow_trace::Stamp fields_trace = sn_slow_trace::start();
   validate_active_lengths(h);
   const uint64_t contiguous_start = sn_profile::start();
   const uint64_t remainder = contiguous_scalar_checksum(
@@ -224,6 +232,8 @@ inline uint64_t native_post_contiguous(const void *data, size_t size) {
   sum.integer(static_cast<uint64_t>(h.creator_id));
   sum.integer(remainder);
   const uint64_t value = sum.value();
+  sn_slow_trace::record("client_fields_contiguous",
+                        sn_slow_trace::current_request_number(), fields_trace);
   sn_profile::record(sn_profile::Stage::kClientFields, fields_start);
   return value;
 }

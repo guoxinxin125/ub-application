@@ -104,7 +104,7 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context)
     if (inline_copy) copied = proxy_inline_copy(*req_msgbuf);
     else pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
     sn_profile::record(sn_profile::Stage::kProxyForwardRxPin, pin_start);
-    const uint64_t queue_start = sn_profile::start();
+    const uint64_t queue_start = sn_handoff::start();
     if (queue_start != 0) {
         const size_t slot = req_msgbuf->get_hdr_req_num() % kAppMaxBuffer;
         ctx->forward_queue_start_ns[slot].store(queue_start,
@@ -148,7 +148,7 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context)
     if (inline_copy) copied = proxy_inline_copy(*req_msgbuf);
     else pinned = pin_msgbuf(ctx->rpc_, *req_msgbuf);
     sn_profile::record(sn_profile::Stage::kProxyReverseRxPin, pin_start);
-    const uint64_t queue_start = sn_profile::start();
+    const uint64_t queue_start = sn_handoff::start();
     if (queue_start != 0) {
         const size_t slot = req_msgbuf->get_hdr_req_num() % kAppMaxBuffer;
         ctx->backward_queue_start_ns[slot].store(queue_start,
@@ -348,11 +348,8 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
 
     connect_sessions(ctx);
 
-    // In inline mode, bound work between RPC event-loop polls. Otherwise a
-    // busy handoff queue can delay responses and request callbacks by an
-    // entire kAppMaxBuffer-sized drain. Preserve the old A/B path unchanged.
-    const size_t queue_batch = ctx->forward_inline_queue == nullptr
-        ? kAppMaxBuffer : kProxyInlinePollBatch;
+    // Bound both proxy modes equally so queued work cannot starve RPC polling.
+    const size_t queue_batch = proxy_poll_batch();
     while (true)
     {
         erpc::MsgBuffer req_msg;
@@ -361,10 +358,12 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
              ctx->forward_spsc_queue->try_pop(req_msg);
              i++) {
             const auto req_type = static_cast<RPC_TYPE>(req_msg.get_hdr_req_type());
-            if (sn_profile::enabled() && req_type != RPC_TYPE::RPC_PING) {
+            if ((sn_profile::enabled() || sn_slow_trace::enabled()) &&
+                req_type != RPC_TYPE::RPC_PING) {
                 const size_t slot = req_msg.get_hdr_req_num() % kAppMaxBuffer;
-                sn_profile::record(
+                sn_handoff::record(
                     sn_profile::Stage::kProxyForwardQueueHandoff,
+                    "nginx_forward_queue_handoff", req_msg.get_hdr_req_num(),
                     ctx->forward_queue_start_ns[slot].exchange(
                         0, std::memory_order_relaxed));
             }
@@ -382,10 +381,12 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
              ctx->backward_spsc_queue->try_pop(req_msg);
              i++) {
             const auto req_type = static_cast<RPC_TYPE>(req_msg.get_hdr_req_type());
-            if (sn_profile::enabled() && req_type != RPC_TYPE::RPC_PING_RESP) {
+            if ((sn_profile::enabled() || sn_slow_trace::enabled()) &&
+                req_type != RPC_TYPE::RPC_PING_RESP) {
                 const size_t slot = req_msg.get_hdr_req_num() % kAppMaxBuffer;
-                sn_profile::record(
+                sn_handoff::record(
                     sn_profile::Stage::kProxyReverseQueueHandoff,
+                    "nginx_reverse_queue_handoff", req_msg.get_hdr_req_num(),
                     ctx->backward_queue_start_ns[slot].exchange(
                         0, std::memory_order_relaxed));
             }
@@ -402,10 +403,11 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
             for (size_t i = 0;
                  i < queue_batch && ctx->forward_inline_queue->try_pop(msg);
                  ++i) {
-                if (sn_profile::enabled()) {
+                if (sn_profile::enabled() || sn_slow_trace::enabled()) {
                     const size_t slot = msg.req_num % kAppMaxBuffer;
-                    sn_profile::record(
+                    sn_handoff::record(
                         sn_profile::Stage::kProxyForwardQueueHandoff,
+                        "nginx_forward_queue_handoff", msg.req_num,
                         ctx->forward_queue_start_ns[slot].exchange(
                             0, std::memory_order_relaxed));
                 }
@@ -417,10 +419,11 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
             for (size_t i = 0;
                  i < queue_batch && ctx->backward_inline_queue->try_pop(msg);
                  ++i) {
-                if (sn_profile::enabled()) {
+                if (sn_profile::enabled() || sn_slow_trace::enabled()) {
                     const size_t slot = msg.req_num % kAppMaxBuffer;
-                    sn_profile::record(
+                    sn_handoff::record(
                         sn_profile::Stage::kProxyReverseQueueHandoff,
+                        "nginx_reverse_queue_handoff", msg.req_num,
                         ctx->backward_queue_start_ns[slot].exchange(
                             0, std::memory_order_relaxed));
                 }

@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "ub_slow_trace.h"
+
 #ifdef ERPC_UB
 #include <array>
 #include <chrono>
@@ -249,3 +251,18 @@ inline void record(Stage, uint64_t) {}
 #endif
 
 }  // namespace sn_profile
+
+namespace sn_handoff {
+inline uint64_t start() {
+  const uint64_t profile_start = sn_profile::start();
+  return profile_start == 0 && sn_slow_trace::enabled()
+             ? sn_slow_trace::wall_now_ns()
+             : profile_start;
+}
+
+inline void record(sn_profile::Stage stage, const char *label,
+                   uint32_t req_number, uint64_t started_ns) {
+  sn_slow_trace::record_handoff(label, req_number, started_ns);
+  sn_profile::record(stage, started_ns);
+}
+}  // namespace sn_handoff

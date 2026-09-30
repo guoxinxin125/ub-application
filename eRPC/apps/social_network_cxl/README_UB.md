@@ -114,16 +114,10 @@ include timestamp overhead and should not be treated as uninstrumented latency.
   including scheduling delay.
 - `timeline_rx_*` and `timeline_worker_*` in the Home/User Timeline logs
   separate receive-side handoff from post-ID lookup plus result construction.
-  With `ERPC_SN_TIMELINE_INLINE=1` on the Timeline host, `timeline_rx_copy`
-  copies the small read request into a by-value worker-queue item without
-  allocating or pinning a MsgBuffer. `timeline_worker_release` therefore has
-  no sample for these inline reads. The default (`0` or unset) retains the
-  previous local MsgBuffer clone and its worker-side release for A/B testing.
-  Write requests and callbacks retain their existing MsgBuffer ownership and
-  share the same ordered worker queue with reads.
-  Set `ERPC_SN_TIMELINE_INLINE=1` before starting Home/User Timeline on the
-  Timeline host, then compare against `0` with the same workload and CPU/NUMA
-  bindings; their logs print `SN_UB_TIMELINE_INLINE=1` or `0`.
+  UB read handlers clone the small request into a local MsgBuffer before
+  enqueueing it; `timeline_worker_release` frees that clone. The experimental
+  Timeline inline queue was removed after showing no latency benefit. Unset
+  `ERPC_SN_TIMELINE_INLINE` in older run scripts; it is no longer supported.
   `timeline_queue_handoff` measures server-thread push to worker-thread pop;
   `timeline_forward_queue_handoff` measures worker-thread push to client-RPC-
   thread pop. They include scheduling delay, not just queue instructions.
@@ -141,6 +135,30 @@ include timestamp overhead and should not be treated as uninstrumented latency.
   resolution and effective-field consumption before the Timeline timer stops.
   `client_release` happens after that timer stops. Import/field stages have
   fewer calls than total reads when a post is not found.
+
+To correlate tail samples across services, enable the separate diagnostic
+trace on **both UB hosts** before starting `run_ub.sh`:
+
+```bash
+export ERPC_SN_SLOW_TRACE=1
+export ERPC_SN_SLOW_STAGE_NS=5000
+export ERPC_SN_SLOW_E2E_NS=50000
+unset ERPC_SN_PROFILE
+unset ERPC_SN_STORAGE_WRITE_PROBE
+```
+
+After a graceful stop, grep `SN_SLOW_TRACE` in Client, Load Balance and Nginx
+(host 99), and Home/User Timeline and Post Storage (host 98) logs; join entries
+by `req_number` and stage name.
+`client_*_e2e` uses the application's existing microsecond-resolution timer;
+individual stages use nanosecond wall and thread-CPU clocks. For stages with
+`cpu_valid=1`, a large `offcpu_ns` indicates the thread was not scheduled for
+most of that stage; `wall_ns` near `cpu_ns` instead indicates on-CPU waiting or
+work, not necessarily useful computation. Queue handoffs and end-to-end samples
+span threads, so they have `cpu_valid=0`. Trace events are buffered per thread
+and printed at normal thread exit; a forced `kill -9` loses them. The trace
+adds clock reads and is for diagnosis, not final latency reporting. Disable it
+and rerun the same workload for publication-quality percentiles.
 
 To diagnose the physical source of `storage_write_copy`, enable this only on
 the Post Storage host before starting `run_ub.sh`:
@@ -616,6 +634,14 @@ Compose Post messages keep the existing path; service hops and response
 semantics are unchanged. Restart LB and Nginx after changing the variable.
 Confirm `SN_UB_PROXY_INLINE=0|1` in both `logs/ub-99/load_balance.log` and
 `logs/ub-99/nginx.log` before comparing results.
+
+Both modes now drain at most eight queued messages per direction before
+polling the RPC event loop. This prevents a busy proxy queue from delaying
+response callbacks and makes the A/B comparison use the same poll budget.
+`ERPC_SN_PROXY_POLL_BATCH` may override the batch on both proxy processes
+(`1..15360`); its selected value is logged as `SN_UB_PROXY_POLL_BATCH`.
+Set it to `15360` only to reproduce the former unbounded-drain behavior.
+Keep the same value in both modes when comparing `ERPC_SN_PROXY_INLINE`.
 
 For A/B, use the same `ERPC_SN_POST_READ_MODE`, pure-read workload, CPU/NUMA
 binding, request count, and binaries. Run once with `ERPC_SN_PROFILE=1` to

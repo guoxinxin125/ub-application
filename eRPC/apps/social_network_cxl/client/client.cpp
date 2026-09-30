@@ -75,8 +75,12 @@ void compose_post_write_resp_handler(erpc::ReqHandle *req_handler, void *_contex
     auto *req = reinterpret_cast<RPCMsgReq<CommonRPCReq> *>(req_msgbuf->buf_);
 
     my_assert(req_msgbuf->get_data_size() == sizeof(RPCMsgReq<CommonRPCReq>) + req->req_control.data_length, "data size not match");
+    const uint32_t req_number = req->req_common.req_number;
+    const size_t elapsed_us =
+        timers[ctx->server_id_][req_number % kAppMaxBuffer].toc();
+    sn_slow_trace::record_e2e("client_write_e2e", req_number, elapsed_us);
     hdr_record_value_atomic(latency_write_hist_,
-        static_cast<int64_t>(timers[ctx->server_id_][req->req_common.req_number % kAppMaxBuffer].toc() * 10));
+                            static_cast<int64_t>(elapsed_us * 10));
 
     ctx->rpc_->resize_msg_buffer(&req_handler->pre_resp_msgbuf_, 0);
 
@@ -101,12 +105,17 @@ void user_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
 
     auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
     const PostStorageReadCXLResp &reference_resp = req->req_control;
+    const uint32_t req_number = req_common->req_number;
+    sn_slow_trace::RequestScope trace_scope(req_number);
     ImportedSharedPost imported =
         consume_timeline_post(ctx->rpc_, reference_resp);
 
     // All effective fields have been consumed, before reference cleanup.
+    const size_t elapsed_us =
+        timers[ctx->server_id_][req_number % kAppMaxBuffer].toc();
+    sn_slow_trace::record_e2e("client_user_e2e", req_number, elapsed_us);
     hdr_record_value_atomic(latency_user_timeline_hist_,
-        static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
+                            static_cast<int64_t>(elapsed_us * 10));
 
     if (imported.buffer.buf_ != nullptr) {
         const uint64_t release_start = sn_profile::start();
@@ -133,12 +142,17 @@ void home_timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_contex
 
     auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
     const PostStorageReadCXLResp &reference_resp = req->req_control;
+    const uint32_t req_number = req_common->req_number;
+    sn_slow_trace::RequestScope trace_scope(req_number);
     ImportedSharedPost imported =
         consume_timeline_post(ctx->rpc_, reference_resp);
 
     // All effective fields have been consumed, before reference cleanup.
+    const size_t elapsed_us =
+        timers[ctx->server_id_][req_number % kAppMaxBuffer].toc();
+    sn_slow_trace::record_e2e("client_home_e2e", req_number, elapsed_us);
     hdr_record_value_atomic(latency_home_timeline_hist_,
-        static_cast<int64_t>(timers[ctx->server_id_][req_common->req_number % kAppMaxBuffer].toc() * 10));
+                            static_cast<int64_t>(elapsed_us * 10));
 
     if (imported.buffer.buf_ != nullptr) {
         const uint64_t release_start = sn_profile::start();
@@ -234,10 +248,12 @@ void callback_common(void *_context, void *_tag) {
         my_assert(resp_msgbuf.get_data_size() ==
                   sizeof(RPCMsgResp<CommonRPCResp>),
                   "data size not match");
-        hdr_record_value_atomic(
-            latency_write_hist_,
-            static_cast<int64_t>(
-                timers[ctx->client_id_][req_id % kAppMaxBuffer].toc() * 10));
+        const size_t elapsed_us =
+            timers[ctx->client_id_][req_id % kAppMaxBuffer].toc();
+        sn_slow_trace::record_e2e("client_write_direct_e2e", req_id,
+                                  elapsed_us);
+        hdr_record_value_atomic(latency_write_hist_,
+                                static_cast<int64_t>(elapsed_us * 10));
         ctx->compose_post_req_queue->push(
             ctx->req_msgbuf[req_id % kAppMaxBuffer]);
         ctx->queue_store->PushNextReq();
