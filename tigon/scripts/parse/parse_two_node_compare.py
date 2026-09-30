@@ -21,7 +21,7 @@ REPLICA_CHECKSUM_RE = re.compile(r"UB_REPLICA_CHECKSUM count=([0-9]+) hash=([0-9
 CONFIG_FIELDS = [
     "system", "workload", "run_id", "host_id", "mode", "query", "transport",
     "partitions", "workers", "keys", "rw_ratio", "zipf", "cross_ratio",
-    "neworder_dist", "payment_dist", "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "replicated_rmw",
+    "neworder_dist", "payment_dist", "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "rmw_lookup_dir", "replicated_rmw",
 ]
 RAW_FIELDS = CONFIG_FIELDS + [
     "repetition", "throughput_txn_s", "abort_rate", "consistency_passed", "replica_count", "replica_hash",
@@ -30,10 +30,11 @@ RAW_FIELDS = CONFIG_FIELDS + [
 SUMMARY_FIELDS = [
     "system", "workload", "mode", "query", "transport", "partitions", "workers",
     "keys", "rw_ratio", "zipf", "cross_ratio", "neworder_dist", "payment_dist",
-    "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "replicated_rmw", "samples", "throughput_mean_txn_s",
+    "warmup_seconds", "run_seconds", "total_seconds", "logging", "rmw_tuple_cache", "rmw_lookup_dir", "replicated_rmw", "samples", "throughput_mean_txn_s",
     "throughput_median_txn_s", "throughput_min_txn_s", "throughput_max_txn_s",
     "abort_rate_mean", "remote_efficiency_vs_local",
 ]
+GROUP_FIELDS = SUMMARY_FIELDS[:SUMMARY_FIELDS.index("samples")]
 
 
 def parse_kv(text: str) -> dict[str, str]:
@@ -57,6 +58,8 @@ def parse_log(path: Path) -> dict[str, object] | None:
         return None
     meta = parse_kv(meta_line[len(META_PREFIX):])
     row: dict[str, object] = {field: meta.get(field, "") for field in CONFIG_FIELDS}
+    if row["system"] == "ub" and not row["rmw_lookup_dir"]:
+        row["rmw_lookup_dir"] = "0"
     if row["system"] == "ub" and not row["replicated_rmw"]:
         row["replicated_rmw"] = "0"
     rep = meta.get("repetition", "")
@@ -89,7 +92,7 @@ def identity(row: dict[str, object]) -> tuple[object, ...]:
     return tuple(row.get(field, "") for field in (
         "system", "workload", "run_id", "mode", "query", "transport",
         "partitions", "workers", "keys", "rw_ratio", "zipf", "cross_ratio",
-        "neworder_dist", "payment_dist", "rmw_tuple_cache", "replicated_rmw",
+        "neworder_dist", "payment_dist", "rmw_tuple_cache", "rmw_lookup_dir", "replicated_rmw",
     ))
 
 
@@ -118,12 +121,12 @@ def select_cluster_rows(rows: list[dict[str, object]]) -> list[dict[str, object]
 
 
 def summary_key(row: dict[str, object]) -> tuple[object, ...]:
-    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:19])
+    return tuple(row.get(field, "") for field in GROUP_FIELDS)
 
 
 def baseline_key(row: dict[str, object]) -> tuple[object, ...]:
     excluded = {"cross_ratio", "neworder_dist", "payment_dist"}
-    return tuple(row.get(field, "") for field in SUMMARY_FIELDS[:19] if field not in excluded)
+    return tuple(row.get(field, "") for field in GROUP_FIELDS if field not in excluded)
 
 
 def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -144,7 +147,7 @@ def summarize(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         first = samples[0]
         values = [float(row["throughput_txn_s"]) for row in samples]
         aborts = [float(row["abort_rate"]) for row in samples if row.get("abort_rate") is not None]
-        summary = {field: first.get(field, "") for field in SUMMARY_FIELDS[:19]}
+        summary = {field: first.get(field, "") for field in GROUP_FIELDS}
         summary.update({
             "samples": len(values),
             "throughput_mean_txn_s": statistics.fmean(values),

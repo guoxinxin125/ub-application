@@ -110,6 +110,12 @@ class Database {
 							 context.strategy == PartitionStrategy::ROUND_ROBIN
 								? partitionID : partitionID * context.keysPerPartition,
 							 context.strategy == PartitionStrategy::ROUND_ROBIN
+								? partitionNum : 1,
+							 context.workloadType == YCSBWorkloadType::RMW &&
+								!context.ub_replicated_rmw ? context.keysPerPartition : 0,
+							 context.strategy == PartitionStrategy::ROUND_ROBIN
+								? partitionID : partitionID * context.keysPerPartition,
+							 context.strategy == PartitionStrategy::ROUND_ROBIN
 								? partitionNum : 1));
 			} else if (context.protocol == "Sundial") {
 				tbl_ycsb_vec.push_back(

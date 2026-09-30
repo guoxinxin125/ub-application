@@ -44,3 +44,6 @@ TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c75_r2 host_id=0 status=ok ex
 TIGON_RUN_META system=ub workload=ycsb run_id=replica_formal-cahce02_y_rw95_c75_r3 host_id=0 repetition=3 mode=one-sided query=rmw transport=ubq partitions=2 workers=3 keys=300000 rw_ratio=95 zipf=0.7 cross_ratio=75 neworder_dist= payment_dist= warmup_seconds=30 run_seconds=30 total_seconds=60 logging=off rmw_tuple_cache=0 replicated_rmw=1 replica_lookup_dir=1
 I20260929 13:30:54.451061 132045 bench_ycsb.cpp:138] UB_REPLICA_CHECKSUM count=600000 hash=e2c33aea1ffa1c5e
 TIGON_RUN_END run_id=replica_formal-cahce02_y_rw95_c75_r3 host_id=0 status=ok exit_code=0
+
+以及不在匹配规则中但在日志中有：
+UB_REPLICA_LOOKUP_DIR table=0 partition=0 entries=300000 expected=300000 generation=2853679904

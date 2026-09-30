@@ -62,6 +62,8 @@ class MatrixScriptTests(unittest.TestCase):
             "UB_TIGON_PARTITIONS": "2", "UB_TIGON_KEYS": "300000",
             "UB_TIGON_RW_RATIO": "95", "UB_TIGON_ZIPF": "0.7",
             "UB_TIGON_CROSS_RATIO": "25", "UB_TIGON_CPU_LIST": "4-6",
+            "TIGON_UB_RMW_TUPLE_CACHE": "0", "TIGON_UB_RMW_LOOKUP_DIR": "0",
+            "TIGON_UB_REPLICATED_RMW": "0",
         })
         result = subprocess.run(
             [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"), "0", "h0:30000;h1:30000", "u12345678"],
@@ -71,6 +73,7 @@ class MatrixScriptTests(unittest.TestCase):
             self.assertIn(flag, result.stdout)
         self.assertIn("taskset -c 4-6", result.stdout)
         self.assertIn("rmw_tuple_cache=0", result.stdout)
+        self.assertIn("rmw_lookup_dir=0", result.stdout)
         self.assertIn("replicated_rmw=0", result.stdout)
         self.assertIn("replica_lookup_dir=0", result.stdout)
         self.assertIn("--ub_replicated_rmw=false", result.stdout)
@@ -82,6 +85,24 @@ class MatrixScriptTests(unittest.TestCase):
         )
         self.assertIn("rmw_tuple_cache=1", cached.stdout)
         env["TIGON_UB_RMW_TUPLE_CACHE"] = "0"
+        env["TIGON_UB_RMW_LOOKUP_DIR"] = "1"
+        directory = subprocess.run(
+            [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
+             "0", "h0:30000;h1:30000", "u12345678"],
+            env=env, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("rmw_lookup_dir=1", directory.stdout)
+        self.assertIn("rmw_tuple_cache=0", directory.stdout)
+        env["TIGON_UB_RMW_TUPLE_CACHE"] = "1"
+        incompatible = subprocess.run(
+            [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
+             "0", "h0:30000;h1:30000", "u12345678"],
+            env=env, text=True, capture_output=True,
+        )
+        self.assertEqual(incompatible.returncode, 2)
+        self.assertIn("requires non-replica mode", incompatible.stderr)
+        env["TIGON_UB_RMW_TUPLE_CACHE"] = "0"
+        env["TIGON_UB_RMW_LOOKUP_DIR"] = "0"
         env["TIGON_UB_REPLICATED_RMW"] = "1"
         replicated = subprocess.run(
             [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
@@ -107,6 +128,7 @@ class MatrixScriptTests(unittest.TestCase):
             "UB_TIGON_DRY_RUN": "1", "UB_PROVIDER_HOST": "provider0",
             "TIGON_UB_REPLICATED_RMW": "1", "UB_TIGON_MODES": "one-sided",
             "UB_TIGON_QUERIES": "insert", "UB_TIGON_TRANSPORTS": "true",
+            "TIGON_UB_RMW_LOOKUP_DIR": "0", "TIGON_UB_RMW_TUPLE_CACHE": "0",
         })
         result = subprocess.run(
             [BASH, str(TIGON / "scripts/run_ub_ycsb_matrix.sh"),
@@ -198,6 +220,37 @@ class MatrixScriptTests(unittest.TestCase):
 
 
 class ParserTests(unittest.TestCase):
+    def test_parser_keeps_remote_directory_variants_separate(self) -> None:
+        parser = TIGON / "scripts/parse/parse_two_node_compare.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for directory in (0, 1):
+                for host in (0, 1):
+                    run_id = f"rmwdir{directory}_y_rw95_c0_r1"
+                    (root / f"{run_id}_host{host}.log").write_text(
+                        f"TIGON_RUN_META system=ub workload=ycsb run_id={run_id} "
+                        f"host_id={host} repetition=1 mode=one-sided query=rmw "
+                        f"transport=ubq partitions=2 workers=3 keys=300000 "
+                        f"rw_ratio=95 zipf=0.7 cross_ratio=0 "
+                        f"warmup_seconds=30 run_seconds=30 total_seconds=60 "
+                        f"logging=off rmw_tuple_cache=0 rmw_lookup_dir={directory} "
+                        f"replicated_rmw=0\n"
+                        f"Global Stats: total_commit: {1000 + 100 * directory}\n"
+                        f"TIGON_RUN_END run_id={run_id} host_id={host} "
+                        "status=ok exit_code=0\n",
+                        encoding="utf-8",
+                    )
+            summary = root / "summary.csv"
+            subprocess.run(
+                [sys.executable, str(parser), str(root),
+                 "--raw-output", str(root / "raw.csv"),
+                 "--summary-output", str(summary)], check=True,
+            )
+            with summary.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 2)
+            self.assertEqual({row["rmw_lookup_dir"] for row in rows}, {"0", "1"})
+
     def test_parser_keeps_replica_variants_separate(self) -> None:
         parser = TIGON / "scripts/parse/parse_two_node_compare.py"
         with tempfile.TemporaryDirectory() as tmp:

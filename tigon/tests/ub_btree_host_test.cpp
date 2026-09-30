@@ -377,6 +377,53 @@ int main()
                         !round_robin_directory.remember(9, tuple_pointer),
                 "round-robin directory accepted a foreign/out-of-range key");
 
+        // Non-replica RMW can index a fixed remote partition once instead of
+        // suffering collisions in the 4096-slot per-thread cache. The scan
+        // stores addresses only; every use still checks generation/visibility
+        // and takes the ordinary tuple lock in the executor.
+        star::UBReplicaLookupDirectory rmw_directory(1024, 0, 1);
+        uint64_t directory_entries = 0;
+        tree.scan(TestKey{0}, [&](const TestTree::TupleRef &ref) {
+                if (rmw_directory.remember(ref.key->value,
+                            star::ub_memory.to_global(0, ref.node)))
+                        ++directory_entries;
+                return false;
+        });
+        // Key 15 is a still-uncommitted placeholder from the next-key test.
+        if (directory_entries != 1023)
+                throw std::runtime_error("fixed-key RMW directory entries=" +
+                        std::to_string(directory_entries));
+        for (uint64_t key = 0; key < 1024; ++key) {
+                const star::UBGlobalPtr ptr = rmw_directory.lookup(key);
+                if (key == 15) {
+                        require(!ptr, "placeholder entered the fixed-key directory");
+                        continue;
+                }
+                auto *node = star::ub_memory.resolve_as<TestTree::TupleNode>(ptr);
+                require(node != nullptr && node->key.value == key &&
+                                node->tuple.valid.load(std::memory_order_acquire) == 1,
+                        "fixed-key RMW directory returned a wrong or invalid tuple");
+        }
+        require(!rmw_directory.lookup(3000) && !rmw_directory.lookup(2000),
+                "RMW directory incorrectly cached an out-of-range key");
+        const star::UBGlobalPtr first = rmw_directory.lookup(0);
+        require(star::ub_memory.resolve(star::UBGlobalPtr(
+                        first.region_id, first.generation + 1, first.offset),
+                        sizeof(TestTree::TupleNode)) == nullptr,
+                "stale RMW directory generation was accepted");
+        const star::UBGlobalPtr reused_directory_ptr = rmw_directory.lookup(23);
+        require(tree.erase(TestKey{23}), "directory tombstone erase failed");
+        auto *tombstoned = star::ub_memory.resolve_as<TestTree::TupleNode>(
+                reused_directory_ptr);
+        require(tombstoned != nullptr &&
+                        tombstoned->tuple.valid.load(std::memory_order_acquire) == 0 &&
+                        !tree.search(TestKey{23}),
+                "directory hit would have exposed a tombstone");
+        require(tree.insert(TestKey{23}, TestValue{23, 24}),
+                "directory same-key reinsert failed");
+        require(tree.search(TestKey{23}).node == tombstoned,
+                "same-key reinsert changed the directory tuple address");
+
         star::UBPointProfile::Sample lookup_profile;
         {
                 star::UBPointProfile::ScopedLookup scope(&lookup_profile);
