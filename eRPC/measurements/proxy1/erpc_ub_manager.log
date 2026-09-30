@@ -1,0 +1,6 @@
+ub_manager: machine=98 region=erpc_ub_rx_0000000000000062 bytes=2147483648 socket=/tmp/erpc_ub_social_network.sock
+ub_manager: shutting down region=erpc_ub_rx_0000000000000062; waiting up to 30000 ms for peer mappings
+[2026-09-30 09:38:42.689 +08:00][ERROR][41638][281473616314400][shm_ipc_command.cpp:110] IpcCall ShmDelete response error : 603 name erpc_ub_rx_0000000000000062
+[2026-09-30 09:38:42.689 +08:00][ERROR][41638][281473616314400][RackMemShm.cpp:447] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-09-30 09:38:42.689 +08:00][ERROR][41638][281473616314400][mxmem_shmem.cpp:415] UbsMemShmDelete failed, ret:603
+UB: deleted region erpc_ub_rx_0000000000000062 after 2 attempts while peers released their mappings

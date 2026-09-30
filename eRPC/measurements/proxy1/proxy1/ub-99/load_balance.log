@@ -1,0 +1,19 @@
+SN_UB_PROXY_INLINE=1
+UB: endpoint unregister failed: UB machine context: invalid response from ub_manager
+SN_UB_PROFILE thread=3359998908119689493 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_forward_queue_handoff calls=3500 avg_ns=229.5 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=13300
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_forward_tx_prepare calls=3500 avg_ns=193.8 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=1370
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_forward_tx_enqueue calls=3500 avg_ns=54.6 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=64 p99_upper_ns=128 max_ns=280
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_forward_callback_release calls=3500 avg_ns=129.0 p50_upper_ns=256 p90_upper_ns=256 p95_upper_ns=256 p99_upper_ns=256 max_ns=170
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_reverse_queue_handoff calls=3500 avg_ns=205.5 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=10710
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_reverse_tx_prepare calls=3500 avg_ns=194.1 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=512 max_ns=1550
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_reverse_tx_enqueue calls=3500 avg_ns=55.1 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=64 p99_upper_ns=128 max_ns=270
+SN_UB_PROFILE thread=3359998908119689493 interval=1 stage=proxy_reverse_callback_release calls=3500 avg_ns=141.7 p50_upper_ns=256 p90_upper_ns=256 p95_upper_ns=256 p99_upper_ns=256 max_ns=1590
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=7837151973922548504 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=7837151973922548504 interval=1 stage=proxy_forward_rx_pin calls=3500 avg_ns=52.4 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=64 p99_upper_ns=128 max_ns=400
+SN_UB_PROFILE thread=7837151973922548504 interval=1 stage=proxy_forward_rx_queue calls=3500 avg_ns=144.0 p50_upper_ns=128 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=13230
+SN_UB_PROFILE thread=7837151973922548504 interval=1 stage=proxy_reverse_rx_pin calls=3500 avg_ns=55.4 p50_upper_ns=64 p90_upper_ns=64 p95_upper_ns=128 p99_upper_ns=128 max_ns=120
+SN_UB_PROFILE thread=7837151973922548504 interval=1 stage=proxy_reverse_rx_queue calls=3500 avg_ns=137.3 p50_upper_ns=128 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=10610
+Rpc 0: Created Server session_num = 0 for client [H: 76.53.137.99:31852, R: 22, S: 3] from 76.53.137.99 (rpc 22)
+Rpc 0: Created Server session_num = 1 for client [H: 76.53.137.99:31851, R: 21, S: 0] from 76.53.137.99 (rpc 21)

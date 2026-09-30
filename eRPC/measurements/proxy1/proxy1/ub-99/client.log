@@ -1,0 +1,14 @@
+SN_UB_POST_READ_MODE=contiguous
+UB: endpoint unregister failed: UB machine context: invalid response from ub_manager
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=8401793967417265173 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=8401793967417265173 interval=1 stage=client_import calls=3410 avg_ns=65.8 p50_upper_ns=64 p90_upper_ns=128 p95_upper_ns=128 p99_upper_ns=128 max_ns=310
+SN_UB_PROFILE thread=8401793967417265173 interval=1 stage=client_metadata calls=3410 avg_ns=1352.1 p50_upper_ns=1024 p90_upper_ns=1024 p95_upper_ns=2048 p99_upper_ns=16384 max_ns=23420
+SN_UB_PROFILE thread=8401793967417265173 interval=1 stage=client_fields calls=3410 avg_ns=8301.7 p50_upper_ns=8192 p90_upper_ns=32768 p95_upper_ns=32768 p99_upper_ns=65536 max_ns=68280
+SN_UB_PROFILE thread=8401793967417265173 interval=1 stage=client_fields_contiguous calls=3410 avg_ns=8223.0 p50_upper_ns=8192 p90_upper_ns=32768 p95_upper_ns=32768 p99_upper_ns=65536 max_ns=68200
+SN_UB_PROFILE thread=8401793967417265173 interval=1 stage=client_release calls=3410 avg_ns=1633.3 p50_upper_ns=2048 p90_upper_ns=2048 p95_upper_ns=2048 p99_upper_ns=16384 max_ns=29360
+Rpc 1: Created Server session_num = 0 for client [H: 76.53.137.99:31850, R: 20, S: 1] from 76.53.137.99 (rpc 20)
+Rpc 1: Created Server session_num = 1 for client [H: 76.53.137.98:31859, R: 29, S: 0] from 76.53.137.98 (rpc 29)
+writing latency file ./latency1-write, count=1500
+writing latency file ./latency1-user, count=1500
+writing latency file ./latency1-home, count=2000
