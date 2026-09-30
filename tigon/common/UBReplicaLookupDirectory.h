@@ -8,7 +8,8 @@
 
 namespace star {
 
-// Process-local directory for the fixed-key replicated YCSB RMW workload.
+// Process-local directory for fixed-key YCSB RMW. Both the optional
+// non-replica remote lookup and the replicated write path use this layout.
 // Entries contain tuple addresses, never values; the caller must resolve the
 // generation and check key/visibility before using an entry.
 class UBReplicaLookupDirectory {

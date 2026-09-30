@@ -32,6 +32,7 @@ run_id=${UB_TIGON_RUN_ID:-$prefix_base}
 dry_run=${UB_TIGON_DRY_RUN:-0}
 repetition=${UB_TIGON_REPETITION:-}
 rmw_tuple_cache=${TIGON_UB_RMW_TUPLE_CACHE:-0}
+rmw_lookup_dir=${TIGON_UB_RMW_LOOKUP_DIR:-0}
 replicated_rmw=${TIGON_UB_REPLICATED_RMW:-0}
 replica_lookup_dir=${TIGON_UB_REPLICA_LOOKUP_DIR:-1}
 
@@ -54,6 +55,9 @@ require_percent cross_ratio "$cross_ratio"
 [[ "$rmw_tuple_cache" == 0 || "$rmw_tuple_cache" == 1 ]] || {
   echo "TIGON_UB_RMW_TUPLE_CACHE must be 0 or 1" >&2; exit 2;
 }
+[[ "$rmw_lookup_dir" == 0 || "$rmw_lookup_dir" == 1 ]] || {
+  echo "TIGON_UB_RMW_LOOKUP_DIR must be 0 or 1" >&2; exit 2;
+}
 [[ "$replicated_rmw" == 0 || "$replicated_rmw" == 1 ]] || {
   echo "TIGON_UB_REPLICATED_RMW must be 0 or 1" >&2; exit 2;
 }
@@ -62,6 +66,10 @@ require_percent cross_ratio "$cross_ratio"
 }
 if [[ "$replicated_rmw" == 1 && "$rmw_tuple_cache" == 1 ]]; then
   echo "TIGON_UB_RMW_TUPLE_CACHE must be 0 in replica mode (all reads are local)" >&2
+  exit 2
+fi
+if [[ "$rmw_lookup_dir" == 1 && ( "$rmw_tuple_cache" == 1 || "$replicated_rmw" == 1 ) ]]; then
+  echo "TIGON_UB_RMW_LOOKUP_DIR requires non-replica mode and TIGON_UB_RMW_TUPLE_CACHE=0" >&2
   exit 2
 fi
 
@@ -79,14 +87,18 @@ run_one() {
     echo "UB replication supports only one-sided YCSB rmw" >&2; exit 2
   fi
   local cache_active=0
+  local directory_active=0
   if [[ "$mode" == one-sided && "$query" == rmw && "$rmw_tuple_cache" == 1 ]]; then
     cache_active=1
+  fi
+  if [[ "$mode" == one-sided && "$query" == rmw && "$rmw_lookup_dir" == 1 ]]; then
+    directory_active=1
   fi
   local replica_tag=""
   [[ "$replicated_rmw" == 0 ]] || replica_tag="_rep"
   local prefix="${prefix_base}_${mode}_${query}_${transport_name}${replica_tag}"
   (( ${#prefix} <= 35 )) || { echo "UB region prefix exceeds 35 bytes: $prefix" >&2; exit 2; }
-  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off rmw_tuple_cache=$cache_active replicated_rmw=$replicated_rmw replica_lookup_dir=$([[ $replicated_rmw == 1 ]] && echo "$replica_lookup_dir" || echo 0)"
+  local meta="TIGON_RUN_META system=ub workload=ycsb run_id=$run_id host_id=$id repetition=$repetition mode=$mode query=$query transport=$transport_name partitions=$partitions workers=$threads keys=$keys rw_ratio=$rw_ratio zipf=$zipf cross_ratio=$cross_ratio neworder_dist= payment_dist= warmup_seconds=$warmup_seconds run_seconds=$measurement_seconds total_seconds=$run_seconds logging=off rmw_tuple_cache=$cache_active rmw_lookup_dir=$directory_active replicated_rmw=$replicated_rmw replica_lookup_dir=$([[ $replicated_rmw == 1 ]] && echo "$replica_lookup_dir" || echo 0)"
   local command=("$binary" "--id=$id" "--servers=$servers" --protocol=TwoPLPasha
     "--partition_num=$partitions" "--threads=$threads" --io=1 --shared_memory_backend=ub
     "--ub_memory_mode=$mode" "--ub_region_prefix=$prefix" "--ub_region_mb=$region_mb"
