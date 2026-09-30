@@ -1,0 +1,6 @@
+       Value   Percentile   TotalCount 1/(1-Percentile)
+
+       0.000     1.000000            0          inf
+#[Mean    =          nan, StdDeviation   =          nan]
+#[Max     =        0.000, Total count    =            0]
+#[Buckets =           14, SubBuckets     =         2048]
