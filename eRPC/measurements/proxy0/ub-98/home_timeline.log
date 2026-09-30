@@ -1,0 +1,6 @@
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+[home_timeline] mongodb init finished! Total init 9424 posts
+Rpc 7: Created Server session_num = 0 for client [H: 76.53.137.98:31859, R: 29, S: 2] from 76.53.137.98 (rpc 29)
+Rpc 7: Created Server session_num = 1 for client [H: 76.53.137.99:31852, R: 22, S: 2] from 76.53.137.99 (rpc 22)
+Rpc 7: Created Server session_num = 2 for client [H: 76.53.137.99:31855, R: 25, S: 6] from 76.53.137.99 (rpc 25)
