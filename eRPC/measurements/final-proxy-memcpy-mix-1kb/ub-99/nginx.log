@@ -1,0 +1,8 @@
+SN_UB_PROXY_INLINE=1
+SN_UB_PROXY_POLL_BATCH=8
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+Rpc 2: Created Server session_num = 0 for client [H: 76.53.137.99:31855, R: 25, S: 0] from 76.53.137.99 (rpc 25)
+Rpc 2: Created Server session_num = 1 for client [H: 76.53.137.99:31850, R: 20, S: 0] from 76.53.137.99 (rpc 20)
+Rpc 2: Created Server session_num = 2 for client [H: 76.53.137.98:31857, R: 27, S: 1] from 76.53.137.98 (rpc 27)
+Rpc 2: Created Server session_num = 3 for client [H: 76.53.137.98:31856, R: 26, S: 1] from 76.53.137.98 (rpc 26)
