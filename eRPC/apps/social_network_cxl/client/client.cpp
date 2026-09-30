@@ -13,8 +13,12 @@ ImportedSharedPost consume_timeline_post(
         return ImportedSharedPost{};
     }
     const uint64_t import_start = sn_profile::start();
+    const sn_slow_trace::Stamp import_trace = sn_slow_trace::start();
     ImportedSharedPost imported =
         import_shared_post(rpc, reference_resp.post);
+    sn_slow_trace::record("client_import",
+                          sn_slow_trace::current_request_number(),
+                          import_trace);
     sn_profile::record(sn_profile::Stage::kClientImport, import_start);
     try {
         sn_consume::retain(sn_consume::native_post(imported.buffer.buf_, imported.size));

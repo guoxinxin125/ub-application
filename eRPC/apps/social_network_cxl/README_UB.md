@@ -127,7 +127,9 @@ include timestamp overhead and should not be treated as uninstrumented latency.
   RPC and ends at its callback. It includes transport, Post Storage processing,
   and event-loop scheduling; it is not additive with the service-local stages.
 - `storage_read_*` separates map-lock acquisition, lookup, reference retain,
-  and response enqueue. `storage_write_*` separates allocation, the 2 KiB
+  response build, and response enqueue. `storage_read_response` contains its
+  build/enqueue stages and must not be added to them. `storage_write_*`
+  separates allocation, the 2 KiB
   remote-to-local copy, validation, map lock/lookup/insert, and response
   construction/enqueue. `storage_write_map` and `storage_write_response` are
   enclosing totals and must not be added to their nested stages.
@@ -149,7 +151,12 @@ unset ERPC_SN_STORAGE_WRITE_PROBE
 
 After a graceful stop, grep `SN_SLOW_TRACE` in Client, Load Balance and Nginx
 (host 99), and Home/User Timeline and Post Storage (host 98) logs; join entries
-by `req_number` and stage name.
+by application `req_number` and stage name. The proxy queue-handoff traces
+currently use eRPC packet sequence numbers instead, so do not join those
+entries to Client/Timeline/Post Storage events by numeric ID. The trace now
+includes `client_import` and Post Storage read-side `storage_read_lock`,
+`storage_read_lookup`, `storage_read_retain`, `storage_read_response_build`,
+and `storage_read_response_enqueue`.
 `client_*_e2e` uses the application's existing microsecond-resolution timer;
 individual stages use nanosecond wall and thread-CPU clocks. For stages with
 `cpu_valid=1`, a large `offcpu_ns` indicates the thread was not scheduled for
@@ -650,6 +657,32 @@ compare proxy breakdown stages, then unset profiling on both hosts and compare
 end-to-end P50/P99. In inline mode `proxy_*_rx_pin` measures the small local
 copy, while `proxy_*_tx_prepare` includes materializing the sender-owned
 MsgBuffer; the stage names are retained for A/B log compatibility.
+
+## 9.3 UB Post Storage write-copy A/B
+
+On machine 98, `ERPC_SN_STORAGE_WRITE_COPY_MODE=memcpy` (or unset) preserves
+the existing 2048-byte remote-to-local `memcpy`. Set it to `scalar` to copy the
+same bytes using individual 8-byte source loads and local stores. Both modes
+validate and publish the same `PostData`; this switch does not change the
+wire format or the read path. Restart Post Storage after changing it, and
+confirm `SN_UB_STORAGE_WRITE_COPY_MODE=memcpy|scalar` in `post_storage.log`.
+The source inside the packed request may be unaligned, so the scalar path
+handles the leading/trailing bytes before and after aligned word loads.
+
+Run the same write workload in both modes with
+`ERPC_SN_STORAGE_WRITE_PROBE`, `ERPC_SN_SLOW_TRACE`, `ERPC_SN_PROFILE`, and
+`ERPC_UB_PROFILE` unset for end-to-end P50/P90/P99. A separate diagnostic run
+with `ERPC_SN_SLOW_TRACE=1` can compare `storage_write_copy` with the
+unchanged response stages; its latency histogram is not the final A/B result.
+The scalar-copy microbenchmark used an aligned source, so application results
+must be measured rather than inferred from it. A local byte-equivalence check
+can be run before deploying:
+
+```bash
+c++ -std=c++11 -Wall -Wextra -Werror -pedantic \
+  apps/social_network_cxl/tests/post_copy_test.cpp -o /tmp/post_copy_test
+/tmp/post_copy_test
+```
 
 ## 10. Shutdown and cleanup
 

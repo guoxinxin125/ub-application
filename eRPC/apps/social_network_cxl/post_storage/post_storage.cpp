@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "../post_data.h"
+#include "../post_copy.h"
 #include "../ub_breakdown.h"
 #include "../utils_mongodb.h"
 
@@ -277,20 +278,28 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
   invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
   auto *req =
       reinterpret_cast<RPCMsgReq<PostStorageReadCXLReq> *>(req_msgbuf->buf_);
+  const uint32_t req_number = req->req_common.req_number;
+  const int64_t post_id = req->req_control.post_id;
   my_assert(req_msgbuf->get_data_size() ==
             sizeof(RPCMsgReq<PostStorageReadCXLReq>));
   PostStorageReadCXLResp response{};
   const uint64_t lock_start = sn_profile::start();
+  const sn_slow_trace::Stamp lock_trace = sn_slow_trace::start();
   ctx->map_mutex.lock();
+  sn_slow_trace::record("storage_read_lock", req_number, lock_trace);
   sn_profile::record(sn_profile::Stage::kStorageReadLock, lock_start);
   const uint64_t lookup_start = sn_profile::start();
-  auto it = ctx->post_storage_map.find(req->req_control.post_id);
+  const sn_slow_trace::Stamp lookup_trace = sn_slow_trace::start();
+  auto it = ctx->post_storage_map.find(post_id);
+  sn_slow_trace::record("storage_read_lookup", req_number, lookup_trace);
   sn_profile::record(sn_profile::Stage::kStorageReadLookup, lookup_start);
   if (it != ctx->post_storage_map.end()) {
     // This reference is transferred through the response handle to the
     // final client. Intermediate services only forward the handle.
     const uint64_t retain_start = sn_profile::start();
+    const sn_slow_trace::Stamp retain_trace = sn_slow_trace::start();
     retain_shared_post(ctx->rpc_, it->second);
+    sn_slow_trace::record("storage_read_retain", req_number, retain_trace);
     sn_profile::record(sn_profile::Stage::kStorageReadRetain, retain_start);
     response.count = 1;
     response.post = it->second.handle;
@@ -298,12 +307,23 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
   ctx->map_mutex.unlock();
 
   const uint64_t response_start = sn_profile::start();
+  const sn_slow_trace::Stamp response_trace = sn_slow_trace::start();
+  const uint64_t build_start = sn_profile::start();
+  const sn_slow_trace::Stamp build_trace = sn_slow_trace::start();
   new (req_handle->pre_resp_msgbuf_.buf_) RPCMsgResp<PostStorageReadCXLResp>(
-      RPC_TYPE::RPC_POST_STORAGE_READ_RESP, req->req_common.req_number, 0,
-      response);
+      RPC_TYPE::RPC_POST_STORAGE_READ_RESP, req_number, 0, response);
   ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_,
                                sizeof(RPCMsgResp<PostStorageReadCXLResp>));
+  sn_slow_trace::record("storage_read_response_build", req_number, build_trace);
+  sn_profile::record(sn_profile::Stage::kStorageReadResponseBuild, build_start);
+  const uint64_t enqueue_start = sn_profile::start();
+  const sn_slow_trace::Stamp enqueue_trace = sn_slow_trace::start();
   ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+  sn_slow_trace::record("storage_read_response_enqueue", req_number,
+                        enqueue_trace);
+  sn_profile::record(sn_profile::Stage::kStorageReadResponseEnqueue,
+                     enqueue_start);
+  sn_slow_trace::record("storage_read_response", req_number, response_trace);
   sn_profile::record(sn_profile::Stage::kStorageReadResponse, response_start);
 }
 
@@ -320,6 +340,7 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
   my_assert(req_msgbuf->get_data_size() ==
             sizeof(RPCMsgReq<PostStorageWriteCXLReq>));
 #ifdef ERPC_UB
+  const sn_post_copy::Mode copy_mode = sn_post_copy::configured_mode();
   const uint64_t alloc_start = sn_profile::start();
   SharedPostBuffer stored_post = alloc_shared_post(ctx->rpc_, sizeof(PostData));
   sn_profile::record(sn_profile::Stage::kStorageWriteAlloc, alloc_start);
@@ -334,7 +355,8 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
     const sn_slow_trace::Stamp copy_trace = sn_slow_trace::start();
     if (run_write_probe) {
       const auto first_begin = std::chrono::steady_clock::now();
-      std::memcpy(stored, &req->req_control.post, sizeof(PostData));
+      sn_post_copy::copy(stored, &req->req_control.post, sizeof(PostData),
+                         copy_mode);
       std::atomic_signal_fence(std::memory_order_seq_cst);
       const auto first_end = std::chrono::steady_clock::now();
       first_copy_ns = elapsed_ns(first_begin, first_end);
@@ -347,7 +369,8 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
       second_copy_ns = elapsed_ns(second_begin, second_end);
       second_copy_checksum = consume_probe_copy(second_copy);
     } else {
-      std::memcpy(stored, &req->req_control.post, sizeof(PostData));
+      sn_post_copy::copy(stored, &req->req_control.post, sizeof(PostData),
+                         copy_mode);
     }
     sn_slow_trace::record("storage_write_copy", req_number, copy_trace);
     sn_profile::record(sn_profile::Stage::kStorageWriteCopy, copy_start);
@@ -366,12 +389,13 @@ void post_storage_write_req_handler(erpc::ReqHandle *req_handle,
         ctx->rpc_->get_transport()->is_in_shared_memory(backing);
     const char *const local_machine_id = std::getenv("ERPC_UB_MACHINE_ID");
     std::fprintf(stderr,
-                 "SN_UB_STORAGE_WRITE_PROBE local_machine_id=%s backing=%p "
+                 "SN_UB_STORAGE_WRITE_PROBE copy_mode=%s local_machine_id=%s backing=%p "
                  "req_payload=%p post_source=%p stored_destination=%p "
                  "post_offset_from_backing=%zu source_alignment_mod_64=%zu "
                  "destination_alignment_mod_64=%zu source_is_local=%d "
                  "request_bytes=%zu post_bytes=%zu first_copy_ns=%llu "
                  "second_copy_ns=%llu second_copy_checksum=%llu\n",
+                 copy_mode == sn_post_copy::Mode::kScalar ? "scalar" : "memcpy",
                  local_machine_id == nullptr ? "unset" : local_machine_id,
                  backing, static_cast<void *>(req_msgbuf->buf_),
                  const_cast<void *>(source), static_cast<void *>(stored),
