@@ -1,0 +1,53 @@
+SN_UB_PROXY_INLINE=1
+SN_UB_PROXY_POLL_BATCH=8
+SN_SLOW_TRACE=1
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_SLOW_TRACE thread=6251761217846582701 stage_threshold_ns=5000 e2e_threshold_ns=50000 events=37 dropped=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=336 stage=nginx_forward_queue_handoff wall_ns=15550 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=560 stage=nginx_forward_queue_handoff wall_ns=42200 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=328 stage=nginx_reverse_queue_handoff wall_ns=14950 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=1352 stage=nginx_forward_queue_handoff wall_ns=16130 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=584 stage=nginx_reverse_queue_handoff wall_ns=20920 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=1360 stage=nginx_forward_queue_handoff wall_ns=8810 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=2632 stage=nginx_forward_queue_handoff wall_ns=40320 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=1512 stage=nginx_reverse_queue_handoff wall_ns=42310 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=1888 stage=nginx_reverse_queue_handoff wall_ns=35830 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=3304 stage=nginx_forward_queue_handoff wall_ns=40600 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=4768 stage=nginx_forward_queue_handoff wall_ns=9870 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=2048 stage=nginx_reverse_queue_handoff wall_ns=37130 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=3544 stage=nginx_reverse_queue_handoff wall_ns=7340 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=2672 stage=nginx_reverse_queue_handoff wall_ns=7170 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=8296 stage=nginx_forward_queue_handoff wall_ns=14200 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=8384 stage=nginx_forward_queue_handoff wall_ns=10470 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=9096 stage=nginx_forward_queue_handoff wall_ns=29550 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=3912 stage=nginx_reverse_queue_handoff wall_ns=8130 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=9104 stage=nginx_forward_queue_handoff wall_ns=83210 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=5200 stage=nginx_reverse_queue_handoff wall_ns=45930 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=5208 stage=nginx_reverse_queue_handoff wall_ns=6280 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=5952 stage=nginx_reverse_queue_handoff wall_ns=20840 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=10416 stage=nginx_forward_queue_handoff wall_ns=65770 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=10640 stage=nginx_forward_queue_handoff wall_ns=5610 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=14792 stage=nginx_forward_queue_handoff wall_ns=66270 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=8920 stage=nginx_reverse_queue_handoff wall_ns=23710 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=8928 stage=nginx_reverse_queue_handoff wall_ns=70120 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=15624 stage=nginx_forward_queue_handoff wall_ns=54180 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=8936 stage=nginx_reverse_queue_handoff wall_ns=48940 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=16976 stage=nginx_forward_queue_handoff wall_ns=64670 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=7280 stage=nginx_reverse_queue_handoff wall_ns=6800 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=16984 stage=nginx_forward_queue_handoff wall_ns=9900 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=10112 stage=nginx_reverse_queue_handoff wall_ns=5410 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=22152 stage=nginx_forward_queue_handoff wall_ns=16440 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=12656 stage=nginx_reverse_queue_handoff wall_ns=13950 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=13560 stage=nginx_reverse_queue_handoff wall_ns=8420 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=6251761217846582701 req_number=11472 stage=nginx_reverse_queue_handoff wall_ns=12100 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_UB_PROFILE thread=6251761217846582701 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=6251761217846582701 interval=1 stage=proxy_forward_queue_handoff calls=3500 avg_ns=603.2 p50_upper_ns=512 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=2048 max_ns=83260
+SN_UB_PROFILE thread=6251761217846582701 interval=1 stage=proxy_reverse_queue_handoff calls=3500 avg_ns=567.1 p50_upper_ns=512 p90_upper_ns=1024 p95_upper_ns=1024 p99_upper_ns=2048 max_ns=70190
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=16625450784456197670 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=16625450784456197670 interval=1 stage=proxy_forward_rx_queue calls=3500 avg_ns=236.5 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=1480
+SN_UB_PROFILE thread=16625450784456197670 interval=1 stage=proxy_reverse_rx_queue calls=3500 avg_ns=234.2 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=4100
+Rpc 2: Created Server session_num = 0 for client [H: 76.53.137.98:31857, R: 27, S: 1] from 76.53.137.98 (rpc 27)
+Rpc 2: Created Server session_num = 1 for client [H: 76.53.137.98:31856, R: 26, S: 1] from 76.53.137.98 (rpc 26)
+Rpc 2: Created Server session_num = 2 for client [H: 76.53.137.99:31850, R: 20, S: 0] from 76.53.137.99 (rpc 20)
+Rpc 2: Created Server session_num = 3 for client [H: 76.53.137.99:31855, R: 25, S: 0] from 76.53.137.99 (rpc 25)

@@ -1,0 +1,19 @@
+SN_UB_PROXY_INLINE=1
+SN_UB_PROXY_POLL_BATCH=8
+SN_SLOW_TRACE=1
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_SLOW_TRACE thread=15462924369880936049 stage_threshold_ns=5000 e2e_threshold_ns=50000 events=5 dropped=0
+SN_SLOW_TRACE thread=15462924369880936049 req_number=344 stage=lb_forward_queue_handoff wall_ns=201260 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15462924369880936049 req_number=3416 stage=lb_forward_queue_handoff wall_ns=7640 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15462924369880936049 req_number=5464 stage=lb_forward_queue_handoff wall_ns=9450 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15462924369880936049 req_number=12632 stage=lb_forward_queue_handoff wall_ns=7960 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_SLOW_TRACE thread=15462924369880936049 req_number=13384 stage=lb_forward_queue_handoff wall_ns=7280 cpu_ns=0 offcpu_ns=0 cpu_valid=0
+SN_UB_PROFILE thread=15462924369880936049 interval=1 timestamp_overhead_ns=20
+SN_UB_PROFILE thread=15462924369880936049 interval=1 stage=proxy_forward_queue_handoff calls=3500 avg_ns=318.8 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=202570
+SN_UB_PROFILE thread=15462924369880936049 interval=1 stage=proxy_reverse_queue_handoff calls=3500 avg_ns=233.1 p50_upper_ns=256 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=3800
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/erpc_ub_social_network.sock
+SN_UB_PROFILE thread=5980481438384543393 interval=1 timestamp_overhead_ns=30
+SN_UB_PROFILE thread=5980481438384543393 interval=1 stage=proxy_forward_rx_queue calls=3500 avg_ns=137.3 p50_upper_ns=128 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=2850
+SN_UB_PROFILE thread=5980481438384543393 interval=1 stage=proxy_reverse_rx_queue calls=3500 avg_ns=131.2 p50_upper_ns=128 p90_upper_ns=512 p95_upper_ns=512 p99_upper_ns=1024 max_ns=1250
+Rpc 0: Created Server session_num = 0 for client [H: 76.53.137.99:31852, R: 22, S: 3] from 76.53.137.99 (rpc 22)
+Rpc 0: Created Server session_num = 1 for client [H: 76.53.137.99:31851, R: 21, S: 0] from 76.53.137.99 (rpc 21)
