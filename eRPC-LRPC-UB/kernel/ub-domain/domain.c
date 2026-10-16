@@ -358,13 +358,19 @@ static bool ud_returned(struct ud_regs *r, unsigned int d, bool nested)
         (r->esr & 0xffff) == (nested ? 0x4c1 : 0x4c0) &&
         r->pc == UD_VA + (nested ? UD_NESTED_TRAP_OFFSET : size-4);
 }
-static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped)
+static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
+                  struct ud_trace_call *trace)
 {
     struct ud_regs r, leaf;
     unsigned int d = c->procedure == 1 ? UD_DIRECT :
                      c->procedure == 2 ? UD_MIDDLE : UD_QUERY;
     unsigned long flags;
     u64 tcr, start;
+#ifdef UD_TRACE_ENABLE
+    u64 stamp = 0;
+#else
+    (void)trace;
+#endif
     int rc;
     if (!s->committed || c->procedure < 1 || c->procedure > 3 || c->reserved ||
         (c->procedure == 3 && (!c->a || c->a > 32))) return -EINVAL;
@@ -390,22 +396,61 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped)
              (3ULL << 39) | (3ULL << 14) | (1ULL << 22) | 63ULL);
     tcr |= (3ULL << 12) | 16ULL;
     start = ktime_get_ns();
+#ifdef UD_TRACE_ENABLE
+    if (trace) stamp = start;
+#endif
     ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
              tcr, virt_to_phys(s->empty_root), d == UD_MIDDLE);
+#ifdef UD_TRACE_ENABLE
+    if (trace) {
+        u64 end = ktime_get_ns();
+        trace->segment_ns[0] = end - stamp;
+        trace->segments = 1;
+        stamp = end;
+    }
+#endif
     c->transitions = 2;
     if (d == UD_MIDDLE && ud_returned(&r, d, true)) {
         memset(s->args[UD_LEAF], 0, 3 * sizeof(u64));
         ((u64 *)s->args[UD_LEAF])[0] = r.x[2];
         ud_initial_regs(s, UD_LEAF, &leaf);
+#ifdef UD_TRACE_ENABLE
+        if (trace) {
+            u64 begin = ktime_get_ns();
+            trace->handoff_ns[0] = begin - stamp;
+            stamp = begin;
+        }
+#endif
         ud_enter_selected(&leaf, s->p.contract.table_pa[UD_LEAF][0] |
                  ((u64)s->asid[UD_LEAF] << 48), tcr,
                  virt_to_phys(s->empty_root), 0);
+#ifdef UD_TRACE_ENABLE
+        if (trace) {
+            u64 end = ktime_get_ns();
+            trace->segment_ns[1] = end - stamp;
+            trace->segments = 2;
+            stamp = end;
+        }
+#endif
         c->transitions += 2;
         if (!ud_returned(&leaf, UD_LEAF, false)) { r = leaf; goto bad; }
         r.pc += 4;
         r.x[2] = ((u64 *)s->args[UD_LEAF])[2];
+#ifdef UD_TRACE_ENABLE
+        if (trace) {
+            u64 begin = ktime_get_ns();
+            trace->handoff_ns[1] = begin - stamp;
+            stamp = begin;
+        }
+#endif
         ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
                  tcr, virt_to_phys(s->empty_root), 0);
+#ifdef UD_TRACE_ENABLE
+        if (trace) {
+            trace->segment_ns[2] = ktime_get_ns() - stamp;
+            trace->segments = 3;
+        }
+#endif
         c->transitions += 2;
     }
     if (!ud_returned(&r, d, false)) goto bad;
@@ -454,13 +499,13 @@ static int ud_tlb_probe(struct ud_session *s, void __user *arg)
     first.a = second.a = p.a;
     first.b = second.b = p.b;
     first.procedure = second.procedure = p.procedure;
-    rc = ud_run(s, &first, false);
+    rc = ud_run(s, &first, false, NULL);
     p.first_ns = first.elapsed_ns;
     p.first_result = first.result;
     p.first_esr = first.esr; p.first_far = first.far;
     p.first_cpu = first.cpu;
     if (!rc) {
-        rc = ud_run(s, &second, false);
+        rc = ud_run(s, &second, false, NULL);
         p.second_ns = second.elapsed_ns;
         p.second_result = second.result;
         p.second_esr = second.esr; p.second_far = second.far;
@@ -482,11 +527,28 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     case UD_PREPARE: rc = ud_prepare_session(s, p); break;
     case UD_COMMIT: rc = ud_commit(s); break;
     case UD_TLB_PROBE: rc = ud_tlb_probe(s, p); break;
+#ifdef UD_TRACE_ENABLE
+    case UD_TRACE_CALL: {
+        struct ud_trace_call trace;
+        if (copy_from_user(&trace, p, sizeof(trace))) { rc = -EFAULT; break; }
+        if (trace.procedure != 1 && trace.procedure != 2) { rc = -EINVAL; break; }
+        memset(&call, 0, sizeof(call));
+        call.a = trace.a; call.b = trace.b; call.procedure = trace.procedure;
+        memset(&trace, 0, sizeof(trace));
+        trace.a = call.a; trace.b = call.b; trace.procedure = call.procedure;
+        rc = ud_run(s, &call, false, &trace);
+        trace.result = call.result; trace.gate_total_ns = call.elapsed_ns;
+        trace.esr = call.esr; trace.far = call.far;
+        trace.transitions = call.transitions; trace.cpu = call.cpu;
+        if (copy_to_user(p, &trace, sizeof(trace))) rc = -EFAULT;
+        break;
+    }
+#endif
     case UD_CALL:
         if (copy_from_user(&call, p, sizeof(call))) { rc = -EFAULT; break; }
         call.result = call.elapsed_ns = call.esr = call.far = 0;
         call.transitions = call.cpu = 0;
-        rc = ud_run(s, &call, false);
+        rc = ud_run(s, &call, false, NULL);
         if (copy_to_user(p, &call, sizeof(call))) rc = -EFAULT;
         break;
     case UD_MAPPED_CALL: {
@@ -498,7 +560,7 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         memset(&call, 0, sizeof(call));
         call.procedure = arg;
         call.a = READ_ONCE(m->a); call.b = READ_ONCE(m->b);
-        rc = ud_run(s, &call, true);
+        rc = ud_run(s, &call, true, NULL);
         m->elapsed_ns = call.elapsed_ns; m->esr = call.esr; m->far = call.far;
         m->procedure = arg; m->transitions = call.transitions;
         m->cpu = call.cpu; m->status = rc ? -rc : 0;
@@ -584,3 +646,8 @@ module_init(ud_init);
 module_exit(ud_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MODE ")");
+#ifdef UD_TRACE_ENABLE
+MODULE_INFO(ud_trace, "enabled");
+#else
+MODULE_INFO(ud_trace, "disabled");
+#endif

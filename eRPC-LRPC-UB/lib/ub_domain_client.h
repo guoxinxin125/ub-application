@@ -4,5 +4,8 @@
 #define UD_HANDLE_MARKER (UINT64_MAX - 1)
 int ud_lrpc_bind(struct lrpc_handle *h, uint32_t procedure, uint64_t epoch);
 int ud_lrpc_invoke(struct lrpc_handle *h, struct lrpc_astack *call);
+/* Diagnostic: time one A-user-view read of B's imported NC heap. */
+int ud_lrpc_sample_remote_heap(struct lrpc_handle *h, uint64_t *value,
+                               uint64_t *elapsed_ns);
 void ud_lrpc_close(struct lrpc_handle *h);
 #endif

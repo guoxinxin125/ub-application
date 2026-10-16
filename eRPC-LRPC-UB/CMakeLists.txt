@@ -48,11 +48,14 @@ elseif(UBLRPC_ROLE STREQUAL "caller")
     target_link_libraries(lrpc-ub-domain-bench PRIVATE lrpc)
     add_executable(lrpc-ub-domain-tlb-probe demo/ub/domain_tlb_probe.c)
     target_link_libraries(lrpc-ub-domain-tlb-probe PRIVATE lrpc)
+    add_executable(lrpc-ub-domain-trace demo/ub/domain_trace.c)
+    target_link_libraries(lrpc-ub-domain-trace PRIVATE lrpc)
     add_executable(lrpc-ub-pa-probe demo/ub/pa_probe.c)
     target_link_libraries(lrpc-ub-pa-probe PRIVATE lrpc)
     get_filename_component(UBSM_LIBRARY_DIR "${UBSM_LIBRARY}" DIRECTORY)
     get_filename_component(OBMM_LIBRARY_DIR "${OBMM_LIBRARY}" DIRECTORY)
     set_target_properties(lrpc-ub-domain-bench lrpc-ub-domain-tlb-probe
+        lrpc-ub-domain-trace
         lrpc-ub-pa-probe PROPERTIES
         BUILD_RPATH "${UBSM_LIBRARY_DIR};${OBMM_LIBRARY_DIR}")
     enable_testing()

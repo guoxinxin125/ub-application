@@ -149,6 +149,26 @@ out:
     if (rc) errno = saved_errno;
     return rc;
 }
+int ud_lrpc_sample_remote_heap(struct lrpc_handle *h, uint64_t *value,
+                               uint64_t *elapsed_ns)
+{
+    struct ud_client *client;
+    struct timespec before, after;
+    volatile const uint64_t *remote;
+    if (!h || h->fd < 0 || h->astack_offset != UD_HANDLE_MARKER ||
+        !h->astack_map || !value || !elapsed_ns)
+        return ud_error(-EINVAL);
+    client = h->astack_map;
+    if (!client->region.mapped || !client->region.base)
+        return ud_error(-ENOTCONN);
+    remote = (volatile const uint64_t *)((const char *)client->region.base + UD_HEAP);
+    if (clock_gettime(CLOCK_MONOTONIC_RAW, &before)) return -1;
+    *value = *remote;
+    if (clock_gettime(CLOCK_MONOTONIC_RAW, &after)) return -1;
+    *elapsed_ns = (uint64_t)(after.tv_sec - before.tv_sec) * 1000000000ULL +
+                  (uint64_t)(after.tv_nsec - before.tv_nsec);
+    return 0;
+}
 void ud_lrpc_close(struct lrpc_handle *h)
 {
     struct ud_client *client = h->astack_map;

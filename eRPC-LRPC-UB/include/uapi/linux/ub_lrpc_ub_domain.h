@@ -66,4 +66,15 @@ struct ud_tlb_probe {
     __u32 procedure, flush, first_cpu, second_cpu;
 };
 #define UD_TLB_PROBE _IOWR('U', 0x84, struct ud_tlb_probe)
+/* Opt-in diagnostic path. Each segment includes gate entry, EL0 service,
+ * exception return and gate restoration; it is not a pure switch timer.
+ * The two handoffs are kernel work between nested gate invocations.
+ * No field measures a hardware page walk or a single service load. */
+struct ud_trace_call {
+    __u64 a, b, result, gate_total_ns;
+    __u64 segment_ns[3], handoff_ns[2];
+    __u64 esr, far;
+    __u32 procedure, transitions, cpu, segments;
+};
+#define UD_TRACE_CALL _IOWR('U', 0x85, struct ud_trace_call)
 #endif

@@ -1,7 +1,10 @@
 # UB Direct/Nested 双机实验包
 
-此目录由原仓库的 `scripts/package-ub-domain.py` 生成。`SOURCE_MANIFEST.sha256`
-记录每个文件的 SHA-256；A、B 使用同一份生成结果。这里仅包含首次运行
+此目录现在作为 **UB 版本的独立维护源码目录**；后续修改直接改这里，不再从
+`eRPC-LRPC/` 生成，也不用维护第二个 trace 目录。`SOURCE_MANIFEST.sha256`
+记录传输源码的 SHA-256；修改后运行 `python3 scripts/manifest.py --refresh`
+更新清单，传到 A、B 后运行 `python3 scripts/manifest.py --check` 核对。
+这里仅包含首次运行
 Direct/Nested 所需的源码、PA 探针与一个页表布局测试，没有 QEMU、Go、
 currency、social network、旧 shadow 程序或第三方源码。
 同步到两端后、构建前可运行 `sha256sum -c SOURCE_MANIFEST.sha256` 检查传输。
@@ -143,7 +146,70 @@ modinfo -F vermagic kernel/ub-domain/ub_lrpc_domain_vhe.ko
 ```
 
 VHE gate 还要求模块参数 `experimental=1` 和单独的 `vhe_gate=1`；
-它与 EL1 模块使用同一个 `/dev/ub_lrpc_domain`，不能同时加载。当前 VHE
-改动只有源码/汇编交叉编译检查，**尚未在精确 EulerX 内核上编译，也未在真机
-执行、验证异常恢复或 TLB/UB 行为**。不要在共用机器上直接 insmod 或运行
-Direct/Nested；先完成内核构建、寄存器/异常路径审核和可恢复测试安排。
+它与 EL1 模块使用同一个 `/dev/ub_lrpc_domain`，不能同时加载。用户反馈已在
+EulerX 真机完成 VHE 模块构建、open/prepare、Direct/Nested 单次调用和
+100 次稳态调用；Direct TLB 清除对照也已通过。这些结果不等于异常恢复、
+并发安全或硬件 page walk 次数已经验证。共用机器上更换模块应先协调实验
+时段，确认没有活动连接；本打点修改尚未在该真机上验证。
+
+## 可选诊断：域切换与远端 load
+
+此版本在同一代码目录内增加 `UD_TRACE_CALL` 诊断 ioctl 和
+`build-caller/lrpc-ub-domain-trace`。`sh scripts/build-module.sh --vhe` 是
+原有基准构建（不编译诊断时间戳）；只有
+`sh scripts/build-module.sh --vhe --trace` 才打开 `UD_TRACE_ENABLE`，编译
+新的诊断 ioctl 和 gate 区间打点。`UD_MAPPED_CALL` 接口不变；重新构建并
+加载 trace 模块后也应重测基准，不把带打点与未打点模块的数字直接比较。
+把更新后的目录同步到 A，在 A 上沿用前面配置好的 SDK/OBMM 构建环境变量，
+编译 caller 与带打点的 VHE 模块：
+
+```sh
+sh scripts/build.sh caller
+sh scripts/build-module.sh --vhe --trace
+modinfo -F ud_trace kernel/ub-domain/ub_lrpc_domain_vhe.ko
+```
+
+`modinfo` 应输出 `enabled`（普通 `--vhe` 构建应输出 `disabled`）。
+**编译只更新磁盘上的 `.ko`，不会替换当前已加载的旧模块。** 新 ioctl
+必须搭配新模块；在共用机器上，先协调实验时段、结束 A 端连接并确认没有
+其他用户占用设备，然后才在 A 上执行：
+
+```sh
+sudo fuser -v /dev/ub_lrpc_domain
+sudo rmmod ub_lrpc_domain_vhe
+sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
+```
+
+若旧模块本来没有加载，跳过 `rmmod`；若提示 busy，**不要强制卸载**，先查明
+占用者。`modinfo` 检查的是磁盘文件，并不能证明旧模块已被替换。EL1 与 VHE
+模块不能同时加载，也不要在其他用户使用设备时热替换。
+
+B owner 的协议未改变。每次新连接先在 B 端启动全新 owner，并等待
+`UB_DOMAIN_OWNER_READY`：
+
+```sh
+./build-owner/lrpc-ub-domain-owner lrpc_ub_domain --provider-numa 1
+```
+
+然后在 A 端先做小样本 direct；A 退出后结束并重启 B owner、再次看到
+`UB_DOMAIN_OWNER_READY`，才做 nested：
+
+```sh
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1 ./build-caller/lrpc-ub-domain-trace \
+  --test direct --warmup 2 --samples 20
+# 结束 A 连接，重启 B owner 并再次看到 READY 后：
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1 ./build-caller/lrpc-ub-domain-trace \
+  --test nested --warmup 2 --samples 20
+```
+
+`UB_DOMAIN_TRACE_SAMPLE` 每次打印完整诊断 ioctl 时间、内核 gate 总时间、
+各个 gate 区间、两个内核交接区间，以及实际切换次数；汇总行
+`UB_DOMAIN_TRACE_RESULT` 给出 min/p50/p99/max/avg。Direct 应有 1 段、
+2 次切换；Nested 应有 middle/leaf/middle-return 3 段、6 次切换。
+每段 gate 包含进入、EL0 服务执行和异常返回，**不是纯页表切换时间**；
+诊断时间戳本身也增加开销，不能与未打点基准直接比较。辅助字段
+`a_view_remote_heap_load` 是 A 用户态通过 NC import 单独读取 B heap 的
+一次 load，包含计时调用开销；它**不是**服务代码中那次 `[x1]` load 的
+精确计时，Nested 服务本身也不读取 B heap。硬件 page walk 次数仍未观测。
