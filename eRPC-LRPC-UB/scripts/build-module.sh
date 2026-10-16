@@ -2,6 +2,11 @@
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 kernel=${KDIR:-/lib/modules/$(uname -r)/build}
+case "${1:-}" in
+    '') [ "$#" -eq 0 ] || exit 2; build_vhe=0 ;;
+    --vhe) [ "$#" -eq 1 ] || exit 2; build_vhe=1 ;;
+    *) echo "usage: sh scripts/build-module.sh [--vhe]" >&2; exit 2 ;;
+esac
 if [ "$(uname -m)" != aarch64 ]; then
     echo "Build this module on the AArch64 caller host." >&2
     exit 1
@@ -16,4 +21,4 @@ for symbol in arm64_mm_context_get arm64_mm_context_put; do
         exit 1
     fi
 done
-make -C "$kernel" M="$root/kernel/ub-domain" modules
+make -C "$kernel" M="$root/kernel/ub-domain" UD_BUILD_VHE="$build_vhe" modules

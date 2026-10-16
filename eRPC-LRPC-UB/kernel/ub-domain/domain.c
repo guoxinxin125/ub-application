@@ -37,9 +37,23 @@ struct ud_regs {
 };
 extern void ud_enter(struct ud_regs *regs, u64 root, u64 tcr,
                      u64 empty_root, unsigned int save_middle);
+#ifdef UD_VHE_GATE
+extern void ud_enter_vhe(struct ud_regs *regs, u64 root, u64 tcr,
+                         u64 empty_root, unsigned int save_middle);
+#define ud_enter_selected ud_enter_vhe
+#define UD_GATE_MODE "VHE-EL2"
+#else
+#define ud_enter_selected ud_enter
+#define UD_GATE_MODE "EL1"
+#endif
 static bool experimental;
 module_param(experimental, bool, 0400);
 MODULE_PARM_DESC(experimental, "Opt into bounded IRQ-masked EL0 gate on a test machine");
+#ifdef UD_VHE_GATE
+static bool vhe_gate;
+module_param(vhe_gate, bool, 0400);
+MODULE_PARM_DESC(vhe_gate, "Separately opt into the unvalidated VHE EL2 gate");
+#endif
 
 struct ud_session {
     struct mutex lock;
@@ -71,10 +85,30 @@ static int ud_mair_index(u64 mair, unsigned int encoding, unsigned int preferred
 static int ud_supported(void)
 {
     u64 tcr = read_sysreg(tcr_el1), mair = read_sysreg(mair_el1);
+#ifdef UD_VHE_GATE
+    u64 hcr;
+    if (read_sysreg(CurrentEL) != 8) {
+        pr_warn_once("ub_domain_vhe: EL2 host kernel required\n");
+        return -EOPNOTSUPP;
+    }
+    hcr = read_sysreg(hcr_el2);
+    /* E2H=bit34, TGE=bit27: host EL0 must use the EL2&0 regime.
+     * Linux's *_EL1 MMU accesses are redirected by VHE in this mode. */
+    if ((hcr & (BIT_ULL(34) | BIT_ULL(27))) !=
+        (BIT_ULL(34) | BIT_ULL(27))) {
+        pr_warn_once("ub_domain_vhe: HCR_EL2 E2H=1 and TGE=1 required\n");
+        return -EOPNOTSUPP;
+    }
+    if (!vhe_gate) {
+        pr_warn_once("ub_domain_vhe: load with vhe_gate=1 after EL2 gate audit\n");
+        return -EOPNOTSUPP;
+    }
+#else
     if (read_sysreg(CurrentEL) != 4) {
         pr_warn_once("ub_domain: EL1 kernel required; VHE EL2 gate is not supported\n");
         return -EOPNOTSUPP;
     }
+#endif
     if (!experimental) {
         pr_warn_once("ub_domain: load with experimental=1 on the test host\n");
         return -EOPNOTSUPP;
@@ -356,21 +390,21 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped)
              (3ULL << 39) | (3ULL << 14) | (1ULL << 22) | 63ULL);
     tcr |= (3ULL << 12) | 16ULL;
     start = ktime_get_ns();
-    ud_enter(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
+    ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
              tcr, virt_to_phys(s->empty_root), d == UD_MIDDLE);
     c->transitions = 2;
     if (d == UD_MIDDLE && ud_returned(&r, d, true)) {
         memset(s->args[UD_LEAF], 0, 3 * sizeof(u64));
         ((u64 *)s->args[UD_LEAF])[0] = r.x[2];
         ud_initial_regs(s, UD_LEAF, &leaf);
-        ud_enter(&leaf, s->p.contract.table_pa[UD_LEAF][0] |
+        ud_enter_selected(&leaf, s->p.contract.table_pa[UD_LEAF][0] |
                  ((u64)s->asid[UD_LEAF] << 48), tcr,
                  virt_to_phys(s->empty_root), 0);
         c->transitions += 2;
         if (!ud_returned(&leaf, UD_LEAF, false)) { r = leaf; goto bad; }
         r.pc += 4;
         r.x[2] = ((u64 *)s->args[UD_LEAF])[2];
-        ud_enter(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
+        ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
                  tcr, virt_to_phys(s->empty_root), 0);
         c->transitions += 2;
     }
@@ -483,7 +517,7 @@ static int ud_open(struct inode *inode, struct file *file)
     if (!capable(CAP_SYS_RAWIO)) return -EPERM;
     rc = ud_supported();
     if (rc) return rc;
-    pr_info_once("ub_domain: platform accepted EL1 irq_prio_masking=off KASAN/KCSAN=off "
+    pr_info_once("ub_domain: platform accepted " UD_GATE_MODE " irq_prio_masking=off KASAN/KCSAN=off "
                  "linux_page_size=%lu shadow_page_size=4096 MAIR=%llx TCR=%llx\n",
                  PAGE_SIZE, (unsigned long long)read_sysreg(mair_el1),
                  (unsigned long long)read_sysreg(tcr_el1));
@@ -549,4 +583,4 @@ static void __exit ud_exit(void) { misc_deregister(&ud_device); }
 module_init(ud_init);
 module_exit(ud_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate");
+MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MODE ")");

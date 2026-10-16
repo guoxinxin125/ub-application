@@ -4,6 +4,20 @@
  * Never call Linux C code until the original TTBR0/TCR/VBAR/SP_EL0 return.
  * x0=context, x1=root PA|ASID, x2=temporary TCR, x3=empty root,
  * x4=save middle continuation. No SIMD instructions allowed. */
+#ifdef UD_GATE_VHE
+/* Separate gate_vhe.S instantiates this instruction stream for the VHE
+ * EL2&0 host regime. The default EL1 assembly is unchanged. */
+#define ud_enter ud_enter_vhe
+#define ud_vectors ud_vectors_vhe
+#define ud_trap ud_trap_vhe
+#define ttbr0_el1 ttbr0_el2
+#define tcr_el1 tcr_el2
+#define vbar_el1 vbar_el2
+#define elr_el1 elr_el2
+#define spsr_el1 spsr_el2
+#define esr_el1 esr_el2
+#define far_el1 far_el2
+#endif
 .text
 .balign 16
 .global ud_enter

@@ -40,6 +40,8 @@ sha256sum -c SOURCE_MANIFEST.sha256
 `lscpu` 和 `taskset` 的输出用于从 A 的 NUMA0 中选择一个实际允许的 CPU；
 下文的 CPU `1` 只是示例。若 SDK 路径不同，记录真实头文件和库路径，供
 `UBSM_INCLUDE_DIR`、`UBSM_LIBRARY` 使用。两端应有同一份源码清单校验结果。
+当前已确认的测试组合是 A NUMA0/B provider NUMA1，CPU 1 可用于 A；
+A NUMA2/B provider NUMA3 是另一组，切勿把 B 的 provider NUMA 写成 A 的编号。
 
 **仅 A（caller）** 再运行：
 
@@ -63,7 +65,7 @@ PA 探针 → prepare-only → 单次 Direct/Nested → TLB 对照。
 
 ```sh
 sh scripts/build.sh owner
-./build-owner/lrpc-ub-domain-owner lrpc_ub_domain --provider-numa 0
+./build-owner/lrpc-ub-domain-owner lrpc_ub_domain --provider-numa 1
 ```
 
 若 UBSM 安装路径不同，在构建时设置 `UBSM_INCLUDE_DIR`、`UBSM_LIBRARY`。
@@ -80,7 +82,7 @@ sudo insmod kernel/ub-domain/ub_lrpc_domain.ko experimental=1
 
 若 OBMM 不在标准路径，构建时设置 `OBMM_INCLUDE_DIR`、`OBMM_LIBRARY`。
 先用独立对象做 PA 探针。B 运行
-`./build-owner/lrpc-ub-pa-owner lrpc_domain_pa --provider-numa 0`，
+`./build-owner/lrpc-ub-pa-owner lrpc_domain_pa --provider-numa 1`，
 看到 `UB_PA_OWNER_READY` 后，A 运行
 `./build-caller/lrpc-ub-pa-probe import lrpc_domain_pa`。
 探针结束后先退出 A，再在 B 用 Ctrl-C 结束探针 owner，随后启动正式 owner。
@@ -123,4 +125,25 @@ gate 计时区间内。一次探针连接总共运行 `2 + 4*(warmup+samples)` �
 `dmesg`。模块会在执行期间临时切换地址空间，真机首次运行应选择已约定、
 可接控制台的实验时段。
 
-这个包尚未在真实 UB 主机上编译和执行，生成包及本地静态检查不是硬件验证。
+2026-10-16 用户反馈：B owner 与 A caller/EL1 模块已在目标机器编译，
+PA 探针输出 `UB_PA_QUERY_PASS page_walk_tested=0 execution_tested=0`；
+EL1 模块在该 A 机器 open 时因内核运行于 EL2 被安全拒绝。以上只证明
+构建和 PA 查询，不是页表 gate、Direct/Nested 或性能的真机验证。
+
+## VHE/EL2 分支（与原 EL1 模块分开）
+
+当前 A 机器的 Linux 在 EL2，原 `ub_lrpc_domain.ko` 按设计在设备 open 时
+拒绝运行。另有实验性 `ub_lrpc_domain_vhe.ko`：共用用户态协议与验证逻辑，
+但单独编译 EL2 gate，并要求 CurrentEL=EL2、HCR_EL2.E2H/TGE=1。
+默认 `sh scripts/build-module.sh` **只构建 EL1 模块**；若需要先做离线编译检查：
+
+```sh
+sh scripts/build-module.sh --vhe
+modinfo -F vermagic kernel/ub-domain/ub_lrpc_domain_vhe.ko
+```
+
+VHE gate 还要求模块参数 `experimental=1` 和单独的 `vhe_gate=1`；
+它与 EL1 模块使用同一个 `/dev/ub_lrpc_domain`，不能同时加载。当前 VHE
+改动只有源码/汇编交叉编译检查，**尚未在精确 EulerX 内核上编译，也未在真机
+执行、验证异常恢复或 TLB/UB 行为**。不要在共用机器上直接 insmod 或运行
+Direct/Nested；先完成内核构建、寄存器/异常路径审核和可恢复测试安排。
