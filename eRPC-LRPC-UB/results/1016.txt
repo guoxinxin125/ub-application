@@ -1,0 +1,106 @@
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test direct
+UB_DOMAIN_SMOKE cpu=1 test=direct warmup=0 samples=1 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=direct warmup=0 samples=1 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=direct warmup=0 samples=1 total_calls=1
+UB_DOMAIN_RESULT case=direct result=142 samples=1 warmup=0 min_ns=8540 p50_ns=8540 p99_ns=8540 max_ns=8540 avg_ns=8540.0 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=direct cases=1 calls=1 restart_owner_before_next_connection=1
+
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested
+UB_DOMAIN_SMOKE cpu=1 test=nested warmup=0 samples=1 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=nested warmup=0 samples=1 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=nested warmup=0 samples=1 total_calls=1
+UB_DOMAIN_RESULT case=nested result=43 samples=1 warmup=0 min_ns=9850 p50_ns=9850 p99_ns=9850 max_ns=9850 avg_ns=9850.0 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=nested cases=1 calls=1 restart_owner_before_next_connection=1
+
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test direct --warmup 10 --samples 100
+UB_DOMAIN_SMOKE cpu=1 test=direct warmup=10 samples=100 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=direct warmup=10 samples=100 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=direct warmup=10 samples=100 total_calls=110
+UB_DOMAIN_RESULT case=direct result=142 samples=100 warmup=10 min_ns=2220 p50_ns=2250 p99_ns=2530 max_ns=5370 avg_ns=2307.6 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=direct cases=1 calls=110 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test direct --warmup 100 --samples 1000
+UB_DOMAIN_SMOKE cpu=1 test=direct warmup=100 samples=1000 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=direct warmup=100 samples=1000 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=direct warmup=100 samples=1000 total_calls=1100
+UB_DOMAIN_RESULT case=direct result=142 samples=1000 warmup=100 min_ns=2210 p50_ns=2230 p99_ns=2250 max_ns=13050 avg_ns=2241.5 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=direct cases=1 calls=1100 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test direct --warmup 100 --samples 1000
+UB_DOMAIN_SMOKE cpu=1 test=direct warmup=100 samples=1000 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=direct warmup=100 samples=1000 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=direct warmup=100 samples=1000 total_calls=1100
+UB_DOMAIN_RESULT case=direct result=142 samples=1000 warmup=100 min_ns=2200 p50_ns=2230 p99_ns=2270 max_ns=2290 avg_ns=2228.7 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=direct cases=1 calls=1100 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1 ./build-caller/lrpc-ub-domain-tlb-probe \
+  --test direct --samples 20 --warmup 2
+UB_TLB_PROBE_BEGIN test=direct samples=20 warmup=2 calls=90 tlbi=22 timing=kernel_gate_only
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_TLB_PROBE_SAMPLE index=0 flush_first_ns=4150 flush_second_ns=750 control_first_ns=740 control_second_ns=750 effect_ns=3410 cpu=1
+UB_TLB_PROBE_SAMPLE index=1 flush_first_ns=4050 flush_second_ns=740 control_first_ns=750 control_second_ns=740 effect_ns=3300 cpu=1
+UB_TLB_PROBE_SAMPLE index=2 flush_first_ns=4050 flush_second_ns=740 control_first_ns=750 control_second_ns=760 effect_ns=3320 cpu=1
+UB_TLB_PROBE_SAMPLE index=3 flush_first_ns=4050 flush_second_ns=800 control_first_ns=730 control_second_ns=740 effect_ns=3260 cpu=1
+UB_TLB_PROBE_SAMPLE index=4 flush_first_ns=4050 flush_second_ns=740 control_first_ns=740 control_second_ns=740 effect_ns=3310 cpu=1
+UB_TLB_PROBE_SAMPLE index=5 flush_first_ns=4050 flush_second_ns=750 control_first_ns=740 control_second_ns=740 effect_ns=3300 cpu=1
+UB_TLB_PROBE_SAMPLE index=6 flush_first_ns=4060 flush_second_ns=750 control_first_ns=740 control_second_ns=750 effect_ns=3320 cpu=1
+UB_TLB_PROBE_SAMPLE index=7 flush_first_ns=4070 flush_second_ns=740 control_first_ns=740 control_second_ns=740 effect_ns=3330 cpu=1
+UB_TLB_PROBE_SAMPLE index=8 flush_first_ns=4040 flush_second_ns=740 control_first_ns=740 control_second_ns=740 effect_ns=3300 cpu=1
+UB_TLB_PROBE_SAMPLE index=9 flush_first_ns=4040 flush_second_ns=750 control_first_ns=740 control_second_ns=740 effect_ns=3290 cpu=1
+UB_TLB_PROBE_SAMPLE index=10 flush_first_ns=4040 flush_second_ns=750 control_first_ns=740 control_second_ns=740 effect_ns=3290 cpu=1
+UB_TLB_PROBE_SAMPLE index=11 flush_first_ns=4040 flush_second_ns=740 control_first_ns=750 control_second_ns=740 effect_ns=3290 cpu=1
+UB_TLB_PROBE_SAMPLE index=12 flush_first_ns=3990 flush_second_ns=740 control_first_ns=730 control_second_ns=740 effect_ns=3260 cpu=1
+UB_TLB_PROBE_SAMPLE index=13 flush_first_ns=3990 flush_second_ns=740 control_first_ns=730 control_second_ns=740 effect_ns=3260 cpu=1
+UB_TLB_PROBE_SAMPLE index=14 flush_first_ns=3980 flush_second_ns=730 control_first_ns=730 control_second_ns=730 effect_ns=3250 cpu=1
+UB_TLB_PROBE_SAMPLE index=15 flush_first_ns=3970 flush_second_ns=730 control_first_ns=730 control_second_ns=740 effect_ns=3250 cpu=1
+UB_TLB_PROBE_SAMPLE index=16 flush_first_ns=4000 flush_second_ns=730 control_first_ns=730 control_second_ns=730 effect_ns=3270 cpu=1
+UB_TLB_PROBE_SAMPLE index=17 flush_first_ns=3980 flush_second_ns=740 control_first_ns=740 control_second_ns=730 effect_ns=3230 cpu=1
+UB_TLB_PROBE_SAMPLE index=18 flush_first_ns=3990 flush_second_ns=730 control_first_ns=730 control_second_ns=730 effect_ns=3260 cpu=1
+UB_TLB_PROBE_SAMPLE index=19 flush_first_ns=4000 flush_second_ns=730 control_first_ns=730 control_second_ns=740 effect_ns=3280 cpu=1
+UB_TLB_PROBE_RESULT test=direct samples=20 flush_first_p50_ns=4040 flush_second_p50_ns=740 control_first_p50_ns=740 control_second_p50_ns=740 paired_effect_p50_ns=3290 paired_effect_p99_ns=3330 interpretation=timing_only
+UB_TLB_PROBE_PASS correctness=1 page_walk_proven=0 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested --warmup 10 --samples 100
+UB_DOMAIN_SMOKE cpu=1 test=nested warmup=10 samples=100 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=nested warmup=10 samples=100 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=nested warmup=10 samples=100 total_calls=110
+UB_DOMAIN_RESULT case=nested result=43 samples=100 warmup=10 min_ns=2250 p50_ns=2270 p99_ns=2360 max_ns=2380 avg_ns=2274.0 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=nested cases=1 calls=110 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested --warmup 100 --samples 1000
+UB_DOMAIN_SMOKE cpu=1 test=nested warmup=100 samples=1000 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=nested warmup=100 samples=1000 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=nested warmup=100 samples=1000 total_calls=1100
+UB_DOMAIN_RESULT case=nested result=43 samples=1000 warmup=100 min_ns=2200 p50_ns=2230 p99_ns=2330 max_ns=9710 avg_ns=2244.2 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=nested cases=1 calls=1100 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested --warmup 100 --samples 1000
+UB_DOMAIN_SMOKE cpu=1 test=nested warmup=100 samples=1000 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=nested warmup=100 samples=1000 prepare_only=0
+UB_DOMAIN_BIND_FAIL: Device or resource busy
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested --warmup 100 --samples 1000
+UB_DOMAIN_SMOKE cpu=1 test=nested warmup=100 samples=1000 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=nested warmup=100 samples=1000 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=nested warmup=100 samples=1000 total_calls=1100
+UB_DOMAIN_RESULT case=nested result=43 samples=1000 warmup=100 min_ns=2210 p50_ns=2250 p99_ns=2350 max_ns=12500 avg_ns=2269.8 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=nested cases=1 calls=1100 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested --warmup 100 --samples 1000
+UB_DOMAIN_SMOKE cpu=1 test=nested warmup=100 samples=1000 name=lrpc_ub_domain
+One connection: restart B owner before running this script again.
+UB_DOMAIN_RUN test=nested warmup=100 samples=1000 prepare_only=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TEST_BEGIN case=nested warmup=100 samples=1000 total_calls=1100
+UB_DOMAIN_RESULT case=nested result=43 samples=1000 warmup=100 min_ns=2210 p50_ns=2240 p99_ns=2340 max_ns=2360 avg_ns=2240.8 tlb=retain astack=mmap scope=lrpc_invoke
+UB_DOMAIN_TEST_PASS test=nested cases=1 calls=1100 restart_owner_before_next_connection=1

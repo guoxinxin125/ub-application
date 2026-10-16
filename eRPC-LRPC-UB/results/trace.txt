@@ -1,0 +1,64 @@
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1 ./build-caller/lrpc-ub-domain-trace \
+  --test direct --warmup 2 --samples 20
+UB_DOMAIN_TRACE_BEGIN test=direct warmup=2 samples=20 service_load_isolated=0 page_walk_proven=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TRACE_SAMPLE test=direct index=0 full_ns=2180 gate_total_ns=800 first_gate_ns=780 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=1 full_ns=2090 gate_total_ns=690 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=2 full_ns=2150 gate_total_ns=790 first_gate_ns=770 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=3 full_ns=2560 gate_total_ns=690 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=4 full_ns=2030 gate_total_ns=690 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=5 full_ns=2350 gate_total_ns=700 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=6 full_ns=2060 gate_total_ns=690 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=7 full_ns=2050 gate_total_ns=690 first_gate_ns=660 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=8 full_ns=2450 gate_total_ns=690 first_gate_ns=660 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=9 full_ns=2050 gate_total_ns=700 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=10 full_ns=2060 gate_total_ns=690 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=11 full_ns=2120 gate_total_ns=740 first_gate_ns=710 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=12 full_ns=2050 gate_total_ns=710 first_gate_ns=680 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=13 full_ns=2050 gate_total_ns=690 first_gate_ns=660 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=14 full_ns=2040 gate_total_ns=700 first_gate_ns=680 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=15 full_ns=2040 gate_total_ns=700 first_gate_ns=680 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=16 full_ns=2170 gate_total_ns=810 first_gate_ns=780 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=17 full_ns=2050 gate_total_ns=700 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=18 full_ns=2060 gate_total_ns=690 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_SAMPLE test=direct index=19 full_ns=2050 gate_total_ns=690 first_gate_ns=670 leaf_gate_ns=0 resume_gate_ns=0 handoff_leaf_ns=0 handoff_middle_ns=0 transitions=2
+UB_DOMAIN_TRACE_RESULT test=direct field=full_ioctl samples=20 min_ns=2030 p50_ns=2060 p99_ns=2450 max_ns=2560 avg_ns=2133.0
+UB_DOMAIN_TRACE_RESULT test=direct field=kernel_gate_total samples=20 min_ns=690 p50_ns=690 p99_ns=800 max_ns=810 avg_ns=712.5
+UB_DOMAIN_TRACE_RESULT test=direct field=first_domain_gate samples=20 min_ns=660 p50_ns=670 p99_ns=780 max_ns=780 avg_ns=688.0
+UB_DOMAIN_TRACE_RESULT test=direct field=a_view_remote_heap_load samples=20 min_ns=450 p50_ns=460 p99_ns=470 max_ns=470 avg_ns=458.5
+UB_DOMAIN_TRACE_PASS timing=instrumented gate_segments_include_service=1 remote_load=a_view_separate_sample page_walk_proven=0 restart_owner_before_next_connection=1
+[root@computer103 eRPC-LRPC-UB]# sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1 ./build-caller/lrpc-ub-domain-trace \
+  --test nested --warmup 2 --samples 20
+UB_DOMAIN_TRACE_BEGIN test=nested warmup=2 samples=20 service_load_isolated=0 page_walk_proven=0
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=middle-suspend-only call_object=connection-reuse
+UB_DOMAIN_TRACE_SAMPLE test=nested index=0 full_ns=2110 gate_total_ns=800 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=20 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=1 full_ns=2150 gate_total_ns=800 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=2 full_ns=2130 gate_total_ns=800 first_gate_ns=260 leaf_gate_ns=230 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=3 full_ns=2480 gate_total_ns=800 first_gate_ns=250 leaf_gate_ns=240 resume_gate_ns=220 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=4 full_ns=2140 gate_total_ns=810 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=5 full_ns=2390 gate_total_ns=820 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=6 full_ns=2140 gate_total_ns=810 first_gate_ns=270 leaf_gate_ns=230 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=7 full_ns=2110 gate_total_ns=790 first_gate_ns=250 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=8 full_ns=2110 gate_total_ns=810 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=9 full_ns=2200 gate_total_ns=810 first_gate_ns=260 leaf_gate_ns=250 resume_gate_ns=230 handoff_leaf_ns=20 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=10 full_ns=2100 gate_total_ns=810 first_gate_ns=270 leaf_gate_ns=230 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=11 full_ns=2360 gate_total_ns=790 first_gate_ns=250 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=12 full_ns=2360 gate_total_ns=810 first_gate_ns=260 leaf_gate_ns=230 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=13 full_ns=2100 gate_total_ns=800 first_gate_ns=250 leaf_gate_ns=240 resume_gate_ns=220 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=14 full_ns=2100 gate_total_ns=820 first_gate_ns=260 leaf_gate_ns=250 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=15 full_ns=2100 gate_total_ns=810 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=220 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=16 full_ns=2110 gate_total_ns=810 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=17 full_ns=2080 gate_total_ns=800 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=220 handoff_leaf_ns=30 handoff_middle_ns=30 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=18 full_ns=2230 gate_total_ns=810 first_gate_ns=260 leaf_gate_ns=240 resume_gate_ns=230 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_SAMPLE test=nested index=19 full_ns=2100 gate_total_ns=800 first_gate_ns=250 leaf_gate_ns=250 resume_gate_ns=220 handoff_leaf_ns=30 handoff_middle_ns=20 transitions=6
+UB_DOMAIN_TRACE_RESULT test=nested field=full_ioctl samples=20 min_ns=2080 p50_ns=2110 p99_ns=2390 max_ns=2480 avg_ns=2180.0
+UB_DOMAIN_TRACE_RESULT test=nested field=kernel_gate_total samples=20 min_ns=790 p50_ns=810 p99_ns=820 max_ns=820 avg_ns=805.5
+UB_DOMAIN_TRACE_RESULT test=nested field=first_domain_gate samples=20 min_ns=250 p50_ns=260 p99_ns=270 max_ns=270 avg_ns=258.5
+UB_DOMAIN_TRACE_RESULT test=nested field=leaf_gate samples=20 min_ns=230 p50_ns=240 p99_ns=250 max_ns=250 avg_ns=239.5
+UB_DOMAIN_TRACE_RESULT test=nested field=middle_resume_gate samples=20 min_ns=220 p50_ns=230 p99_ns=230 max_ns=230 avg_ns=227.5
+UB_DOMAIN_TRACE_RESULT test=nested field=handoff_to_leaf samples=20 min_ns=20 p50_ns=30 p99_ns=30 max_ns=30 avg_ns=29.0
+UB_DOMAIN_TRACE_RESULT test=nested field=handoff_to_middle samples=20 min_ns=20 p50_ns=30 p99_ns=30 max_ns=30 avg_ns=25.5
+UB_DOMAIN_TRACE_RESULT test=nested field=a_view_remote_heap_load samples=20 min_ns=440 p50_ns=440 p99_ns=450 max_ns=450 avg_ns=443.0
+UB_DOMAIN_TRACE_PASS timing=instrumented gate_segments_include_service=1 remote_load=a_view_separate_sample page_walk_proven=0 restart_owner_before_next_connection=1
