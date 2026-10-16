@@ -12,7 +12,7 @@ int main(int argc, char **argv)
 {
     struct lrpc_ubsm_region region;
     struct ub_provider_options options;
-    const char *pos[2], *name;
+    const char *pos[2] = {NULL, NULL}, *name;
     struct ud_publication *pub;
     struct ud_contract c;
     unsigned int d, l;

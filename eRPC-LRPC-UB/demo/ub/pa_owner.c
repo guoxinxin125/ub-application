@@ -11,7 +11,7 @@ int main(int argc, char **argv)
 {
     struct lrpc_ubsm_region region;
     struct ub_provider_options options;
-    const char *pos[1];
+    const char *pos[1] = {NULL};
     int rc;
     if (ub_provider_parse(&options, argc, argv, 1, pos, 1) != 1 ||
         ub_provider_resolve(&options, NULL)) {

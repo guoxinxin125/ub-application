@@ -46,7 +46,7 @@ int main(int argc, char **argv)
 {
     struct lrpc_ubsm_region region;
     struct ub_provider_options options;
-    const char *pos[2];
+    const char *pos[2] = {NULL, NULL};
     int count;
     int owner, rc, cleanup;
     if (argc < 3 ||
