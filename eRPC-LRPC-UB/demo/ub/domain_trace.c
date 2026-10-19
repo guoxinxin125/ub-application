@@ -9,6 +9,7 @@
 #include <time.h>
 #include <lrpc/lrpc.h>
 #include <linux/ub_lrpc_ub_domain.h>
+#include <lrpc/ub_nested_path.h>
 #include "../../lib/ub_domain_client.h"
 
 enum { FULL, GATE, MIDDLE_FIRST, LEAF, MIDDLE_RETURN,
@@ -60,14 +61,19 @@ int main(int argc, char **argv)
         "leaf_gate", "middle_resume_gate", "handoff_to_leaf",
         "handoff_to_middle", "a_view_remote_heap_load"
     };
-    const char *test = "direct";
+    const char *test = "direct", *nested_name = getenv("LRPC_UB_NESTED_PATH");
     unsigned int samples = 20, warmup = 2, procedure, i, f;
     uint64_t *values[FIELDS] = {0}, expected, a, b, remote_value;
     struct lrpc_handle h;
-    int parsed = 0, failed = 1;
+    struct ud_connection_info connection;
+    unsigned int nested_path;
+    int parsed = 0, failed = 1, fused;
 
     for (i = 1; i < (unsigned int)argc; ++i) {
-        if (!strcmp(argv[i], "--test")) {
+        if (!strcmp(argv[i], "--nested-path")) {
+            if (++i >= (unsigned int)argc) goto usage;
+            nested_name = argv[i];
+        } else if (!strcmp(argv[i], "--test")) {
             if (++i >= (unsigned int)argc) goto usage;
             test = argv[i];
         } else if (!strcmp(argv[i], "--samples") || !strcmp(argv[i], "--warmup")) {
@@ -78,7 +84,10 @@ int main(int argc, char **argv)
         } else goto usage;
     }
     if (strcmp(test, "direct") && strcmp(test, "nested")) goto usage;
+    if (ud_nested_path_parse(nested_name, &nested_path)) goto usage;
+    nested_name = ud_nested_path_name(nested_path);
     procedure = !strcmp(test, "nested") ? 2 : 1;
+    fused = procedure == 2 && nested_path == UD_NESTED_FUSED;
     a = procedure == 2 ? 41 : 21;
     b = procedure == 2 ? 0 : 21;
     expected = procedure == 2 ? 43 : 142;
@@ -88,8 +97,9 @@ int main(int argc, char **argv)
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
     printf("UB_DOMAIN_TRACE_BEGIN test=%s warmup=%u samples=%u "
-           "service_load_isolated=0 page_walk_proven=0\n", test, warmup, samples);
-    if (setenv("LRPC_EXECUTION_BACKEND", "ub-remote-domain", 1)) goto free_values;
+           "service_load_isolated=0 page_walk_proven=0 nested_path=%s\n", test, warmup, samples, nested_name);
+    if (setenv("LRPC_EXECUTION_BACKEND", "ub-remote-domain", 1) ||
+        setenv("LRPC_UB_NESTED_PATH", nested_name, 1)) goto free_values;
     if (lrpc_bind(&h, "/dev/ub_lrpc_domain", 1, 1)) {
         perror("UB_DOMAIN_TRACE_BIND_FAIL"); goto free_values;
     }
@@ -103,8 +113,10 @@ int main(int argc, char **argv)
         elapsed = now_ns() - start;
         if (trace.result != expected || trace.esr || trace.far ||
             trace.cpu != (unsigned int)h.shadow_cpu ||
-            trace.transitions != (procedure == 2 ? 6U : 2U) ||
-            trace.segments != (procedure == 2 ? 3U : 1U) ||
+            trace.transitions != (procedure == 2 ? ud_nested_transitions(nested_path) : 2U) ||
+            trace.segments != (procedure == 2 && !fused ? 3U : 1U) ||
+            (fused && (trace.segment_ns[1] || trace.segment_ns[2] ||
+                       trace.handoff_ns[0] || trace.handoff_ns[1])) ||
             !trace.gate_total_ns || !trace.segment_ns[0]) {
             fprintf(stderr, "UB_DOMAIN_TRACE_VERIFY_FAIL result=%" PRIu64
                     " transitions=%u segments=%u cpu=%u esr=0x%" PRIx64
@@ -121,7 +133,13 @@ int main(int argc, char **argv)
         values[MIDDLE_RETURN][i - warmup] = trace.segment_ns[2];
         values[HANDOFF_TO_LEAF][i - warmup] = trace.handoff_ns[0];
         values[HANDOFF_TO_MIDDLE][i - warmup] = trace.handoff_ns[1];
-        printf("UB_DOMAIN_TRACE_SAMPLE test=%s index=%u full_ns=%" PRIu64
+        if (fused) {
+            printf("UB_DOMAIN_TRACE_SAMPLE test=%s index=%u full_ns=%" PRIu64
+                   " gate_total_ns=%" PRIu64 " fused_gate_ns=%" PRIu64
+                   " transitions=%u nested_path=fused\n", test, i - warmup,
+                   elapsed, (uint64_t)trace.gate_total_ns,
+                   (uint64_t)trace.segment_ns[0], trace.transitions);
+        } else printf("UB_DOMAIN_TRACE_SAMPLE test=%s index=%u full_ns=%" PRIu64
                " gate_total_ns=%" PRIu64 " first_gate_ns=%" PRIu64
                " leaf_gate_ns=%" PRIu64 " resume_gate_ns=%" PRIu64
                " handoff_leaf_ns=%" PRIu64 " handoff_middle_ns=%" PRIu64
@@ -146,12 +164,13 @@ int main(int argc, char **argv)
         if (i >= warmup) values[REMOTE_A_VIEW][i - warmup] = elapsed;
     }
     for (f = 0; f < FIELDS; ++f) {
-        if (procedure == 1 && f >= LEAF && f <= HANDOFF_TO_MIDDLE) continue;
-        summary(test, names[f], values[f], samples);
+        if ((procedure == 1 || fused) && f >= LEAF && f <= HANDOFF_TO_MIDDLE) continue;
+        summary(test, fused && f == MIDDLE_FIRST ? "fused_nested_gate" : names[f], values[f], samples);
     }
-    puts("UB_DOMAIN_TRACE_PASS timing=instrumented gate_segments_include_service=1 "
+    if (ud_lrpc_connection_info(&h, &connection)) goto close_handle;
+    printf("UB_DOMAIN_TRACE_PASS timing=instrumented gate_segments_include_service=1 "
          "remote_load=a_view_separate_sample page_walk_proven=0 "
-         "restart_owner_before_next_connection=1");
+         "restart_owner_before_next_connection=%u\n", !connection.multi);
     failed = 0;
 close_handle:
     if (parsed) lrpc_close(&h);
@@ -160,6 +179,6 @@ free_values:
     return failed;
 usage:
     fprintf(stderr, "usage: %s [--test direct|nested] [--samples 1..10000] "
-            "[--warmup 0..10000]\n", argv[0]);
+            "[--warmup 0..10000] [--nested-path legacy|fused]\n", argv[0]);
     return 2;
 }

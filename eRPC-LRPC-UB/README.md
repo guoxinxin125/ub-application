@@ -4,9 +4,10 @@
 `eRPC-LRPC/` 生成，也不用维护第二个 trace 目录。`SOURCE_MANIFEST.sha256`
 记录传输源码的 SHA-256；修改后运行 `python3 scripts/manifest.py --refresh`
 更新清单，传到 A、B 后运行 `python3 scripts/manifest.py --check` 核对。
-这里仅包含首次运行
-Direct/Nested 所需的源码、PA 探针与一个页表布局测试，没有 QEMU、Go、
-currency、social network、旧 shadow 程序或第三方源码。
+这里包含 Direct/Nested、只读多连接、PA 探针，以及可选的 UserTimeline 路由接入；
+没有 QEMU、Go、currency、旧 shadow 程序或第三方源码。应用接入需另外同步 `eRPC/`
+中的应用与构建依赖，详见 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)。
+下一轮 Direct/Nested 20 轮性能测量及应用验证清单见 [UB 真机实验待办](TODO_UB.md)。
 同步到两端后、构建前可运行 `sha256sum -c SOURCE_MANIFEST.sha256` 检查传输。
 
 源码中的固定发布格式仍包含 Query domain 与指令；本包的运行步骤只执行
@@ -63,6 +64,142 @@ ls -l /usr/local/include/libobmm.h /usr/local/ubs_mem/lib/libobmm.so
 把 A/B 输出、之前双机共享内存测试的成功标志，以及拟用的 NUMA0 CPU
 发给协作者核对，再按以下顺序构建和启动：B owner → A caller 与模块 →
 PA 探针 → prepare-only → 单次 Direct/Nested → TLB 对照。
+
+## 多连接与只读并发（可选）
+
+新增 `--multi` owner 和 `lrpc-ub-domain-multi`。默认 owner 不变，仍是旧的单连接协议；
+**本节之外原有的“每次连接前重启 owner”要求适用于 legacy owner。** 新 caller 自动识别
+两种协议。`--multi` owner 在成功关闭连接后可以继续使用，不需要每轮重启。
+
+### 范围与隔离
+
+- 当前是一台 A 的内核连接一台 B，单个共享区域最多 **8 个同时存活的连接**。
+  支持 A 上同一进程的多个线程，也支持 A 上多个进程。不是多台 A 共享同一个连接池。
+- 每个连接由创建它的线程使用、固定在一个 CPU 上；不要跨线程共享同一个 handle。
+  一个连接仍包含 Direct/Middle/Leaf/Query 四个域，不是一个服务只能有一个 client。
+- B 只初始化一次只读 heap、服务镜像和初始 context。每个连接有独立的 B 端页表槽；
+  A 的参数页/A-stack、E-stack、代码副本、ASID、completion 和调用暂存对象也相互独立。
+  页表中的服务 heap 是 RO/NX，服务代码是 RX；业务执行不修改 B 的共享数据。
+- 连接建立/释放使用 A 内核的局部锁；调用热路径没有新增跨连接全局锁或远端原子 RMW。
+  成功连接关闭时先定向失效它的 ASID，再回收槽位，不清空其他连接的 TLB。
+- 同一进程内，同名共享区域只导入一次，并对 SDK 初始化和导入映射分别引用计数。
+  关闭一个 handle 不会 unmap 其他 handle 使用的区域，最后一个才 unmap/finalize。
+  默认 `LRPC_UBSM_SDK_MODE=owned`；只有嵌入已自行初始化 SDK 的程序时才使用 `external`，
+  此时外部程序必须保证 SDK 比所有 LRPC 连接活得更久，库不负责初始化/结束 SDK。
+
+这是受信任、固定映射、只读服务的实验实现，不是任意 Linux 服务的透明迁移；
+不包括业务写入、动态撤销映射、多 A 协议或 B 在线重启。
+SocialNetwork 的可选单 lane 接入单独使用 `--social` owner，见
+[UserTimeline UB 接入说明](SOCIAL_USER_READ.md)，不能把微测试 owner 当成应用 owner。
+
+### 更新两端并替换 A 模块
+
+把本目录同步到 A/B。B 只重建 owner；A 重建 caller 和对应 EL1/VHE 模块。
+保留原来的 SDK/OBMM 路径环境变量，不需要修改系统启动配置，也不需要重启机器。
+**先结束所有使用此设备的 A 程序和旧 B owner，再替换本项目模块。** 不要卸载别人的模块。
+
+```sh
+# B：构建。启动命令见下一段。
+sh scripts/build.sh owner
+
+# A：当前 VHE/EL2 机器
+sh scripts/build.sh caller
+sh scripts/build-module.sh --vhe
+modinfo -F ud_multi kernel/ub-domain/ub_lrpc_domain_vhe.ko
+# 应有 readonly-pool-v1-8-slots-single-importer-kernel
+
+# 确认所有本项目连接已退出；如原来加载的是 VHE 模块：
+sudo rmmod ub_lrpc_domain_vhe
+sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
+```
+
+尚未加载模块时跳过 `rmmod`。EL1 机器使用 `sh scripts/build-module.sh`、
+`ub_lrpc_domain.ko` 和 `experimental=1`，不要设置 `vhe_gate`；两种模块不同时加载。
+首次并发验证使用不带 `--trace` 的构建。
+
+### B：启动连接池 owner 并保持运行
+
+```sh
+./build-owner/lrpc-ub-domain-owner lrpc_ub_domain --provider-numa 1 --multi
+```
+
+等到 `UB_DOMAIN_OWNER_READY multi=1 capacity=8 ...`。B provider NUMA 1 对应 A NUMA 0；
+以下示例 CPU 1、2 必须都在 A 当前允许的 CPU 列表中且属于期望的 NUMA 节点。
+`--provider-host` 等参数仍可按原方式指定。
+
+### A：先小样本，再多进程，再增大样本
+
+```sh
+taskset -pc $$
+lscpu -p=CPU,NODE,ONLINE | awk -F, '$1 !~ /^#/ && $2==0 && $3=="Y" {print $1}'
+
+# 两个线程、每人 3 次测量：mixed 会依次覆盖 Direct/Nested/Query。
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  ./build-caller/lrpc-ub-domain-multi --mode threads --cpus 1,2 \
+  --test mixed --nested-path legacy --warmup 0 --samples 3
+
+# 成功后不必重启 --multi owner；两个独立进程分别建立连接。
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  ./build-caller/lrpc-ub-domain-multi --mode processes --cpus 1,2 \
+  --test mixed --nested-path legacy --warmup 0 --samples 3
+
+# 正确性均通过后再测稳定延迟；Direct/Nested 分开统计。
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  ./build-caller/lrpc-ub-domain-multi --mode threads --cpus 1,2 \
+  --test direct --warmup 10 --samples 100
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  ./build-caller/lrpc-ub-domain-multi --mode threads --cpus 1,2 \
+  --test nested --nested-path legacy --warmup 10 --samples 100
+```
+
+`--cpus` 的每一项对应一个 worker，数量 2–8，例如 `1,2,3,4` 是四个 worker。
+不要用外层 `taskset -c 1` 限制这些多 CPU 测试。`1,1` 可以验证同 CPU 交错执行，
+但不是物理并行，输出会标注 `unique_cpus=1`。`processes` 模式在初始化 SDK 之前 fork，
+不要在自己的程序初始化 SDK 后直接 fork 再使用继承的 SDK 状态。
+
+测试先让所有连接同时存活，检查不同 slot/identity、相同 owner generation，然后开始调用。
+Direct/Nested 使用各 worker 不同的输入校验结果；Query 校验只读链表结果。
+测量后 worker 0 关闭并重建连接，其余 worker 保持连接并继续调用；最后检查所有调用计数、
+结果和清理状态。每个 worker 额外执行 32 次存活/重连校验，不计入延迟样本。
+
+应有每个 worker 的 `UB_DOMAIN_MULTI_RESULT` 和最终：
+
+```text
+UB_DOMAIN_MULTI_PASS mode=threads workers=2 unique_cpus=2 ... read_only=1 slots_unique=1 reconnect=1 peer_survived_close=1
+```
+
+每个 worker 独立输出 min/p50/p99/max/avg；`mixed` 是混合工作负载，不能当成单独 Nested
+延迟。这里 `scope=invoke-and-verify` 包含请求准备、调用和结果校验，排除建连、预热、
+线程间等待和重连；不同于原 bench 的更窄 `scope=lrpc_invoke`，不要直接混为同一口径。
+逐步增加到 1000 个样本或 4/8 个 worker 前先检查 `dmesg`，不要一开始压满共享机器。
+
+要验证可选 fused Nested，将上面命令的 `--nested-path legacy` 改成 `fused`，两者使用
+同一个 owner 和模块，不需重启 B。此版本的 fused 和多连接均仍需 UB 真机验证。
+已有单连接 bench、TLB probe、trace 也会自动识别 `--multi` owner；成功释放后可继续建连。
+
+### 生命周期与失败处理
+
+正常退出顺序始终是 **所有 A 连接结束，再停止 B owner**。B 存活期间保持代码、共享 heap
+和已发布页表不变；关闭/重连只重写已回收槽位的页表。新连接不会重新初始化正在读取的 heap。
+不要在还有 A 连接时重启 B、解除共享区域或重新发布数据。
+
+容量耗尽返回 `ENOSPC`。若 PREPARE 已向 A 返回，但后续 PA 校验、发布、COMMIT 或连接建立
+失败，模块保守隔离该槽位，避免 B 延迟处理旧请求后覆盖新连接。日志会出现
+`quarantined pool slot`；这类失败不会自动复用槽位。排查并保留日志，等所有 A 连接停止后，
+再停止 B、卸载本项目模块、重新加载并启动 fresh owner。不是重启整台机器，也不允许运行中
+清空连接池。B generation 改变而 A 仍有旧槽位时会拒绝 `ESTALE`。
+
+本地回归（需要 Python、gcc、pthreads；OS/SDK/服务指令有 fixture，不代表 UB 实测）：
+
+```sh
+python3 -m unittest discover -s tests -p 'test_multi.py' -v
+python3 -m unittest discover -s tests -p 'test_nested_client.py' -v
+python3 -m unittest discover -s tests -p 'test_nested_runtime.py' -v
+```
+
+覆盖真实发布器/槽位分配器、prepare/commit 的实际 C、8 线程 SDK 引用计数、映射复用、
+失败清理、实际多线程测试程序的编排/重连/失败标志。内核 VMA/ASID/MMU、SDK、物理并行访存
+不是本地 fixture 能验证的；多进程执行、全模块构建及实际性能必须在 UB 主机确认。
 
 ## B：编译并启动 owner
 
@@ -207,9 +344,143 @@ sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
 `UB_DOMAIN_TRACE_SAMPLE` 每次打印完整诊断 ioctl 时间、内核 gate 总时间、
 各个 gate 区间、两个内核交接区间，以及实际切换次数；汇总行
 `UB_DOMAIN_TRACE_RESULT` 给出 min/p50/p99/max/avg。Direct 应有 1 段、
-2 次切换；Nested 应有 middle/leaf/middle-return 3 段、6 次切换。
+2 次切换；默认 legacy Nested 应有 middle/leaf/middle-return 3 段、6 次切换。
 每段 gate 包含进入、EL0 服务执行和异常返回，**不是纯页表切换时间**；
 诊断时间戳本身也增加开销，不能与未打点基准直接比较。辅助字段
 `a_view_remote_heap_load` 是 A 用户态通过 NC import 单独读取 B heap 的
 一次 load，包含计时调用开销；它**不是**服务代码中那次 `[x1]` load 的
 精确计时，Nested 服务本身也不读取 B heap。硬件 page walk 次数仍未观测。
+
+## 可选 fused Nested：在 gate 内交接到 leaf 再恢复 middle
+
+默认仍是 `legacy`，原有命令和 Direct/Query 路径保持原行为。
+新增 `--nested-path fused`（或环境变量 `LRPC_UB_NESTED_PATH=fused`）在连接
+PREPARE 前选择新路径；命令行优先于环境变量。路径在连接准备后固定，
+一次连接中的 benchmark、trace、TLB probe 均使用同一选择。
+不识别的路径在 bind 前拒绝；旧模块不支持新 ioctl 时明确失败，不回退为 legacy。
+
+```text
+legacy: A 内核 -> middle -> 恢复 A -> leaf -> 恢复 A -> middle -> 恢复 A
+fused:  A 内核 -> middle -> gate -> leaf -> gate -> middle -> 恢复 A
+```
+
+fused 使用一个新的汇编入口。第一次 middle 的合法 `brk #0x4c1` 保存暂停
+上下文，并把参数写入 leaf 的本地 A-stack；leaf 的合法 `brk #0x4c0` 返回后，
+将结果放入 middle 的 x2，恢复 middle 的 SP/寄存器，从暂停点下一条指令继续。
+middle 最终返回后才恢复 Linux 的原页表、TCR、VBAR、SP_EL0 等环境。
+中途不调用 Linux C 函数。每阶段核验异常向量、异常类型、立即数和批准的返回 PC；
+错误从当前域恢复 A 并使连接失效，不继续调用下一域。
+
+正常 Nested 的 `transitions=4` 表示 A->middle->leaf->middle->A 四次逻辑地址空间
+切换；不计安全切换使用的临时空页表，也不表示只经过四次特权级转换。
+三个服务阶段仍各有一次进入 EL0 和一次异常返回。每个域继续持有自己的 pinned
+ASID，普通调用不执行 TLBI；A-stack 和 E-stack 本地化、连接对象复用不变。
+这仍是固定、可信的 Nested 流程，未新增任意服务或动态嵌套能力。
+
+### A 上重新编译并更换模块
+
+B 的发布协议及服务代码未改变，无须重编 B owner。每次 A 新连接前仍需
+结束旧连接并重启 B owner。下面在 **A 的本目录**、沿用 SDK/OBMM 环境变量执行：
+
+```sh
+sh scripts/build.sh caller
+sh scripts/build-module.sh --vhe
+modinfo -F ud_nested kernel/ub-domain/ub_lrpc_domain_vhe.ko
+```
+
+`ud_nested` 应输出 `legacy,fused`。编译不会更新已加载的模块；确认没有其他用户
+使用设备并结束所有 A 连接后，按前文的模块更换步骤操作：
+
+```sh
+sudo fuser -v /dev/ub_lrpc_domain
+sudo rmmod ub_lrpc_domain_vhe
+sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
+```
+
+没有已加载模块时跳过 rmmod，busy 时不强制卸载。EL1 机器则省略构建参数 `--vhe`，
+使用 `ub_lrpc_domain.ko`，加载时只传 `experimental=1`。
+两种模块都包含 legacy/fused，不能同时加载。
+
+### 先单次正确性，再测稳态对照
+
+B 按原命令启动 owner，看到 READY 后，在 A 执行：
+
+```sh
+sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested \
+  --nested-path fused --warmup 0 --samples 1
+```
+
+应有 `UB_DOMAIN_BOUND ... nested_path=fused`、
+`UB_DOMAIN_RESULT case=nested result=43 ... nested_path=fused transitions=4`，
+以及 `UB_DOMAIN_TEST_PASS test=nested`。此时只验证正确性，不宣称性能提升。
+
+结束 A 后，在 B 结束并重启 owner，看到新的 READY，再测 legacy：
+
+```sh
+sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested \
+  --nested-path legacy --warmup 10 --samples 100
+```
+
+再次结束 A、重启 B owner 并看到 READY，再测 fused：
+
+```sh
+sudo sh scripts/run-ub-domain-smoke.sh --cpu 1 --test nested \
+  --nested-path fused --warmup 10 --samples 100
+```
+
+legacy 应报告 6 次、fused 应报告 4 次逻辑切换，结果都为 43。
+比较同一模块构建、CPU、样本和预热设置下的 `scope=lrpc_invoke` 延迟。
+正式性能使用不带 `--trace` 的模块，建议交替多轮运行。新代码不要求修改启动参数或重启机器。
+
+### fused 的 TLB probe 和 trace
+
+每条命令都是新连接，分别先重启 B owner。TLB probe 不需要 trace 模块：
+
+```sh
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1 ./build-caller/lrpc-ub-domain-tlb-probe \
+  --test nested --nested-path fused --warmup 2 --samples 20
+```
+
+trace 需要先用 `sh scripts/build-module.sh --vhe --trace` 构建，按前文流程替换
+当前模块，再启动新 B owner：
+
+```sh
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1 ./build-caller/lrpc-ub-domain-trace \
+  --test nested --nested-path fused --warmup 2 --samples 20
+```
+
+fused trace 只有一个 `fused_nested_gate` 整链区间及 `kernel_gate_total`，
+不会输出不存在的独立 leaf/resume/handoff 区间。它包括整链的进入、服务执行、
+交接、异常检查和恢复，不是纯切换时间。旧 trace 三段仍仅用于 legacy。
+辅助远端 heap load 仍是单独测量，不是 Nested 的业务访存。
+
+### 本地回归（不等于 UB 真机验证）
+
+C runtime fixture 编译实际 `ud_run`/`ud_run_fused`，覆盖两条路径、copy/mmap、
+trace 开关、错误失效及重复调用；client fixture 覆盖路径选择、CLI、结果切换次数、
+陈旧 completion、busy、错误及 CPU 不匹配。需要本地 gcc 与 Python：
+
+```sh
+python3 -m unittest discover -s tests -p 'test_nested_runtime.py' -v
+python3 -m unittest discover -s tests -p 'test_nested_client.py' -v
+```
+
+指令测试需要 Unicorn 2.x；用现有 AArch64 编译器生成临时对象（交叉编译可将
+`cc` 换成 `aarch64-linux-gnu-gcc` 或 `zig cc -target aarch64-linux-musl`）：
+
+```sh
+TEST_OBJECTS=$(mktemp -d)
+cc -c kernel/ub-domain/gate_nested.S -o "$TEST_OBJECTS/gate_nested.o"
+cc -c kernel/ub-domain/gate_nested_vhe.S -o "$TEST_OBJECTS/gate_nested_vhe.o"
+cc -c kernel/ub-domain/services.S -o "$TEST_OBJECTS/services.o"
+cc -c tests/nested_sysregs.S -o "$TEST_OBJECTS/sysregs.o"
+cc -DUD_GATE_VHE -c tests/nested_sysregs.S -o "$TEST_OBJECTS/sysregs_vhe.o"
+python3 tests/test_nested_gate.py --objects "$TEST_OBJECTS"
+```
+
+测试执行真实 gate 和服务指令，核验参数、middle 栈/寄存器恢复、无中途恢复 A、
+无 per-call TLBI、EL1/VHE 寄存器编码，以及三个阶段的异常返回路径。
+系统寄存器、ERET、异常入口和域映射由 fixture 接管；不模拟真实 MMU、UB 或内核，
+不能证明硬件异常恢复和性能。fused 路径尚待目标 UB 真机验证。

@@ -29,6 +29,6 @@ int lrpc_invoke(struct lrpc_handle *h, struct lrpc_astack *call)
 
 void lrpc_close(struct lrpc_handle *h)
 {
-    if (h && h->fd >= 0 && h->astack_offset == UD_HANDLE_MARKER)
+    if (h && (h->fd >= 0 || h->astack_map) && h->astack_offset == UD_HANDLE_MARKER)
         ud_lrpc_close(h);
 }

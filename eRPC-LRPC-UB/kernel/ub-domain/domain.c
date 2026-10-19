@@ -24,6 +24,11 @@
 #include <asm/memory.h>
 #include <lrpc/ub_domain_layout.h>
 #include <lrpc/ub_domain_services.h>
+#include <lrpc/ub_domain_pool.h>
+#include "pool_slots.h"
+
+static DEFINE_MUTEX(ud_pool_lock);
+static struct ud_pool_bank ud_pool_banks[UD_POOL_BANKS];
 
 #if !defined(CONFIG_ARM64)
 #error "UB domain requires ARM64"
@@ -35,15 +40,20 @@
 struct ud_regs {
     u64 x[31], sp, pc, pstate, esr, far, vector;
 };
+#include "nested_gate.h"
 extern void ud_enter(struct ud_regs *regs, u64 root, u64 tcr,
                      u64 empty_root, unsigned int save_middle);
+extern void ud_enter_nested(struct ud_nested_gate *gate, u64 tcr, u64 empty_root);
 #ifdef UD_VHE_GATE
 extern void ud_enter_vhe(struct ud_regs *regs, u64 root, u64 tcr,
                          u64 empty_root, unsigned int save_middle);
 #define ud_enter_selected ud_enter_vhe
+extern void ud_enter_nested_vhe(struct ud_nested_gate *gate, u64 tcr, u64 empty_root);
+#define ud_enter_nested_selected ud_enter_nested_vhe
 #define UD_GATE_MODE "VHE-EL2"
 #else
 #define ud_enter_selected ud_enter
+#define ud_enter_nested_selected ud_enter_nested
 #define UD_GATE_MODE "EL1"
 #endif
 static bool experimental;
@@ -65,6 +75,10 @@ struct ud_session {
     unsigned long asid[UD_DOMAINS];
     void *empty_root;
     u64 completion;
+    u32 nested_path, profile;
+    u64 pool_generation;
+    unsigned int pool_bank, pool_slot;
+    bool multi, pool_reserved, pool_exposed, pool_reusable;
     struct ud_prepare p;
     void *code[UD_DOMAINS], *stack[UD_DOMAINS], *args[UD_DOMAINS];
     struct ud_initial initial[UD_DOMAINS];
@@ -197,7 +211,8 @@ static int ud_mapping(struct ud_session *s, bool initialize)
     u64 pa;
     int rc;
     for (d = 0; d < UD_DOMAINS; ++d) for (l = 0; l < 4; ++l) {
-        rc = ud_import_pa(s, UD_TABLE(d, l), &pa, d*4+l, initialize);
+        unsigned long offset = s->multi ? UD_POOL_TABLE(s->pool_slot,d,l) : UD_TABLE(d,l);
+        rc = ud_import_pa(s, offset, &pa, d*4+l, initialize);
         if (rc) return rc;
         if (initialize) s->p.contract.table_pa[d][l] = pa;
         else if (s->p.contract.table_pa[d][l] != pa) return -ESTALE;
@@ -237,18 +252,28 @@ static void ud_free_pages(struct ud_session *s)
         if (s->import_file[d]) fput(s->import_file[d]);
         s->import_file[d] = NULL;
     }
+    if (s->pool_reserved) {
+        /* A pending publication can still be handled by B after local failure.
+         * Never recycle that slot into an active connection. */
+        mutex_lock(&ud_pool_lock);
+        ud_slots_release(ud_pool_banks, s->pool_bank, s->pool_slot,
+                         s->pool_exposed, s->pool_reusable);
+        mutex_unlock(&ud_pool_lock);
+        if (s->pool_exposed && !s->pool_reusable)
+            pr_warn("ub_domain: quarantined pool slot=%u after incomplete prepare; restart fresh owner/module after all clients stop\n",
+                    s->pool_slot);
+        s->pool_reserved = false;
+    }
 }
-static int ud_prepare_session(struct ud_session *s, void __user *arg)
+static int ud_prepare_pages(struct ud_session *s, const struct ud_prepare *input)
 {
-    struct ud_prepare input;
     unsigned int d;
     int rc;
     if (s->prepared) return -EALREADY;
-    if (copy_from_user(&input, arg, sizeof(input))) return -EFAULT;
-    if (!input.import_va || input.import_va & (UD_PAGE - 1) ||
-        input.import_va > TASK_SIZE - UD_BYTES) return -EINVAL;
+    if (!input->import_va || input->import_va & (UD_PAGE - 1) ||
+        input->import_va > TASK_SIZE - UD_BYTES) return -EINVAL;
     memset(&s->p, 0, sizeof(s->p));
-    s->p.import_va = input.import_va;
+    s->p.import_va = input->import_va;
     s->p.contract.magic = UD_MAGIC;
     s->p.contract.abi = UD_ABI;
     s->p.contract.nonce = get_random_u64() | 1;
@@ -257,6 +282,23 @@ static int ud_prepare_session(struct ud_session *s, void __user *arg)
     s->p.contract.wb_index = ud_mair_index(read_sysreg(mair_el1), 0xff, MT_NORMAL);
     s->p.contract.nc_index = ud_mair_index(read_sysreg(mair_el1), 0x44, MT_NORMAL_NC);
     mmap_read_lock(current->mm);
+    if (s->multi) {
+        /* Discover the real A-view region identity before choosing offsets. */
+        u64 heap;
+        rc = ud_import_pa(s, UD_HEAP, &heap, UD_DOMAINS*4, true);
+        if (!rc) {
+            mutex_lock(&ud_pool_lock);
+            rc = ud_slots_acquire(ud_pool_banks, heap, s->pool_generation,
+                                  &s->pool_bank, &s->pool_slot);
+            mutex_unlock(&ud_pool_lock);
+            if (!rc) s->pool_reserved = true;
+        }
+        if (rc) { mmap_read_unlock(current->mm); goto fail; }
+        /* Discovery's file reference is replaced by ud_mapping below. */
+        if (s->import_file[UD_DOMAINS*4]) {
+            fput(s->import_file[UD_DOMAINS*4]); s->import_file[UD_DOMAINS*4] = NULL;
+        }
+    }
     rc = ud_mapping(s, true);
     mmap_read_unlock(current->mm);
     if (rc) goto fail;
@@ -281,15 +323,58 @@ static int ud_prepare_session(struct ud_session *s, void __user *arg)
         }
         s->p.contract.code_pa[d] = virt_to_phys(s->code[d]);
         s->p.contract.stack_pa[d] = virt_to_phys(s->stack[d]);
-        s->p.contract.args_pa[d] = virt_to_phys(s->args[d]);
+        /* Routing domains share one connection-private A-stack, so the route
+         * handoff needs neither a payload copy nor a remote argument access. */
+        s->p.contract.args_pa[d] = virt_to_phys(s->args[s->profile == UD_PROFILE_SOCIAL ? 0 : d]);
     }
     if (!ud_contract_valid(&s->p.contract)) { rc = -ERANGE; goto fail; }
-    if (copy_to_user(arg, &s->p, sizeof(s->p))) { rc = -EFAULT; goto fail; }
-    s->prepared = true;
     return 0;
 fail:
     ud_free_pages(s);
     return rc;
+}
+static int ud_prepare_session(struct ud_session *s, void __user *arg)
+{
+    struct ud_prepare input;
+    u64 magic;
+    int rc;
+    if (s->prepared) return -EALREADY;
+    if (s->profile != UD_PROFILE_MICRO) return -EPROTONOSUPPORT;
+    if (copy_from_user(&input, arg, sizeof(input))) return -EFAULT;
+    if (!input.import_va || input.import_va > TASK_SIZE - UD_BYTES) return -EINVAL;
+    if (copy_from_user(&magic, (void __user *)input.import_va, sizeof(magic))) return -EFAULT;
+    if (magic == UD_POOL_MAGIC) return -EPROTONOSUPPORT;
+    s->multi = false;
+    rc = ud_prepare_pages(s, &input);
+    if (rc) return rc;
+    if (copy_to_user(arg, &s->p, sizeof(s->p))) { ud_free_pages(s); return -EFAULT; }
+    s->prepared = true;
+    return 0;
+}
+static int ud_prepare_pool(struct ud_session *s, void __user *arg)
+{
+    struct ud_pool_prepare input;
+    struct ud_pool_header header;
+    struct ud_profile_header tag;
+    int rc;
+    if (s->prepared) return -EALREADY;
+    if (copy_from_user(&input, arg, sizeof(input))) return -EFAULT;
+    if (input.abi != UD_POOL_ABI || !input.generation || input.slot ||
+        !input.domain.import_va || input.domain.import_va > TASK_SIZE-UD_BYTES) return -EINVAL;
+    if (copy_from_user(&header, (void __user *)input.domain.import_va, sizeof(header))) return -EFAULT;
+    if (!ud_pool_header_valid(&header) || header.generation != input.generation) return -ESTALE;
+    if (copy_from_user(&tag, (void __user *)(input.domain.import_va+UD_PROFILE_OFFSET), sizeof(tag))) return -EFAULT;
+    if (tag.magic == UD_PROFILE_MAGIC) {
+        if (tag.abi != UD_POOL_ABI || tag.profile != s->profile) return -EPROTONOSUPPORT;
+    } else if (s->profile) return -EPROTONOSUPPORT;
+    s->multi = true; s->pool_generation = input.generation;
+    s->pool_exposed = s->pool_reusable = false;
+    rc = ud_prepare_pages(s, &input.domain);
+    if (rc) return rc;
+    input.domain = s->p; input.slot = s->pool_slot;
+    if (copy_to_user(arg, &input, sizeof(input))) { ud_free_pages(s); return -EFAULT; }
+    s->prepared = s->pool_exposed = true;
+    return 0;
 }
 
 static int ud_copy(struct ud_session *s, unsigned long off, void *to, size_t n)
@@ -307,7 +392,19 @@ static int ud_commit(struct ud_session *s)
     expected = kmalloc(UD_PAGE, GFP_KERNEL);
     actual = kmalloc(UD_PAGE, GFP_KERNEL);
     if (!expected || !actual) goto out;
-    rc = ud_copy(s, 0, &pub, sizeof(pub));
+    if (s->multi) {
+        struct ud_pool_header header;
+        struct ud_pool_publication slot;
+        rc = ud_copy(s, 0, &header, sizeof(header));
+        if (rc) goto out;
+        if (!ud_pool_header_valid(&header) || header.generation != s->pool_generation) {
+            rc = -ESTALE; goto out;
+        }
+        rc = ud_copy(s, UD_POOL_SLOT(s->pool_slot), &slot, sizeof(slot));
+        if (rc) goto out;
+        if (slot.error || slot.reserved) { rc = -EBADMSG; goto out; }
+        pub = slot.pub;
+    } else rc = ud_copy(s, 0, &pub, sizeof(pub));
     if (rc) goto out;
     if (memcmp(&pub.contract, &s->p.contract, sizeof(pub.contract)) ||
         pub.request != s->p.contract.nonce || pub.complete != pub.request) {
@@ -315,10 +412,11 @@ static int ud_commit(struct ud_session *s)
     }
     for (d = 0; d < UD_DOMAINS; ++d) {
         struct ud_initial initial = {UD_ARGS, UD_DATA, UD_STACK + UD_PAGE, UD_VA};
-        const unsigned char *code = ud_service(d, &size);
+        const unsigned char *code = ud_profile_service(s->profile, d, &size);
+        if (s->profile == UD_PROFILE_SOCIAL) initial.heap += us_config_offset(d);
         for (l = 0; l < 4; ++l) {
             ud_build_table(&s->p.contract, d, l, expected);
-            rc = ud_copy(s, UD_TABLE(d, l), actual, UD_PAGE);
+            rc = ud_copy(s, s->multi ? UD_POOL_TABLE(s->pool_slot,d,l) : UD_TABLE(d,l), actual, UD_PAGE);
             if (rc) goto out;
             if (memcmp(expected, actual, UD_PAGE)) { rc = -EBADMSG; goto out; }
         }
@@ -333,11 +431,16 @@ static int ud_commit(struct ud_session *s)
     }
     rc = ud_copy(s, UD_HEAP, actual, UD_PAGE);
     if (rc) goto out;
-    if (actual[0] != 100) { rc = -EBADMSG; goto out; }
-    for (d = 0; d < 32; ++d)
-        if (actual[8 + d*8] != d || actual[9 + d*8] != ((d+1) & 31) ||
-            actual[10 + d*8] != 1000+d) { rc = -EBADMSG; goto out; }
+    if (s->profile == UD_PROFILE_SOCIAL) {
+        if (!us_heap_valid((void *)actual)) { rc = -EBADMSG; goto out; }
+    } else {
+        if (actual[0] != 100) { rc = -EBADMSG; goto out; }
+        for (d = 0; d < 32; ++d)
+            if (actual[8 + d*8] != d || actual[9 + d*8] != ((d+1) & 31) ||
+                actual[10 + d*8] != 1000+d) { rc = -EBADMSG; goto out; }
+    }
     s->committed = true;
+    s->pool_reusable = true;
     rc = 0;
 out:
     kfree(expected); kfree(actual);
@@ -358,6 +461,34 @@ static bool ud_returned(struct ud_regs *r, unsigned int d, bool nested)
         (r->esr & 0xffff) == (nested ? 0x4c1 : 0x4c0) &&
         r->pc == UD_VA + (nested ? UD_NESTED_TRAP_OFFSET : size-4);
 }
+/* All frame pointers and PAs are prepared by A's kernel. The assembly owns
+ * both inter-domain handoffs; Linux C runs again only after A is restored. */
+static noinline int ud_run_fused(struct ud_session *s, struct ud_regs *result,
+                                 u64 tcr, struct ud_call *call)
+{
+    struct ud_nested_gate gate;
+    unsigned long middle_size, leaf_size;
+    ud_initial_regs(s, UD_MIDDLE, &gate.middle);
+    ud_initial_regs(s, UD_LEAF, &gate.leaf);
+    ud_service(UD_MIDDLE, &middle_size);
+    ud_service(UD_LEAF, &leaf_size);
+    gate.middle_root = s->p.contract.table_pa[UD_MIDDLE][0] |
+                       ((u64)s->asid[UD_MIDDLE] << 48);
+    gate.leaf_root = s->p.contract.table_pa[UD_LEAF][0] |
+                     ((u64)s->asid[UD_LEAF] << 48);
+    gate.middle_args = (u64)s->args[UD_MIDDLE];
+    gate.leaf_args = (u64)s->args[UD_LEAF];
+    gate.call_pc = UD_VA + UD_NESTED_TRAP_OFFSET;
+    gate.leaf_pc = UD_VA + leaf_size - 4;
+    gate.return_pc = UD_VA + middle_size - 4;
+    gate.transitions = gate.complete = 0;
+    gate.domain = UD_MIDDLE;
+    ud_enter_nested_selected(&gate, tcr, virt_to_phys(s->empty_root));
+    call->transitions = gate.transitions;
+    *result = gate.domain == UD_LEAF ? gate.leaf : gate.middle;
+    return gate.complete == 1 && gate.transitions == 4 &&
+           gate.domain == UD_MIDDLE && ud_returned(result, UD_MIDDLE, false) ? 0 : -EIO;
+}
 static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
                   struct ud_trace_call *trace)
 {
@@ -372,6 +503,7 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
     (void)trace;
 #endif
     int rc;
+    if (s->profile != UD_PROFILE_MICRO) return -EOPNOTSUPP;
     if (!s->committed || c->procedure < 1 || c->procedure > 3 || c->reserved ||
         (c->procedure == 3 && (!c->a || c->a > 32))) return -EINVAL;
     /* Read lock spans entry/return; munmap/mremap cannot replace the VMA.
@@ -383,7 +515,8 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
         ((u64 *)s->args[d])[0] = c->a; ((u64 *)s->args[d])[1] = c->b;
     }
     ((u64 *)s->args[d])[2] = 0;
-    ud_initial_regs(s, d, &r);
+    if (d != UD_MIDDLE || s->nested_path != UD_NESTED_FUSED)
+        ud_initial_regs(s, d, &r);
     preempt_disable();
     local_irq_save(flags);
     rc = ud_supported();
@@ -399,6 +532,18 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
 #ifdef UD_TRACE_ENABLE
     if (trace) stamp = start;
 #endif
+    if (d == UD_MIDDLE && s->nested_path == UD_NESTED_FUSED) {
+        rc = ud_run_fused(s, &r, tcr, c);
+#ifdef UD_TRACE_ENABLE
+        /* One complete fused chain. No fabricated per-domain timestamps. */
+        if (trace) {
+            trace->segment_ns[0] = ktime_get_ns() - stamp;
+            trace->segments = 1;
+        }
+#endif
+        if (rc) goto bad;
+        goto returned;
+    }
     ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
              tcr, virt_to_phys(s->empty_root), d == UD_MIDDLE);
 #ifdef UD_TRACE_ENABLE
@@ -453,6 +598,7 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
 #endif
         c->transitions += 2;
     }
+returned:
     if (!ud_returned(&r, d, false)) goto bad;
     c->result = ((u64 *)s->args[d])[2];
     c->esr = c->far = 0;
@@ -515,6 +661,76 @@ static int ud_tlb_probe(struct ud_session *s, void __user *arg)
     if (copy_to_user(arg, &p, sizeof(p))) return -EFAULT;
     return rc;
 }
+/* Legacy-style routing chain: A->LB->A->nginx->A (reverse order on return).
+ * Two actual domain entries, NOT the arithmetic middle/leaf/resume benchmark.
+ * B config is RO, code is A-local RX, arguments are A-local shared WB.
+ * No eRPC, allocator, syscall, write grant or data-plane B thread in a domain. */
+static int ud_run_social(struct ud_session *s)
+{
+    struct ud_mapped *m = s->args[0];
+    struct us_call *call = (void *)((char *)s->args[0]+US_MAPPED_OFFSET);
+    struct us_message input;
+    struct ud_regs r;
+    unsigned int first, i;
+    unsigned long flags, size;
+    u64 tcr, start;
+    int rc;
+    if (call->abi != US_ABI || call->direction > US_REVERSE ||
+        !call->message.source || call->message.source > U32_MAX ||
+        !call->message.value || call->message.value > U32_MAX || call->message.request > U32_MAX ||
+        call->message.type != (call->direction ? US_USER_RESP : US_USER_REQ) ||
+        call->message.status || call->message.action || call->message.target || call->message.ticket)
+        return -EINVAL;
+    input = call->message;
+    first = call->direction == US_FORWARD ? 0 : 2;
+    call->entries = call->transitions = call->fault_vector = 0;
+    call->domain[0] = call->domain[1] = 0;
+    m->esr = m->far = m->elapsed_ns = 0;
+    mmap_read_lock(current->mm);
+    rc = ud_mapping(s, false);
+    if (rc) goto unlock;
+    preempt_disable(); local_irq_save(flags);
+    rc = ud_supported();
+    if (rc) goto restore;
+    tcr = read_sysreg(tcr_el1);
+    tcr &= ~((15ULL << 8) | (1ULL << 7) | (3ULL << 12) |
+             (3ULL << 39) | (3ULL << 14) | (1ULL << 22) | 63ULL);
+    tcr |= (3ULL << 12) | 16ULL;
+    call->cpu = raw_smp_processor_id();
+    start = ktime_get_ns();
+    for (i = 0; i < 2; ++i) {
+        unsigned int d = first+i;
+        ud_initial_regs(s, d, &r); r.x[0] += US_MAPPED_OFFSET;
+        ud_profile_service(UD_PROFILE_SOCIAL, d, &size);
+        ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
+                          tcr, virt_to_phys(s->empty_root), 0);
+        call->transitions += 2;
+        if (r.vector != 8 || (r.esr >> 26) != 0x3c || (r.esr & 0xffff) != 0x4c0 ||
+            r.pc != UD_VA+size-4) { rc = -EIO; goto bad; }
+        call->domain[i] = first ? (i ? 1 : 2) : i+1;
+        ++call->entries;
+        if (call->message.action != (i ? (first ? US_ACTION_CLIENT : US_ACTION_RPC) : US_ACTION_DOMAIN) ||
+            call->message.target != (i ? (first ? 0 : 102) : (first ? 1 : 2))) {
+            rc = -EPROTO; goto bad;
+        }
+    }
+    {
+        struct us_message result = call->message;
+        result.action = input.action; result.target = input.target;
+        if (memcmp(&result, &input, sizeof(input))) { rc = -EPROTO; goto bad; }
+    }
+    rc = 0; goto timed;
+bad:
+    m->esr = r.esr; m->far = r.far; call->fault_vector = r.vector;
+    s->committed = false;
+timed:
+    m->elapsed_ns = ktime_get_ns()-start;
+restore:
+    local_irq_restore(flags); preempt_enable();
+unlock:
+    mmap_read_unlock(current->mm);
+    return rc;
+}
 static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     struct ud_session *s = file->private_data;
@@ -524,6 +740,42 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     if (!capable(CAP_SYS_RAWIO) || current != s->owner || current->mm != s->mm) return -EPERM;
     if (mutex_lock_interruptible(&s->lock)) return -ERESTARTSYS;
     switch (cmd) {
+    case UD_SET_PROFILE: {
+        u32 profile;
+        if (s->prepared) { rc = -EBUSY; break; }
+        if (copy_from_user(&profile, p, sizeof(profile))) { rc = -EFAULT; break; }
+        if (profile > UD_PROFILE_SOCIAL) { rc = -EINVAL; break; }
+        s->profile = profile; rc = 0; break;
+    }
+    case UD_SOCIAL_CALL: {
+        struct ud_mapped *m = s->args[0];
+        if (!s->committed || s->profile != UD_PROFILE_SOCIAL) { rc = -ENOTCONN; break; }
+        rc = ud_run_social(s);
+        m->status = rc ? -rc : 0;
+        smp_store_release(&m->completion, ++s->completion);
+        break;
+    }
+    case UD_POOL_PREPARE: rc = ud_prepare_pool(s, p); break;
+    case UD_CONNECTION_INFO: {
+        struct ud_connection_info info = {
+            .abi = UD_POOL_ABI, .multi = s->multi,
+            .identity = s->p.contract.nonce, .generation = s->pool_generation,
+            .slot = s->pool_slot, .capacity = s->multi ? UD_CLIENTS : 1,
+        };
+        rc = copy_to_user(p, &info, sizeof(info)) ? -EFAULT : 0;
+        break;
+    }
+    case UD_SET_NESTED_PATH: {
+        u32 path;
+        if (s->prepared) { rc = -EBUSY; break; }
+        if (copy_from_user(&path, p, sizeof(path))) { rc = -EFAULT; break; }
+        if (path != UD_NESTED_LEGACY && path != UD_NESTED_FUSED) {
+            rc = -EINVAL; break;
+        }
+        s->nested_path = path;
+        rc = 0;
+        break;
+    }
     case UD_PREPARE: rc = ud_prepare_session(s, p); break;
     case UD_COMMIT: rc = ud_commit(s); break;
     case UD_TLB_PROBE: rc = ud_tlb_probe(s, p); break;
@@ -636,6 +888,18 @@ static struct miscdevice ud_device = {
 static int __init ud_init(void)
 {
     BUILD_BUG_ON(offsetof(struct ud_regs, vector) != 288);
+    BUILD_BUG_ON(sizeof(struct ud_regs) != UDN_LEAF);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, middle_root) != UDN_MIDDLE_ROOT);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, leaf_root) != UDN_LEAF_ROOT);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, middle_args) != UDN_MIDDLE_ARGS);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, leaf_args) != UDN_LEAF_ARGS);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, call_pc) != UDN_CALL_PC);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, leaf_pc) != UDN_LEAF_PC);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, return_pc) != UDN_RETURN_PC);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, transitions) != UDN_TRANSITIONS);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, complete) != UDN_COMPLETE);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, domain) != UDN_DOMAIN);
+    BUILD_BUG_ON(sizeof(struct ud_nested_gate) != UDN_SIZE);
     BUILD_BUG_ON(offsetof(struct ud_mapped, result) != 16);
     BUILD_BUG_ON(sizeof(struct ud_mapped) > UD_PAGE);
     if (!experimental) return -EOPNOTSUPP;
@@ -646,6 +910,9 @@ module_init(ud_init);
 module_exit(ud_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MODE ")");
+MODULE_INFO(ud_nested, "legacy,fused");
+MODULE_INFO(ud_multi, "readonly-pool-v1-8-slots-single-importer-kernel");
+MODULE_INFO(ud_social, "user-read-abi1-single-nginx-legacy-chain");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

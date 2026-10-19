@@ -9,15 +9,19 @@
 #include <sys/ioctl.h>
 #include <lrpc/lrpc.h>
 #include <linux/ub_lrpc_ub_domain.h>
+#include <lrpc/ub_nested_path.h>
+#include "../../lib/ub_domain_client.h"
 
 struct options {
     const char *test;
     unsigned int samples, warmup;
+    const char *nested_path;
 };
 
 static void usage(const char *program)
 {
-    printf("usage: %s [--test direct|nested] [--samples N] [--warmup N]\n"
+    printf("usage: %s [--test direct|nested] [--samples N] [--warmup N] "
+           "[--nested-path legacy|fused]\n"
            "defaults: direct, samples=20, warmup=2\n", program);
 }
 
@@ -36,9 +40,16 @@ static int count(const char *text, unsigned int minimum, unsigned int *out)
 static int parse(int argc, char **argv, struct options *o)
 {
     int i;
-    *o = (struct options){"direct", 20, 2};
+    unsigned int path;
+    *o = (struct options){"direct", 20, 2, getenv("LRPC_UB_NESTED_PATH")};
+    if (!o->nested_path) o->nested_path = "legacy";
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--help")) { usage(argv[0]); return 1; }
+        if (!strcmp(argv[i], "--nested-path")) {
+            if (++i == argc) goto bad;
+            o->nested_path = argv[i];
+            continue;
+        }
         if (!strcmp(argv[i], "--test")) {
             if (++i == argc) goto bad;
             o->test = argv[i];
@@ -49,6 +60,7 @@ static int parse(int argc, char **argv, struct options *o)
         } else goto bad;
     }
     if (strcmp(o->test, "direct") && strcmp(o->test, "nested")) goto bad;
+    if (ud_nested_path_parse(o->nested_path, &path)) goto bad;
     return 0;
 bad:
     fprintf(stderr, "Invalid TLB probe options (samples: 1..100000; warmup: 0..100000)\n");
@@ -101,6 +113,7 @@ int main(int argc, char **argv)
 {
     struct options o;
     struct lrpc_handle h;
+    struct ud_connection_info connection;
     struct ud_tlb_probe flushed, control;
     uint64_t *cold_first = NULL, *cold_second = NULL;
     uint64_t *control_first = NULL, *control_second = NULL;
@@ -122,9 +135,10 @@ int main(int argc, char **argv)
     if (!cold_first || !cold_second || !control_first ||
         !control_second || !effect) { perror("calloc"); goto free_arrays; }
     printf("UB_TLB_PROBE_BEGIN test=%s samples=%u warmup=%u calls=%u "
-           "tlbi=%u timing=kernel_gate_only\n", o.test, o.samples, o.warmup,
-           2U + 4U * (o.samples + o.warmup), o.samples + o.warmup);
-    if (setenv("LRPC_EXECUTION_BACKEND", "ub-remote-domain", 1)) goto free_arrays;
+           "tlbi=%u timing=kernel_gate_only nested_path=%s\n", o.test, o.samples, o.warmup,
+           2U + 4U * (o.samples + o.warmup), o.samples + o.warmup, o.nested_path);
+    if (setenv("LRPC_EXECUTION_BACKEND", "ub-remote-domain", 1) ||
+        setenv("LRPC_UB_NESTED_PATH", o.nested_path, 1)) goto free_arrays;
     if (lrpc_bind(&h, "/dev/ub_lrpc_domain", 1, 1)) {
         perror("UB_TLB_PROBE_BIND_FAIL"); goto free_arrays;
     }
@@ -158,12 +172,14 @@ int main(int argc, char **argv)
     printf("UB_TLB_PROBE_RESULT test=%s samples=%u flush_first_p50_ns=%" PRIu64
            " flush_second_p50_ns=%" PRIu64 " control_first_p50_ns=%" PRIu64
            " control_second_p50_ns=%" PRIu64 " paired_effect_p50_ns=%" PRId64
-           " paired_effect_p99_ns=%" PRId64 " interpretation=timing_only\n",
+           " paired_effect_p99_ns=%" PRId64 " interpretation=timing_only nested_path=%s\n",
            o.test, o.samples, cold_first[(o.samples-1)*50/100],
            cold_second[(o.samples-1)*50/100], control_first[(o.samples-1)*50/100],
            control_second[(o.samples-1)*50/100], effect[(o.samples-1)*50/100],
-           effect[(o.samples-1)*99/100]);
-    puts("UB_TLB_PROBE_PASS correctness=1 page_walk_proven=0 restart_owner_before_next_connection=1");
+           effect[(o.samples-1)*99/100], o.nested_path);
+    if (ud_lrpc_connection_info(&h, &connection)) goto close_handle;
+    printf("UB_TLB_PROBE_PASS correctness=1 page_walk_proven=0 restart_owner_before_next_connection=%u\n",
+           !connection.multi);
     failed = 0;
 close_handle:
     lrpc_close(&h);

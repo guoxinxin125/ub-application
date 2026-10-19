@@ -3,6 +3,7 @@ project(erpc_lrpc_ub LANGUAGES C ASM)
 
 set(CMAKE_C_STANDARD 11)
 add_compile_options(-Wall -Wextra -Werror -O2)
+find_package(Threads REQUIRED)
 set(UBLRPC_ROLE "caller" CACHE STRING "Build caller or owner")
 set_property(CACHE UBLRPC_ROLE PROPERTY STRINGS caller owner)
 
@@ -19,15 +20,16 @@ endif()
 
 if(UBLRPC_ROLE STREQUAL "owner")
     add_executable(lrpc-ub-domain-owner
-        demo/ub/domain_owner.c kernel/ub-domain/services.S lib/backend_ubsm.c)
+        demo/ub/domain_owner.c kernel/ub-domain/services.S kernel/ub-domain/social_services.S
+        lib/backend_ubsm.c lib/ub_domain_pool.c)
     add_executable(lrpc-ub-pa-owner
         demo/ub/pa_owner.c lib/backend_ubsm.c)
     target_include_directories(lrpc-ub-domain-owner PRIVATE include include/uapi
         "${UBSM_INCLUDE_DIR}")
     target_include_directories(lrpc-ub-pa-owner PRIVATE include include/uapi
         "${UBSM_INCLUDE_DIR}")
-    target_link_libraries(lrpc-ub-domain-owner PRIVATE "${UBSM_LIBRARY}")
-    target_link_libraries(lrpc-ub-pa-owner PRIVATE "${UBSM_LIBRARY}")
+    target_link_libraries(lrpc-ub-domain-owner PRIVATE "${UBSM_LIBRARY}" Threads::Threads)
+    target_link_libraries(lrpc-ub-pa-owner PRIVATE "${UBSM_LIBRARY}" Threads::Threads)
     get_filename_component(UBSM_LIBRARY_DIR "${UBSM_LIBRARY}" DIRECTORY)
     set_target_properties(lrpc-ub-domain-owner lrpc-ub-pa-owner PROPERTIES
         BUILD_RPATH "${UBSM_LIBRARY_DIR}")
@@ -43,9 +45,13 @@ elseif(UBLRPC_ROLE STREQUAL "caller")
         lib/backend_ubsm.c lib/ubsm_pa.c)
     target_include_directories(lrpc PUBLIC include include/uapi "${UBSM_INCLUDE_DIR}")
     target_include_directories(lrpc PRIVATE "${OBMM_INCLUDE_DIR}")
-    target_link_libraries(lrpc PUBLIC "${UBSM_LIBRARY}" "${OBMM_LIBRARY}")
+    target_link_libraries(lrpc PUBLIC "${UBSM_LIBRARY}" "${OBMM_LIBRARY}" Threads::Threads)
     add_executable(lrpc-ub-domain-bench demo/ub/domain_bench.c)
     target_link_libraries(lrpc-ub-domain-bench PRIVATE lrpc)
+    add_executable(lrpc-ub-domain-multi demo/ub/domain_multi.c)
+    target_link_libraries(lrpc-ub-domain-multi PRIVATE lrpc)
+    add_executable(lrpc-ub-social-probe demo/ub/social_probe.c)
+    target_link_libraries(lrpc-ub-social-probe PRIVATE lrpc)
     add_executable(lrpc-ub-domain-tlb-probe demo/ub/domain_tlb_probe.c)
     target_link_libraries(lrpc-ub-domain-tlb-probe PRIVATE lrpc)
     add_executable(lrpc-ub-domain-trace demo/ub/domain_trace.c)
@@ -54,7 +60,7 @@ elseif(UBLRPC_ROLE STREQUAL "caller")
     target_link_libraries(lrpc-ub-pa-probe PRIVATE lrpc)
     get_filename_component(UBSM_LIBRARY_DIR "${UBSM_LIBRARY}" DIRECTORY)
     get_filename_component(OBMM_LIBRARY_DIR "${OBMM_LIBRARY}" DIRECTORY)
-    set_target_properties(lrpc-ub-domain-bench lrpc-ub-domain-tlb-probe
+    set_target_properties(lrpc-ub-domain-bench lrpc-ub-domain-multi lrpc-ub-social-probe lrpc-ub-domain-tlb-probe
         lrpc-ub-domain-trace
         lrpc-ub-pa-probe PROPERTIES
         BUILD_RPATH "${UBSM_LIBRARY_DIR};${OBMM_LIBRARY_DIR}")

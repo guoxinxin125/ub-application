@@ -68,7 +68,8 @@ struct ud_tlb_probe {
 #define UD_TLB_PROBE _IOWR('U', 0x84, struct ud_tlb_probe)
 /* Opt-in diagnostic path. Each segment includes gate entry, EL0 service,
  * exception return and gate restoration; it is not a pure switch timer.
- * The two handoffs are kernel work between nested gate invocations.
+ * Legacy's two handoffs are kernel work between nested gate invocations.
+ * Fused nested reports one whole-chain segment and zero handoff fields.
  * No field measures a hardware page walk or a single service load. */
 struct ud_trace_call {
     __u64 a, b, result, gate_total_ns;
@@ -77,4 +78,42 @@ struct ud_trace_call {
     __u32 procedure, transitions, cpu, segments;
 };
 #define UD_TRACE_CALL _IOWR('U', 0x85, struct ud_trace_call)
+/* Connection-local choice, set before PREPARE. Existing callers default to
+ * legacy. Does not change the B publication, argument or completion layouts. */
+#define UD_NESTED_LEGACY 0U
+#define UD_NESTED_FUSED 1U
+#define UD_SET_NESTED_PATH _IOW('U', 0x86, __u32)
+/* Optional multi-connection publisher. Original ABI/layout stays unchanged.
+ * Slots are allocated by ONE importing A kernel, not remote atomic RMWs. */
+#define UD_POOL_MAGIC 0x5542504f4f4c3031ULL
+#define UD_POOL_ABI 1U
+#define UD_CLIENTS 8U
+#define UD_POOL_SLOT(c) (0x100000UL + (c) * 0x1000UL)
+#define UD_POOL_TABLE(c,d,l) (0x110000UL + (c) * 0x10000UL + (d) * 0x4000UL + (l) * 0x1000UL)
+struct ud_pool_header {
+    __u64 magic, generation;
+    __u32 abi, clients, domains, reserved;
+};
+struct ud_pool_publication {
+    struct ud_publication pub;
+    __u32 error, reserved;
+};
+struct ud_pool_prepare {
+    struct ud_prepare domain;
+    __u64 generation;
+    __u32 abi, slot;
+};
+struct ud_connection_info {
+    __u64 identity, generation;
+    __u32 abi, multi, slot, capacity;
+};
+#define UD_POOL_PREPARE _IOWR('U', 0x87, struct ud_pool_prepare)
+#define UD_CONNECTION_INFO _IOR('U', 0x88, struct ud_connection_info)
+/* Profile is immutable after PREPARE. Existing connections default to micro. */
+#define UD_PROFILE_MICRO 0U
+#define UD_PROFILE_SOCIAL 1U
+#define UD_PROFILE_OFFSET 64U
+#define UD_PROFILE_MAGIC 0x554250524f463031ULL
+struct ud_profile_header { __u64 magic; __u32 abi, profile; };
+#define UD_SET_PROFILE _IOW('U', 0x89, __u32)
 #endif

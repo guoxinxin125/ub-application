@@ -2,9 +2,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/random.h>
 #include <lrpc/lrpc_ubsm.h>
 #include <lrpc/ub_domain_layout.h>
 #include <lrpc/ub_domain_services.h>
+#include <lrpc/ub_domain_pool.h>
 #include "provider_options.h"
 static volatile sig_atomic_t stopped;
 static void stop(int signo) { (void)signo; stopped = 1; }
@@ -17,11 +19,22 @@ int main(int argc, char **argv)
     struct ud_contract c;
     unsigned int d, l;
     unsigned long size;
-    int rc, failed = 0, count;
+    int rc, failed = 0, count, multi = 0, social = 0, i, j;
+    for (i = j = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "--social")) {
+            if (social) return 2;
+            social = 1;
+        } else if (!strcmp(argv[i], "--multi")) {
+            if (multi) return 2;
+            multi = 1;
+        } else argv[j++] = argv[i];
+    }
+    argc = j; argv[j] = NULL;
+    if (social) multi = 1;
     count = ub_provider_parse(&options, argc, argv, 1, pos, 2);
     if (count < 0) {
         fprintf(stderr, "usage: %s [SHM_NAME] [--provider-host HOST] "
-                "[--provider-numa N] [--provider-socket N] [--provider-port N]\n"
+                "[--provider-numa N] [--provider-socket N] [--provider-port N] [--multi|--social]\n"
                 "legacy: %s B_PROVIDER_HOST SHM_NAME\n", argv[0], argv[0]);
         return 2;
     }
@@ -30,6 +43,27 @@ int main(int argc, char **argv)
     if (signal(SIGINT, stop) == SIG_ERR || signal(SIGTERM, stop) == SIG_ERR) return 1;
     rc = lrpc_ubsm_owner_open(&region, name, UD_BYTES, &options.provider);
     if (rc) { fprintf(stderr, "UB_DOMAIN_OWNER_FAIL open=%d\n", rc); return 1; }
+    if (multi) {
+        __u64 generation;
+        if (getrandom(&generation, sizeof(generation), 0) != sizeof(generation) || !generation ||
+            ud_pool_initialize_profile(region.base, generation,
+                                       social ? UD_PROFILE_SOCIAL : UD_PROFILE_MICRO)) {
+            fprintf(stderr, "UB_DOMAIN_OWNER_FAIL pool-init\n"); failed = 1; goto out;
+        }
+        printf("UB_DOMAIN_OWNER_READY multi=1 capacity=%u generation=%llu page_tables=B heap=B profile=%s\n",
+               UD_CLIENTS, (unsigned long long)generation, social ? "social-user-read" : "micro");
+        fflush(stdout);
+        while (!stopped) {
+            rc = ud_pool_poll(region.base);
+            if (rc < 0) { failed = 1; break; }
+            if (rc) {
+                printf("UB_DOMAIN_POOL_PUBLISHED count=%d b_service_executions=0\n", rc);
+                fflush(stdout);
+            }
+            usleep(1000);
+        }
+        goto out;
+    }
     memset(region.base, 0, UD_BYTES);
     pub = region.base;
     puts("UB_DOMAIN_OWNER_READY single_connection=1 page_tables=B heap=B");
