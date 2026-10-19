@@ -79,6 +79,36 @@ option(AZURE "Configure DPDK for Azure if TRANSPORT is dpdk" OFF)
 option(PERF "Compile for performance" ON)
 option(USE_SPSC_QUEUE "Use per-source SPSC queues for CXL pointer passing" OFF)
 option(SPSC_POLL_STATS "Print CXL SPSC queue polling statistics" OFF)
+option(ERPC_CXL_IVSHMEM
+  "Build isolated two-VM apps using the original CXL allocator on ivshmem" OFF)
+option(ERPC_BUILD_RDMA_BASELINES "Build Direct, Nested and Currency RDMA baselines" OFF)
+option(ERPC_SN_DOMAIN_PROXY "Enable opt-in SocialNetwork bounded x86/KVM domain adapter" OFF)
+set(ERPC_SN_DOMAIN_BACKEND "qemu" CACHE STRING "SocialNetwork domain backend: qemu or ub")
+set_property(CACHE ERPC_SN_DOMAIN_BACKEND PROPERTY STRINGS qemu ub)
+if(ERPC_SN_DOMAIN_BACKEND STREQUAL "ub")
+  # Isolate this experiment, including the manager target created below.
+  # B may build only the RPC baseline with DOMAIN_PROXY=OFF and needs no OBMM.
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()
+if(ERPC_BUILD_RDMA_BASELINES)
+  if(NOT TRANSPORT STREQUAL "infiniband" OR ERPC_CXL_IVSHMEM)
+    message(FATAL_ERROR "RDMA baselines require TRANSPORT=infiniband and no ivshmem")
+  endif()
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()
+if(ERPC_CXL_IVSHMEM)
+  if(NOT TRANSPORT STREQUAL "cxl")
+    message(FATAL_ERROR "ERPC_CXL_IVSHMEM requires TRANSPORT=cxl")
+  endif()
+  # Do not overwrite normal eRPC build artifacts.
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+endif()
 set(PGO "none" CACHE STRING "Profile-guided optimization (generate/use/none)")
 set(LOG_LEVEL "warn" CACHE STRING "Logging level (none/error/warn/info/reorder/trace/cc)") 
 
@@ -245,29 +275,14 @@ elseif(TRANSPORT STREQUAL "cxl")
   endif()
   
   # pccshm-sdk 配置
-  set(PCCSHM_SDK_PATH "${CMAKE_SOURCE_DIR}/../shm-lib")
-  if(EXISTS ${PCCSHM_SDK_PATH})
-    include_directories(${PCCSHM_SDK_PATH}/include)
-    # 增加 libssh 的 include 路径
-    include_directories(/home/gxx/local/libssh/include)
-    include_directories(/home/gxx/local/libssh-build/include)
-    message(STATUS "Using pccshm-sdk from: ${PCCSHM_SDK_PATH}")
-    
-    link_directories(${PCCSHM_SDK_PATH}/build)
-
-    # shm-lib 依赖 memkind，memkind 必须在 shm-lib 之前
-    set(LIBRARIES ${LIBRARIES} ${MEMKIND_LIB})
-    set(LIBRARIES ${LIBRARIES} shm-lib)
-    # 链接 libssh
-    set(LIBRARIES ${LIBRARIES} /home/gxx/local/libssh-build/lib64/libssh.so)
-    
-    # 忽略 pccshm-sdk 源码中的类型警告
-    # pccshm-sdk 需要 C++17 标准
-    set(CMAKE_CXX_STANDARD 17)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-sign-conversion -Wno-old-style-cast -Wno-aligned-new -Wno-pedantic -Wno-error")
-  else()
-    message(FATAL_ERROR "pccshm-sdk not found at ${PCCSHM_SDK_PATH}")
+  include("${CMAKE_SOURCE_DIR}/cmake/pccshm.cmake")
+  set(LIBRARIES ${LIBRARIES} shm-lib ${MEMKIND_LIB})
+  if(PCCSHM_SSH_LIBRARY)
+    list(APPEND LIBRARIES "${PCCSHM_SSH_LIBRARY}")
   endif()
+  # shm-lib headers require C++17; preserve the existing SDK warning policy.
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-sign-conversion -Wno-old-style-cast -Wno-aligned-new -Wno-pedantic -Wno-error")
   
 elseif(TRANSPORT STREQUAL "ub")
   set(CONFIG_TRANSPORT "UBTransport")
@@ -346,7 +361,14 @@ set(MICA_SOURCES
   mica/src/mica/util/config.cc)
 
 # The app to compile. Only one app is compiled to reduce compile time.
-if(EXISTS "${CMAKE_SOURCE_DIR}/scripts/autorun_app_file")
+if(ERPC_BUILD_RDMA_BASELINES)
+  # Isolated baselines must not inherit the legacy autorun application's
+  # force-includes/link libraries, or return early when that file is absent.
+  set(APP "rdma_baselines")
+elseif(DEFINED APP AND NOT "${APP}" STREQUAL "")
+  # An explicit -DAPP must not be overwritten by the legacy autorun file.
+  message(STATUS "Using explicitly configured APP=${APP}")
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/scripts/autorun_app_file")
   file(STRINGS "scripts/autorun_app_file" APP)
 else()
   message(STATUS "No autorun_app_file found. No application will be compiled.")
@@ -461,6 +483,38 @@ elseif(APP STREQUAL "social_network_cxl")
 
   set(SN_TRANSPORT_SOURCES)
   set(SN_TRANSPORT_LIBRARIES)
+  if(ERPC_SN_DOMAIN_PROXY)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+    if(ERPC_SN_DOMAIN_BACKEND STREQUAL "ub")
+      if(NOT TRANSPORT STREQUAL "ub" OR NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+         NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        message(FATAL_ERROR "UB SocialNetwork domain backend requires AArch64 Linux and TRANSPORT=ub")
+      endif()
+      set(SN_LRPC_DIR "${CMAKE_SOURCE_DIR}/../eRPC-LRPC-UB")
+      find_path(OBMM_INCLUDE_DIR NAMES libobmm.h HINTS /usr/local/include /usr/local/ubs_mem/include)
+      find_library(OBMM_LIBRARY NAMES obmm HINTS /usr/local/ubs_mem/lib /usr/local/lib64 /usr/local/lib)
+      if(NOT OBMM_INCLUDE_DIR OR NOT OBMM_LIBRARY)
+        message(FATAL_ERROR "UB domain backend requires matching OBMM_INCLUDE_DIR and OBMM_LIBRARY")
+      endif()
+      add_library(sn_domain_client STATIC ${SN_LRPC_DIR}/lib/ub_domain_client.c
+          ${SN_LRPC_DIR}/lib/backend_ubsm.c ${SN_LRPC_DIR}/lib/ubsm_pa.c)
+      target_include_directories(sn_domain_client PRIVATE "${OBMM_INCLUDE_DIR}" "${UBSM_INCLUDE_DIR}")
+      target_compile_features(sn_domain_client PRIVATE c_std_11)
+      target_link_libraries(sn_domain_client PUBLIC "${UBSM_LIBRARY}" "${OBMM_LIBRARY}" pthread)
+    elseif(ERPC_SN_DOMAIN_BACKEND STREQUAL "qemu")
+      if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR
+         NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+        message(FATAL_ERROR "QEMU SocialNetwork domain backend requires x86-64 Linux/KVM")
+      endif()
+      set(SN_LRPC_DIR "${CMAKE_SOURCE_DIR}/../eRPC-LRPC")
+      add_library(sn_domain_client STATIC ${SN_LRPC_DIR}/lib/multi_client.c)
+    else()
+      message(FATAL_ERROR "ERPC_SN_DOMAIN_BACKEND must be qemu or ub")
+    endif()
+    target_include_directories(sn_domain_client PUBLIC ${SN_LRPC_DIR}/include ${SN_LRPC_DIR}/include/uapi)
+  endif()
   if(TRANSPORT STREQUAL "cxl")
     list(APPEND SN_TRANSPORT_SOURCES ${SN_CXL_DIR}/social_network_cxl.cc)
     list(APPEND SN_TRANSPORT_LIBRARIES
@@ -492,6 +546,13 @@ elseif(APP STREQUAL "social_network_cxl")
       ${NLOHMANN_JSON_INCLUDE_DIR}
     )
     target_compile_features(${program_name} PRIVATE cxx_std_17)
+    if(ERPC_SN_DOMAIN_PROXY AND (program_name STREQUAL "client" OR program_name STREQUAL "user_timeline"))
+      target_compile_definitions(${program_name} PRIVATE ERPC_SN_DOMAIN_PROXY=1)
+      if(ERPC_SN_DOMAIN_BACKEND STREQUAL "ub")
+        target_compile_definitions(${program_name} PRIVATE ERPC_SN_DOMAIN_UB=1)
+      endif()
+      target_link_libraries(${program_name} sn_domain_client)
+    endif()
     target_link_libraries(${program_name}
       -Wl,--whole-archive erpc -Wl,--no-whole-archive
       ${SN_TRANSPORT_LIBRARIES}
@@ -623,6 +684,63 @@ endif()
 
 # Compile the library
 add_library(erpc ${SOURCES})
+
+if(ERPC_BUILD_RDMA_BASELINES)
+  foreach(role server client)
+    add_executable(mechanism_rdma_${role} mechanism_ivshmem/${role}.cc)
+    target_compile_definitions(mechanism_rdma_${role} PRIVATE ERPC_RDMA_BASELINE=1)
+    target_link_libraries(mechanism_rdma_${role} erpc ${LIBRARIES})
+  endforeach()
+  set(CURRENCY_BENCH_DIR "${CMAKE_SOURCE_DIR}/../eRPC-LRPC/apps/currency-bench")
+  if(NOT EXISTS "${CURRENCY_BENCH_DIR}/currency_core.c")
+    message(FATAL_ERROR "Currency benchmark not found: ${CURRENCY_BENCH_DIR}")
+  endif()
+  enable_language(C)
+  add_library(currency_core_rdma STATIC "${CURRENCY_BENCH_DIR}/currency_core.c")
+  target_include_directories(currency_core_rdma PUBLIC "${CURRENCY_BENCH_DIR}/include")
+  set_target_properties(currency_core_rdma PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+  foreach(role server client gateway)
+    add_executable(currency_rdma_${role} currency_ivshmem/${role}.cc)
+    target_compile_definitions(currency_rdma_${role} PRIVATE ERPC_RDMA_BASELINE=1)
+    target_link_libraries(currency_rdma_${role} currency_core_rdma erpc ${LIBRARIES})
+  endforeach()
+  return()
+endif()
+
+if(ERPC_CXL_IVSHMEM)
+  add_executable(hello_ivshmem_server hello_world_ivshmem/server.cc)
+  target_link_libraries(hello_ivshmem_server erpc ${LIBRARIES})
+  add_executable(hello_ivshmem_client hello_world_ivshmem/client.cc)
+  target_link_libraries(hello_ivshmem_client erpc ${LIBRARIES})
+
+  add_executable(mechanism_ivshmem_server mechanism_ivshmem/server.cc)
+  target_link_libraries(mechanism_ivshmem_server erpc ${LIBRARIES})
+  add_executable(mechanism_ivshmem_client mechanism_ivshmem/client.cc)
+  target_link_libraries(mechanism_ivshmem_client erpc ${LIBRARIES})
+
+  set(CURRENCY_BENCH_DIR
+      "${CMAKE_SOURCE_DIR}/../eRPC-LRPC/apps/currency-bench")
+  if(NOT EXISTS "${CURRENCY_BENCH_DIR}/currency_core.c")
+    message(FATAL_ERROR "Currency benchmark not found: ${CURRENCY_BENCH_DIR}")
+  endif()
+  enable_language(C)
+  add_library(currency_core_ivshmem STATIC
+      "${CURRENCY_BENCH_DIR}/currency_core.c")
+  target_include_directories(currency_core_ivshmem PUBLIC
+      "${CURRENCY_BENCH_DIR}/include")
+  set_target_properties(currency_core_ivshmem PROPERTIES
+      C_STANDARD 11 C_STANDARD_REQUIRED ON)
+  add_executable(currency_ivshmem_server currency_ivshmem/server.cc)
+  target_link_libraries(currency_ivshmem_server
+      currency_core_ivshmem erpc ${LIBRARIES})
+  add_executable(currency_ivshmem_client currency_ivshmem/client.cc)
+  target_link_libraries(currency_ivshmem_client
+      currency_core_ivshmem erpc ${LIBRARIES})
+  add_executable(currency_ivshmem_gateway currency_ivshmem/gateway.cc)
+  target_link_libraries(currency_ivshmem_gateway
+      currency_core_ivshmem erpc ${LIBRARIES})
+  return()
+endif()
 
 if(TRANSPORT STREQUAL "ub")
   add_executable(hello_ub_server hello_world_ub/server.cc)

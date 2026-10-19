@@ -13,10 +13,12 @@
 #include "../post_copy.h"
 #include "../ub_breakdown.h"
 #include "../utils_mongodb.h"
+#include "../domain_proxy_runtime.h"
 
 int mongodb_conns_num = 0;
 mongoc_client_pool_t *mongodb_client_pool;
 std::atomic<bool> post_storage_clients_stopped{false};
+std::atomic<bool> domain_storage_ready{false};
 
 #ifdef ERPC_UB
 namespace {
@@ -50,6 +52,16 @@ void release_post_storage_map(ServerContext *ctx) {
   std::vector<SharedPostBuffer> buffers_to_release;
 
   ctx->map_mutex.lock();
+#ifdef ERPC_CXL
+  if (sn_domain::boolean_env("ERPC_SN_DOMAIN_FIXTURE")) {
+    size_t bad = 0;
+    for (const auto &entry : ctx->post_storage_map)
+      if (erpc::cxl_block_metadata_t::from_data(entry.second.buffer.buf_)->ref_count.load(std::memory_order_acquire) != 1) ++bad;
+    std::fprintf(stderr, "SN_VM_REFS stored=%zu owner_only=%zu errors=%zu\n",
+        ctx->post_storage_map.size(), ctx->post_storage_map.size() - bad, bad);
+    if (bad) sn_domain::fail("post_storage", 0, "shutdown-post-refs", 0, EBUSY);
+  }
+#endif
   buffers_to_release.reserve(ctx->post_storage_map.size());
   for (auto &entry : ctx->post_storage_map) {
     buffers_to_release.push_back(entry.second);
@@ -79,13 +91,15 @@ void mongodb_init(AppContext *ctx) {
   mongodb_client_pool = init_mongodb_client_pool(
       config_json_all, "post_storage", mongodb_conns_num);
   mongoc_client_t *mongodb_client = mongoc_client_pool_pop(mongodb_client_pool);
+  if (!mongodb_client) mongodb_load_failure("post_storage", "client-create");
   auto collection =
       mongoc_client_get_collection(mongodb_client, "post", "post");
-  my_assert(collection);
+  if (!collection) mongodb_load_failure("post_storage", "collection-create");
 
   bson_t *query = bson_new();
   mongoc_cursor_t *cursor =
       mongoc_collection_find_with_opts(collection, query, nullptr, nullptr);
+  if (!cursor) mongodb_load_failure("post_storage", "cursor-create");
   const bson_t *doc;
 
   while (ctx->server_contexts_[0]->rpc_ == nullptr) {
@@ -96,7 +110,6 @@ void mongodb_init(AppContext *ctx) {
   link_worker_cacheable(ctx->server_contexts_[0]->rpc_->get_rpc_id());
 
   int64_t count = 0;
-  int64_t truncated_text_count = 0;
   while (mongoc_cursor_next(cursor, &doc)) {
     char *str = bson_as_json(doc, nullptr);
     nlohmann::json post_json = nlohmann::json::parse(str);
@@ -112,8 +125,7 @@ void mongodb_init(AppContext *ctx) {
       post.timestamp = post_json["timestamp"].get<int64_t>();
     if (post_json.contains("text")) {
       auto t = post_json["text"].get<std::string>();
-      post.text_length = set_post_text_truncated(post.text, t);
-      if (post.text_length < t.size()) ++truncated_text_count;
+      post.text_length = set_post_string(post.text, t);
     }
     if (post_json.contains("post_type"))
       post.post_type = post_json["post_type"].get<int>();
@@ -183,6 +195,7 @@ void mongodb_init(AppContext *ctx) {
     ctx->server_contexts_[0]->map_mutex.unlock();
     count++;
   }
+  require_mongodb_query_success(cursor, "post_storage");
   mongoc_cursor_destroy(cursor);
   bson_destroy(query);
   mongoc_client_pool_push(mongodb_client_pool, mongodb_client);
@@ -205,9 +218,9 @@ void mongodb_init(AppContext *ctx) {
 
   unlink_worker_cacheable();
 
-  printf("post_storage mongodb init finished. loaded %ld posts; "
-         "truncated_text=%ld; post_bytes=%zu\n",
-         count, truncated_text_count, sizeof(PostData));
+  domain_storage_ready.store(true, std::memory_order_release);
+
+  printf("post_storage mongodb init finished. loaded %ld posts\n", count);
   fflush(stdout);
   while (!ctrl_c_pressed) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -215,6 +228,18 @@ void mongodb_init(AppContext *ctx) {
 }
 
 void connect_sessions(ClientContext *c) {
+  if (sn_domain::enabled() || sn_measure::rpc_baseline()) {
+    c->user_timeline_session_num_ = c->rpc_->create_session(
+        user_timeline_addr, get_remote_rpc_id(user_timeline_addr));
+    if (c->user_timeline_session_num_ < 0) sn_domain::fail("post_storage", 0, "create-timeline-session", 0, EHOSTUNREACH);
+    const uint64_t deadline = sn_domain::now_ns() + UINT64_C(30000000000);
+    while (c->num_sm_resps_ != 1) {
+      c->rpc_->run_event_loop_once();
+      if (ctrl_c_pressed || sn_domain::now_ns() >= deadline)
+        sn_domain::fail("post_storage", 0, "session-ready-timeout", 0, ETIMEDOUT);
+    }
+    return;
+  }
   c->client_session_num_ =
       c->rpc_->create_session(client_addr, get_remote_rpc_id(client_addr));
   my_assert(c->client_session_num_ >= 0, "Failed to create session");
@@ -255,6 +280,22 @@ void ping_req_handler(erpc::ReqHandle *req_handle, void *_context) {
   ctx->rpc_->enqueue_response(req_handle, &resp);
 }
 
+void domain_ready_handler(erpc::ReqHandle *handle, void *context) {
+  auto *ctx = static_cast<ServerContext *>(context);
+  const auto *buffer = handle->get_req_msgbuf();
+  invalidate_msgbuf_before_read(ctx->rpc_, *buffer);
+  if (buffer->get_data_size() != sizeof(RPCMsgReq<PingRPCReq>))
+    sn_domain::fail("post_storage", 0, "ready-size", 0, EPROTO);
+  RPCMsgReq<PingRPCReq> request(RPC_TYPE::RPC_DOMAIN_READY, 0, {});
+  std::memcpy(&request, buffer->buf_, sizeof(request));
+  const int status = request.req_common.type != RPC_TYPE::RPC_DOMAIN_READY || request.req_common.req_number != 0 ||
+      request.req_control.timestamp != sn_domain::kWireAbi ? EPROTO :
+      (domain_storage_ready.load(std::memory_order_acquire) ? 0 : EAGAIN);
+  new (handle->pre_resp_msgbuf_.buf_) RPCMsgResp<PingRPCResp>(RPC_TYPE::RPC_DOMAIN_READY, 0, status, {sn_domain::kWireAbi});
+  ctx->rpc_->resize_msg_buffer(&handle->pre_resp_msgbuf_, sizeof(RPCMsgResp<PingRPCResp>));
+  ctx->rpc_->enqueue_response(handle, &handle->pre_resp_msgbuf_);
+}
+
 void unsupported_req_handler(erpc::ReqHandle *req_handle, void *_context) {
   auto *ctx = static_cast<ServerContext *>(_context);
   auto *req_msgbuf = req_handle->get_req_msgbuf();
@@ -276,6 +317,7 @@ void unsupported_req_handler(erpc::ReqHandle *req_handle, void *_context) {
 void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
                                    void *_context) {
   auto *ctx = static_cast<ServerContext *>(_context);
+  const uint64_t diagnostic_arrival = sn_diag::timestamp();
   ctx->stat_req_post_storage_read_tot++;
 
   auto *req_msgbuf = req_handle->get_req_msgbuf();
@@ -283,6 +325,8 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
   auto *req =
       reinterpret_cast<RPCMsgReq<PostStorageReadCXLReq> *>(req_msgbuf->buf_);
   const uint32_t req_number = req->req_common.req_number;
+  sn_diag::point_at("storage_receive", req_number, diagnostic_arrival);
+  sn_diag::Event *diagnostic_read = sn_diag::begin("storage_read", req_number);
   const int64_t post_id = req->req_control.post_id;
   my_assert(req_msgbuf->get_data_size() ==
             sizeof(RPCMsgReq<PostStorageReadCXLReq>));
@@ -322,7 +366,9 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
   sn_profile::record(sn_profile::Stage::kStorageReadResponseBuild, build_start);
   const uint64_t enqueue_start = sn_profile::start();
   const sn_slow_trace::Stamp enqueue_trace = sn_slow_trace::start();
+  sn_diag::point("storage_send_begin", req_number);
   ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+  sn_diag::finish(diagnostic_read);
   sn_slow_trace::record("storage_read_response_enqueue", req_number,
                         enqueue_trace);
   sn_profile::record(sn_profile::Stage::kStorageReadResponseEnqueue,
@@ -508,6 +554,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx,
 void server_thread_func(size_t thread_id, ServerContext *ctx,
                         erpc::Nexus *nexus) {
   ctx->server_id_ = thread_id;
+  sn_diag::configure("storage-receive", static_cast<uint32_t>(thread_id));
   std::vector<size_t> port_vec = flags_get_cxl_ports(0);
 
   AppRpc rpc(nexus, static_cast<void *>(ctx), FLAGS_rpc_id + thread_id,
@@ -616,6 +663,8 @@ int main(int argc, char **argv) {
 
   nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_PING),
                           ping_req_handler);
+  if (sn_domain::enabled() || sn_measure::rpc_baseline()) nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_READY),
+                                                  domain_ready_handler);
   nexus.register_req_func(
       static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ),
       post_storage_read_req_handler);
@@ -633,4 +682,5 @@ int main(int argc, char **argv) {
                      get_bind_core(FLAGS_numa_server_node));
   leader_thread.join();
   mongodb_init_thread.join();
+  if (!sn_diag::report("post_storage")) sn_domain::fail("post_storage", 0, "diagnostic-overflow", 0, ENOSPC);
 }

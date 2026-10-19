@@ -9,6 +9,7 @@
 #include <future>
 #include <map>
 #include <set>
+#include "../domain_proxy.h"
  
 std::string compose_post_addr;
 std::string nginx_addr;
@@ -45,6 +46,11 @@ public:
     erpc::MsgBuffer resp_forward_msgbuf[kAppMaxBuffer];
     erpc::MsgBuffer resp_backward_msgbuf[kAppMaxBuffer];
     uint64_t post_storage_start_ns[kAppMaxBuffer]{};
+    sn_domain::Runtime domain_runtime;
+    std::atomic<bool> domain_sender_ready{false};
+    sn_domain::Pending domain_pending[kAppMaxBuffer];
+    std::array<int, 64> domain_return_sessions{};
+    uint64_t domain_ack_start[kAppMaxBuffer]{};
     std::atomic<uint64_t> read_queue_start_ns[kAppMaxBuffer]{};
     std::atomic<uint64_t> forward_queue_start_ns[kAppMaxBuffer]{};
 
@@ -93,6 +99,8 @@ public:
 
     MPMC_QUEUE *forward_all_mpmc_queue{};
     std::atomic<uint64_t> *read_queue_start_ns{};
+    sn_domain::Pending *domain_pending{};
+    std::atomic<bool> *domain_sender_ready{};
 
     erpc::MsgBuffer *req_forward_msgbuf_ptr{};
     erpc::MsgBuffer *req_backward_msgbuf_ptr{};
@@ -116,6 +124,8 @@ public:
             auto *ctx = new ServerContext(i);
             ctx->forward_all_mpmc_queue = client_contexts_[i]->forward_all_mpmc_queue;
             ctx->read_queue_start_ns = client_contexts_[i]->read_queue_start_ns;
+            ctx->domain_pending = client_contexts_[i]->domain_pending;
+            ctx->domain_sender_ready = &client_contexts_[i]->domain_sender_ready;
             ctx->req_forward_msgbuf_ptr = client_contexts_[i]->req_forward_msgbuf;
             ctx->req_backward_msgbuf_ptr = client_contexts_[i]->req_backward_msgbuf;
             server_contexts_.push_back(ctx);
@@ -153,6 +163,11 @@ public:
 // must be used after init_service_config
 
 void init_specific_config(){
+    try { sn_domain::validate_config("user_timeline"); }
+    catch (const std::exception &error) {
+        std::fprintf(stderr, "SN_DOMAIN_CONFIG_ERROR role=user_timeline reason=%s\n", error.what());
+        std::exit(EXIT_FAILURE);
+    }
     auto value = config_json_all["compose_post"]["server_addr"];
     my_assert(!value.is_null());
     compose_post_addr = value;
@@ -205,12 +220,20 @@ void read_post_details(void *buf_, AppRpc *rpc_, MPMC_QUEUE *consumer_fwd, MPMC_
         new (resp_buf.buf_) RPCMsgReq<PostStorageReadCXLResp>(
             RPC_TYPE::RPC_USER_TIMELINE_READ_RESP,
             req->req_common.req_number, {});
+        if (sn_domain::enabled() || sn_measure::rpc_baseline()) {
+            resp_buf.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP));
+            resp_buf.set_hdr_req_num(req->req_common.req_number);
+        }
         consumer_back->push(resp_buf);
         return;
     }
 
     erpc::MsgBuffer fwd_req = rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<PostStorageReadCXLReq>));
     auto* fwd_req_msg = new (fwd_req.buf_) RPCMsgReq<PostStorageReadCXLReq>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ, req->req_common.req_number, {});
+    if (sn_domain::enabled() || sn_measure::rpc_baseline()) {
+        fwd_req.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ));
+        fwd_req.set_hdr_req_num(req->req_common.req_number);
+    }
     auto post_it = timeline_it->second.begin();
     std::advance(post_it, req->req_control.start);
     fwd_req_msg->req_control.post_id = *post_it;

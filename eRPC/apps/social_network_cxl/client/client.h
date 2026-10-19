@@ -10,6 +10,8 @@
 #include "../social_network_cxl.h"
 #endif
 #include "../post_data.h"
+#include "../domain_proxy.h"
+#include "../domain_fixture.h"
 
 std::string post_storage_addr;
 std::string load_balance_addr;
@@ -146,6 +148,17 @@ class ClientContext : public BasicContext {
   SPSC_QUEUE *home_timeline_req_queue;
   SPSC_QUEUE *compose_post_req_queue;
   QueueStore *queue_store;
+  sn_domain::Runtime domain_runtime;
+  sn_measure::Campaign domain_measurement;
+  int domain_user_session = -1;
+  int baseline_nginx_session = -1;
+  int domain_ready_status = -1;
+  std::atomic<uint32_t> domain_inflight[kAppMaxBuffer]{};
+  std::atomic<uint64_t> domain_completed{0};
+  std::atomic<uint64_t> domain_fixture_nonempty{0}, domain_fixture_empty{0};
+  uint64_t domain_ack_start[kAppMaxBuffer]{};
+  std::atomic<uint64_t> domain_e2e_start[kAppMaxBuffer]{};
+  std::atomic<uint64_t> domain_forward_ns[kAppMaxBuffer]{};
 };
 
 class ServerContext : public BasicContext {
@@ -204,6 +217,11 @@ class AppContext {
 };
 
 void init_specific_config() {
+  try { sn_domain::validate_config("client"); }
+  catch (const std::exception &error) {
+    std::fprintf(stderr, "SN_DOMAIN_CONFIG_ERROR role=client reason=%s\n", error.what());
+    std::exit(EXIT_FAILURE);
+  }
   auto value = config_json_all["post_storage"]["server_addr"];
   my_assert(!value.is_null(), "value is null");
   post_storage_addr = value.get<std::string>();
@@ -227,6 +245,19 @@ void init_specific_config() {
   generate_num = config_json_all["client"]["write_num"];
   my_assert(!generate_num.is_null(), "write_num is null");
   write_num_ = generate_num;
+  try {
+    if ((sn_domain::enabled() || sn_measure::rpc_baseline()) && sn_measure::enabled()) {
+      if (FLAGS_client_num != 1 || FLAGS_server_num != 1 || FLAGS_concurrency != 1 ||
+          user_num_ != 1 || home_num_ || write_num_ || sn_domain::source_count() != 1 ||
+          !sn_domain::boolean_env("ERPC_SN_DOMAIN_FINISH"))
+        sn_domain::fail("client", 0, "measurement-requires-single-lane-read", 0, EINVAL);
+      sn_measure::Campaign validation;
+      validation.configure(static_cast<uint64_t>(generate_data_num));
+    }
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "SN_DOMAIN_CONFIG_ERROR role=client op=measurement reason=%s\n", error.what());
+    std::exit(EXIT_FAILURE);
+  }
 }
 
 std::string generate_random_string(int length) {
@@ -262,7 +293,7 @@ void generate_compose_post_req_msgbuf(AppRpc *rpc_,
       text += "http://" + generate_random_string(64);
     }
     // fill text
-    post.text_length = set_post_text_truncated(post.text, text);
+    post.text_length = set_post_string(post.text, text);
     // media
     for (size_t tmp = 0; tmp < 10; tmp++) {
       post.media_ids[tmp] = rand();
@@ -286,10 +317,17 @@ void generate_compose_post_req_msgbuf(AppRpc *rpc_,
 void generate_user_timeline_req_msgbuf(AppRpc *rpc_,
                                        SPSC_QUEUE *consumer_queue) {
   for (int64_t i = 0; i < generate_data_num; i++) {
-    auto req_msgbuf =
-        rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<UserTimeLineReq>));
-    new (req_msgbuf.buf_) RPCMsgReq<UserTimeLineReq>(
-        RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, 0, {0, i % 962, 0, 1});
+    const bool domain = sn_domain::enabled();
+    auto req_msgbuf = rpc_->alloc_msg_buffer_or_die(domain
+        ? sizeof(RPCMsgReq<DomainUserRequest>) : sizeof(RPCMsgReq<UserTimeLineReq>));
+    if (domain) {
+      DomainUserRequest request{}; request.request = {0, i % 962, 0, 1};
+      new (req_msgbuf.buf_) RPCMsgReq<DomainUserRequest>(
+          RPC_TYPE::RPC_DOMAIN_USER_TIMELINE_READ_REQ, 0, request);
+    } else {
+      new (req_msgbuf.buf_) RPCMsgReq<UserTimeLineReq>(
+          RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, 0, {0, i % 962, 0, 1});
+    }
     consumer_queue->push(req_msgbuf);
   }
 }

@@ -2,6 +2,11 @@
 #include <gflags/gflags.h>
 #include "load_balance.h"
 #include "../ub_breakdown.h"
+#include "../rpc_measure_ready.h"
+
+void baseline_ready_handler(erpc::ReqHandle *h, void *c) {
+    sn_measure::proxy_ready_request<ServerContext>(h, c, "load_balance");
+}
 
 void connect_sessions(ClientContext *c) {
     std::vector<std::string> forward_server_addr = flags_get_balance_servers_index();
@@ -52,7 +57,8 @@ void ping_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
     new (req_handle->pre_resp_msgbuf_.buf_) RPCMsgResp<PingRPCResp>(req->req_common.type, req->req_common.req_number, 0, {req->req_control.timestamp});
     ctx->rpc_->resize_msg_buffer(&req_handle->pre_resp_msgbuf_, sizeof(RPCMsgResp<PingRPCResp>));
 
-    if (++send_ping_resp_num[req->req_common.req_number % 10000] == ctx->servers_num_) {
+    if (++send_ping_resp_num[req->req_common.req_number % 10000] ==
+        static_cast<size_t>(ctx->servers_num_)) {
         ctx->backward_spsc_queue->push(pin_msgbuf(ctx->rpc_, *req_msgbuf));
     }
 
@@ -60,6 +66,7 @@ void ping_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
 }
 
 void common_req_handler(erpc::ReqHandle *req_handle, void *_context) {
+    if (sn_measure::rpc_baseline()) sn_measure::proxy_forward().fetch_add(1, std::memory_order_relaxed);
     auto *ctx = static_cast<ServerContext *>(_context);
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
@@ -102,6 +109,7 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context) {
 }
 
 void common_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
+    if (sn_measure::rpc_baseline()) sn_measure::proxy_reverse().fetch_add(1, std::memory_order_relaxed);
     auto *ctx = static_cast<ServerContext *>(_context);
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
@@ -294,6 +302,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
     }
 
     connect_sessions(ctx);
+    if (sn_measure::rpc_baseline()) sn_measure::proxy_ready().store(true, std::memory_order_release);
 
     // The borrowed-buffer baseline retains its historical polling batch.
     const size_t queue_batch = proxy_poll_batch();
@@ -412,6 +421,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
 
 void leader_thread_func() {
     erpc::Nexus nexus(FLAGS_server_addr, FLAGS_numa_server_node, 0);
+    if (sn_measure::rpc_baseline()) nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_READY), baseline_ready_handler);
 
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_PING), ping_handler);
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_PING_RESP), ping_resp_handler);
@@ -470,4 +480,5 @@ int main(int argc, char **argv) {
     erpc::bind_to_core(leader_thread, FLAGS_numa_server_node,
                        get_bind_core(FLAGS_numa_server_node));
     leader_thread.join();
+    sn_measure::proxy_report("load_balance");
 }

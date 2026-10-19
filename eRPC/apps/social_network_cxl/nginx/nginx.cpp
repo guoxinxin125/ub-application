@@ -2,28 +2,37 @@
 #include <gflags/gflags.h>
 #include "nginx.h"
 #include "../ub_breakdown.h"
+#include "../rpc_measure_ready.h"
+
+void baseline_ready_handler(erpc::ReqHandle *h, void *c) {
+    sn_measure::proxy_ready_request<ServerContext>(h, c, "nginx");
+}
 
 void connect_sessions(ClientContext *c)
 {
     c->servers_num_ = 3;
 
+    if (!sn_measure::rpc_baseline()) {
     c->compose_post_session_num_ = c->rpc_->create_session(compose_post_addr, get_remote_rpc_id(compose_post_addr));
     my_assert(c->compose_post_session_num_ >=0);
     c->session_num_vec_.push_back(c->compose_post_session_num_);
+    }
 
     c->user_timeline_session_num_ = c->rpc_->create_session(user_timeline_addr, get_remote_rpc_id(user_timeline_addr));
     my_assert(c->user_timeline_session_num_ >=0);
     c->session_num_vec_.push_back(c->user_timeline_session_num_);
 
+    if (!sn_measure::rpc_baseline()) {
     c->home_timeline_session_num_ = c->rpc_->create_session(home_timeline_addr, get_remote_rpc_id(home_timeline_addr));
     my_assert(c->home_timeline_session_num_ >=0);
     c->session_num_vec_.push_back(c->home_timeline_session_num_);
+    }
 
     c->backward_session_num_ = c->rpc_->create_session(load_balance_addr, get_remote_rpc_id(load_balance_addr));
     my_assert(c->backward_session_num_ >= 0);
     c->session_num_vec_.push_back(c->backward_session_num_);
 
-    while (c->num_sm_resps_ != 4)
+    while (c->num_sm_resps_ != (sn_measure::rpc_baseline() ? 2U : 4U))
     {
         c->rpc_->run_event_loop(kAppEvLoopMs);
         if (unlikely(ctrl_c_pressed == 1))
@@ -76,6 +85,7 @@ void ping_resp_handler(erpc::ReqHandle *req_handle, void *_context)
 
 void common_req_handler(erpc::ReqHandle *req_handle, void *_context)
 {
+    if (sn_measure::rpc_baseline()) sn_measure::proxy_forward().fetch_add(1, std::memory_order_relaxed);
     auto *ctx = static_cast<ServerContext *>(_context);
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
@@ -119,6 +129,7 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context)
 
 void common_resp_handler(erpc::ReqHandle *req_handle, void *_context)
 {
+    if (sn_measure::rpc_baseline()) sn_measure::proxy_reverse().fetch_add(1, std::memory_order_relaxed);
     auto *ctx = static_cast<ServerContext *>(_context);
 
     auto *req_msgbuf = req_handle->get_req_msgbuf();
@@ -347,6 +358,7 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
     }
 
     connect_sessions(ctx);
+    if (sn_measure::rpc_baseline()) sn_measure::proxy_ready().store(true, std::memory_order_release);
 
     // The borrowed-buffer baseline retains its historical polling batch.
     const size_t queue_batch = proxy_poll_batch();
@@ -471,6 +483,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
 void leader_thread_func()
 {
     erpc::Nexus nexus(FLAGS_server_addr, FLAGS_numa_server_node, 0);
+    if (sn_measure::rpc_baseline()) nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_READY), baseline_ready_handler);
 
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_PING), ping_handler);
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_PING_RESP), ping_resp_handler);
@@ -540,4 +553,5 @@ int main(int argc, char **argv)
     erpc::bind_to_core(leader_thread, FLAGS_numa_server_node,
                        get_bind_core(FLAGS_numa_server_node));
     leader_thread.join();
+    sn_measure::proxy_report("nginx");
 }

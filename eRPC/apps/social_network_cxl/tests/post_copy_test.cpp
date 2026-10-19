@@ -11,7 +11,7 @@
 #include "../social_network_rpc_type.h"
 
 int main() {
-  static_assert(sizeof(PostData) == 1024, "PostData layout changed");
+  static_assert(sizeof(PostData) == 2048, "PostData layout changed");
   std::array<unsigned char, sizeof(PostData) + 16> source{};
   std::array<unsigned char, sizeof(PostData) + 16> actual{};
   std::array<unsigned char, sizeof(PostData) + 16> expected{};

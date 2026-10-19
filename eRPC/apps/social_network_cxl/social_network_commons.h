@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <mutex>
+#include <map>
 #include <utility>
 #include <cstdint>
 
@@ -677,19 +678,13 @@ inline void basic_sm_handler_server(int session_num, erpc::SmEventType sm_event_
 }
 
 inline size_t get_bind_core(size_t numa) {
-    static size_t numa0_core = 0;
-    static size_t numa1_core = 0;
+    // Node IDs need not be 0/1 and nodes may have different CPU counts.
+    static std::map<size_t, size_t> next_core;
     static std::mutex core_mutex;
-    size_t res;
-    core_mutex.lock();
-    my_assert(numa == 0 || numa == 1);
-    if (numa == 0) {
-        my_assert(numa0_core <= erpc::num_lcores_per_numa_node());
-        res = numa0_core++;
-    } else {
-        my_assert(numa1_core <= erpc::num_lcores_per_numa_node());
-        res = numa1_core++;
-    }
-    core_mutex.unlock();
-    return res;
+    const size_t count = erpc::get_lcores_for_numa_node(numa).size();
+    std::lock_guard<std::mutex> lock(core_mutex);
+    size_t &next = next_core[numa];
+    if (next >= count)
+        throw std::out_of_range("social_network_cxl: no auxiliary CPU left on NUMA node " + std::to_string(numa));
+    return next++;
 }

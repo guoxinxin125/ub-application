@@ -47,6 +47,10 @@ enum class RPC_TYPE : uint8_t
 
     // rmem_param_service
     RPC_RMEM_PARAM,
+    // Opt-in bounded-domain adapter only; existing numeric types unchanged.
+    RPC_DOMAIN_USER_TIMELINE_READ_REQ = 21,
+    RPC_DOMAIN_USER_TIMELINE_READ_RESP = 22,
+    RPC_DOMAIN_READY = 23,  // Versioned setup probe, not a business request.
 };
 
 class CommonReq
