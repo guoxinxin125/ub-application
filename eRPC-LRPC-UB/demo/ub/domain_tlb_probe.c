@@ -22,7 +22,7 @@ static void usage(const char *program)
 {
     printf("usage: %s [--test direct|nested] [--samples N] [--warmup N] "
            "[--nested-path legacy|fused]\n"
-           "defaults: direct, samples=20, warmup=2\n", program);
+           "defaults: direct, samples=20, warmup=2, nested-path=fused\n", program);
 }
 
 static int count(const char *text, unsigned int minimum, unsigned int *out)
@@ -42,7 +42,7 @@ static int parse(int argc, char **argv, struct options *o)
     int i;
     unsigned int path;
     *o = (struct options){"direct", 20, 2, getenv("LRPC_UB_NESTED_PATH")};
-    if (!o->nested_path) o->nested_path = "legacy";
+    if (!o->nested_path) o->nested_path = UD_NESTED_DEFAULT_NAME;
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--help")) { usage(argv[0]); return 1; }
         if (!strcmp(argv[i], "--nested-path")) {

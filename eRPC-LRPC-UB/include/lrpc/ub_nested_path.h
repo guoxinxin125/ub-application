@@ -4,12 +4,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include <linux/ub_lrpc_ub_domain.h>
+#define UD_NESTED_DEFAULT_NAME "fused"
 /* Validate before bind changes B's one-shot publication. CLI may override env. */
 static inline int ud_nested_path_parse(const char *name, unsigned int *path)
 {
-    if (!name || !strcmp(name, "legacy")) *path = UD_NESTED_LEGACY;
+    if (!name) name = UD_NESTED_DEFAULT_NAME;
+    if (!strcmp(name, "legacy")) *path = UD_NESTED_LEGACY;
     else if (!strcmp(name, "fused")) *path = UD_NESTED_FUSED;
     else { errno = EINVAL; return -1; }
+    return 0;
+}
+/* Social routing has a separate call chain and does not use the nested gate. */
+static inline int ud_nested_path_parse_profile(const char *name, unsigned int profile,
+                                                unsigned int *path)
+{
+    if (ud_nested_path_parse(name ? name : (profile ? "legacy" : NULL), path)) return -1;
+    if (profile && *path != UD_NESTED_LEGACY) { errno = EOPNOTSUPP; return -1; }
     return 0;
 }
 static inline const char *ud_nested_path_name(unsigned int path)

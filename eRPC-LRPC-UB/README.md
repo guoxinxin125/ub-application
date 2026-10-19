@@ -8,6 +8,10 @@
 没有 QEMU、Go、currency、旧 shadow 程序或第三方源码。应用接入需另外同步 `eRPC/`
 中的应用与构建依赖，详见 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)。
 下一轮 Direct/Nested 20 轮性能测量及应用验证清单见 [UB 真机实验待办](TODO_UB.md)。
+Nested 微测试默认使用 **fused**，备选路径用 `--nested-path legacy` 或
+`LRPC_UB_NESTED_PATH=legacy` 显式选择；命令行优先于环境变量。
+bench、多连接测试、TLB probe、trace 和直接调用客户端库遵循同一默认值。
+SocialNetwork 独立路由链仍见其接入文档，不会因本默认值变更自动使用 fused。
 同步到两端后、构建前可运行 `sha256sum -c SOURCE_MANIFEST.sha256` 检查传输。
 
 源码中的固定发布格式仍包含 Query domain 与指令；本包的运行步骤只执行
@@ -136,12 +140,12 @@ lscpu -p=CPU,NODE,ONLINE | awk -F, '$1 !~ /^#/ && $2==0 && $3=="Y" {print $1}'
 # 两个线程、每人 3 次测量：mixed 会依次覆盖 Direct/Nested/Query。
 sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
   ./build-caller/lrpc-ub-domain-multi --mode threads --cpus 1,2 \
-  --test mixed --nested-path legacy --warmup 0 --samples 3
+  --test mixed --nested-path fused --warmup 0 --samples 3
 
 # 成功后不必重启 --multi owner；两个独立进程分别建立连接。
 sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
   ./build-caller/lrpc-ub-domain-multi --mode processes --cpus 1,2 \
-  --test mixed --nested-path legacy --warmup 0 --samples 3
+  --test mixed --nested-path fused --warmup 0 --samples 3
 
 # 正确性均通过后再测稳定延迟；Direct/Nested 分开统计。
 sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
@@ -149,7 +153,7 @@ sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
   --test direct --warmup 10 --samples 100
 sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
   ./build-caller/lrpc-ub-domain-multi --mode threads --cpus 1,2 \
-  --test nested --nested-path legacy --warmup 10 --samples 100
+  --test nested --nested-path fused --warmup 10 --samples 100
 ```
 
 `--cpus` 的每一项对应一个 worker，数量 2–8，例如 `1,2,3,4` 是四个 worker。
@@ -173,8 +177,9 @@ UB_DOMAIN_MULTI_PASS mode=threads workers=2 unique_cpus=2 ... read_only=1 slots_
 线程间等待和重连；不同于原 bench 的更窄 `scope=lrpc_invoke`，不要直接混为同一口径。
 逐步增加到 1000 个样本或 4/8 个 worker 前先检查 `dmesg`，不要一开始压满共享机器。
 
-要验证可选 fused Nested，将上面命令的 `--nested-path legacy` 改成 `fused`，两者使用
-同一个 owner 和模块，不需重启 B。此版本的 fused 和多连接均仍需 UB 真机验证。
+要测备选 legacy Nested，将上面命令的 `--nested-path fused` 改成 `legacy`，两者使用
+同一个 owner 和模块，不需重启 B 的 `--multi` owner。单执行者 fused 已完成 UB 真机
+20 轮测量；多连接并发仍需独立真机验证，不能由单执行者结果推断。
 已有单连接 bench、TLB probe、trace 也会自动识别 `--multi` owner；成功释放后可继续建连。
 
 ### 生命周期与失败处理
@@ -344,20 +349,28 @@ sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
 `UB_DOMAIN_TRACE_SAMPLE` 每次打印完整诊断 ioctl 时间、内核 gate 总时间、
 各个 gate 区间、两个内核交接区间，以及实际切换次数；汇总行
 `UB_DOMAIN_TRACE_RESULT` 给出 min/p50/p99/max/avg。Direct 应有 1 段、
-2 次切换；默认 legacy Nested 应有 middle/leaf/middle-return 3 段、6 次切换。
+2 次切换；默认 fused Nested 为一个整链区间、4 次逻辑切换。
+显式 `--nested-path legacy` 才有 middle/leaf/middle-return 3 段、6 次切换。
 每段 gate 包含进入、EL0 服务执行和异常返回，**不是纯页表切换时间**；
 诊断时间戳本身也增加开销，不能与未打点基准直接比较。辅助字段
 `a_view_remote_heap_load` 是 A 用户态通过 NC import 单独读取 B heap 的
 一次 load，包含计时调用开销；它**不是**服务代码中那次 `[x1]` load 的
 精确计时，Nested 服务本身也不读取 B heap。硬件 page walk 次数仍未观测。
 
-## 可选 fused Nested：在 gate 内交接到 leaf 再恢复 middle
+## Nested 默认 fused 与备选 legacy
 
-默认仍是 `legacy`，原有命令和 Direct/Query 路径保持原行为。
-新增 `--nested-path fused`（或环境变量 `LRPC_UB_NESTED_PATH=fused`）在连接
-PREPARE 前选择新路径；命令行优先于环境变量。路径在连接准备后固定，
+默认使用 `fused`，可通过 `--nested-path legacy`（或环境变量
+`LRPC_UB_NESTED_PATH=legacy`）选择备选路径。选择在连接 PREPARE 前完成，
+命令行优先于环境变量。路径在连接准备后固定，
 一次连接中的 benchmark、trace、TLB probe 均使用同一选择。
 不识别的路径在 bind 前拒绝；旧模块不支持新 ioctl 时明确失败，不回退为 legacy。
+
+2026-10-19 的单执行者实测中，两条 Nested 路径各 20 轮、每轮预热 100 次和测量
+1000 次：legacy 总体 avg 2262.559 ns，fused 为 2090.398 ns，降低约 7.6%；
+20 轮逐轮平均值均是 fused 更低。见 `results/bench-20261019-a0-b1/summary.json`。
+这次默认值调整只涉及用户态：A 同步源码后运行 `sh scripts/build.sh caller`。
+当前已加载模块若已支持 legacy/fused，无须因此重新构建或加载模块，B owner 也无须重建。
+应用若静态链接了更新的库则需重新构建；SocialNetwork 目前仍使用其独立路由链。
 
 ```text
 legacy: A 内核 -> middle -> 恢复 A -> leaf -> 恢复 A -> middle -> 恢复 A
@@ -483,4 +496,5 @@ python3 tests/test_nested_gate.py --objects "$TEST_OBJECTS"
 测试执行真实 gate 和服务指令，核验参数、middle 栈/寄存器恢复、无中途恢复 A、
 无 per-call TLBI、EL1/VHE 寄存器编码，以及三个阶段的异常返回路径。
 系统寄存器、ERET、异常入口和域映射由 fixture 接管；不模拟真实 MMU、UB 或内核，
-不能证明硬件异常恢复和性能。fused 路径尚待目标 UB 真机验证。
+不能证明硬件异常恢复和性能。单执行者性能证据见上述真机 20 轮结果，
+异常恢复及多连接并发仍需各自的目标机验证。

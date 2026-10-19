@@ -20,7 +20,7 @@ static void usage(const char *program)
     printf("usage: %s [--test all|direct|nested|query-1|query-8|query-32] "
            "[--samples N] [--warmup N] [--nested-path legacy|fused] [--emit-samples]\n"
            "       %s --prepare-only\n"
-           "defaults: --test all --samples 1000 --warmup 100\n"
+           "defaults: --test all --samples 1000 --warmup 100 --nested-path fused\n"
            "first execution: --test direct --samples 1 --warmup 0\n",
            program, program);
 }
@@ -41,7 +41,7 @@ static int parse_options(int argc, char **argv, struct bench_options *options)
     int i, execution_options = 0;
     unsigned int path;
     *options = (struct bench_options){"all", 1000, 100, 0, 0, getenv("LRPC_UB_NESTED_PATH")};
-    if (!options->nested_path) options->nested_path = "legacy";
+    if (!options->nested_path) options->nested_path = UD_NESTED_DEFAULT_NAME;
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--help")) { usage(argv[0]); return 1; }
         if (!strcmp(argv[i], "--prepare-only")) { options->prepare_only = 1; continue; }

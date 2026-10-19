@@ -147,12 +147,42 @@ int ud_lrpc_connection_info(const struct lrpc_handle *h, struct ud_connection_in
         self.assertEqual(result.returncode, 1)
         self.assertNotIn('UB_DOMAIN_TRACE_PASS', result.stdout)
 
-    def test_default_legacy_and_direct(self):
+    def test_default_fused_and_explicit_legacy(self):
         for demo in self.executables:
-            result = self.run_demo(demo, '--test', 'direct', '--samples', '1', '--warmup', '0')
+            for test in ('direct', 'nested'):
+                result = self.run_demo(demo, '--test', test, '--samples', '1', '--warmup', '0')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('FIXTURE_BIND path=fused', result.stdout)
+                if demo == 'trace':
+                    self.assertIn('transitions=' + ('4' if test == 'nested' else '2'), result.stdout)
+            result = self.run_demo(demo, '--test', 'nested', '--samples', '1', '--warmup', '0',
+                                   LRPC_UB_NESTED_PATH='legacy')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('FIXTURE_BIND path=legacy', result.stdout)
-            if demo == 'trace': self.assertIn('transitions=2', result.stdout)
+
+    def test_profile_defaults_preserve_social_and_reject_unsupported_fused(self):
+        src, exe = self.tmp / 'path_defaults.c', self.tmp / 'path_defaults.exe'
+        src.write_text(r'''
+#include <assert.h>
+#include <lrpc/ub_nested_path.h>
+int main(void) {
+ unsigned path;
+ assert(!ud_nested_path_parse_profile(NULL,0,&path) && path==UD_NESTED_FUSED);
+ assert(!ud_nested_path_parse_profile("legacy",0,&path) && path==UD_NESTED_LEGACY);
+ assert(!ud_nested_path_parse_profile(NULL,1,&path) && path==UD_NESTED_LEGACY);
+ assert(!ud_nested_path_parse_profile("legacy",1,&path) && path==UD_NESTED_LEGACY);
+ assert(ud_nested_path_parse_profile("fused",1,&path)==-1 && errno==EOPNOTSUPP);
+ assert(ud_nested_path_parse_profile("",0,&path)==-1 && errno==EINVAL);
+ return 0;
+}
+''')
+        result = subprocess.run([shutil.which('gcc'), '-std=gnu11', '-Wall', '-Wextra', '-Werror',
+                                 '-I' + str(self.tmp), '-I' + str(ROOT / 'include'),
+                                 '-I' + str(ROOT / 'include/uapi'),
+                                 str(src), '-o', str(exe)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run([str(exe)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_bench_emits_only_measured_samples_when_requested(self):
         args = ('--test', 'direct', '--samples', '3', '--warmup', '2')

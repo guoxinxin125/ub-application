@@ -7,10 +7,16 @@ B 是发布服务域的 owner 机器；当前可用组合是 A 计算 NUMA 0 / B
 
 ## 1. Direct / Nested 稳态延迟
 
+- [x] 2026-10-19 完成三条路径各 20 轮测量，见
+  [summary.json](results/bench-20261019-a0-b1/summary.json) 和
+  [rounds.csv](results/bench-20261019-a0-b1/rounds.csv)。后续 Nested 默认使用 fused，
+  legacy 用于显式对照/备选；批量脚本继续同时测两条路径。
+- [ ] 补存本批 60 份原始 `round-*.log` 与同时间窗内核日志，供独立重算总体分位数和验收。
+
 - [ ] A/B 同步同一份源码并运行 `python3 scripts/manifest.py --check`；记录 `uname -r`、
   模块类型（EL1 或 VHE）、`modinfo -F ud_nested`、是否启用 trace、A 的允许 CPU、B 的 provider NUMA。
 - [ ] 使用不带 `--trace` 的已验证模块，并在 A 单次检查 Direct、Nested legacy、Nested fused
-  都通过。更换模块前按 [README 的模块步骤](README.md#可选-fused-nested在-gate-内交接到-leaf-再恢复-middle)
+  都通过。更换模块前按 [README 的模块步骤](README.md#nested-默认-fused-与备选-legacy)
   确认本项目连接已退出；不要在其他用户使用设备时卸载模块。
 - [ ] 在 B 使用独占的共享内存名称启动可复用 owner，确认输出 `UB_DOMAIN_OWNER_READY multi=1`：
 

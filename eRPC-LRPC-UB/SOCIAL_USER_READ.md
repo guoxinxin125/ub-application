@@ -9,6 +9,9 @@
 
 只支持一个 Client、一个发送 lane、并发 1、一个 nginx 域、UserTimeline read。
 不包括 HomeTimeline、发帖、多 nginx、UB 业务写入，以及应用链的 fused 切换。
+算术 Nested 微测试的默认路径已改为 fused；本应用 profile 在未指定路径时仍使用
+独立的原路由链。启动脚本显式设置 `LRPC_UB_NESTED_PATH=legacy`；若直接使用
+应用客户端并显式指定 fused，库会以 `EOPNOTSUPP` 拒绝，不会当作已支持应用级 fused。
 域调用仍使用多连接池：Client 前向一个连接，Timeline 回程一个连接，同属 A 内核，
 不同 slot/identity/ASID。这里的单 lane 限制只针对首版应用，不取消微测试的多连接能力。
 

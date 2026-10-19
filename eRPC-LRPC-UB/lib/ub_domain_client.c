@@ -46,8 +46,7 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     unsigned int d, l;
     unsigned int nested_path;
     if (!h || procedure < 1 || procedure > 3 || epoch != 1) return ud_error(-EINVAL);
-    if (ud_nested_path_parse(getenv("LRPC_UB_NESTED_PATH"), &nested_path)) return -1;
-    if (profile && nested_path != UD_NESTED_LEGACY) return ud_error(-EOPNOTSUPP);
+    if (ud_nested_path_parse_profile(getenv("LRPC_UB_NESTED_PATH"), profile, &nested_path)) return -1;
     memset(h, 0, sizeof(*h)); h->fd = -1; h->astack_offset = UD_HANDLE_MARKER;
     client = calloc(1, sizeof(*client));
     if (!client) return -1;

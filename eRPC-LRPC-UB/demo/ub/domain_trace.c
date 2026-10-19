@@ -179,6 +179,7 @@ free_values:
     return failed;
 usage:
     fprintf(stderr, "usage: %s [--test direct|nested] [--samples 1..10000] "
-            "[--warmup 0..10000] [--nested-path legacy|fused]\n", argv[0]);
+            "[--warmup 0..10000] [--nested-path legacy|fused]\n"
+            "default nested path: fused\n", argv[0]);
     return 2;
 }

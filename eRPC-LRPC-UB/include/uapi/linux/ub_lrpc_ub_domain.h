@@ -78,8 +78,9 @@ struct ud_trace_call {
     __u32 procedure, transitions, cpu, segments;
 };
 #define UD_TRACE_CALL _IOWR('U', 0x85, struct ud_trace_call)
-/* Connection-local choice, set before PREPARE. Existing callers default to
- * legacy. Does not change the B publication, argument or completion layouts. */
+/* Connection-local choice, set before PREPARE. New userspace selects fused;
+ * raw sessions without this ioctl retain legacy for ABI compatibility.
+ * Does not change the B publication, argument or completion layouts. */
 #define UD_NESTED_LEGACY 0U
 #define UD_NESTED_FUSED 1U
 #define UD_SET_NESTED_PATH _IOW('U', 0x86, __u32)

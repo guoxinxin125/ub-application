@@ -153,7 +153,7 @@ static int parse(int argc, char **argv, struct options *o)
     cpu_set_t allowed;
     *o = (struct options){.samples=100, .warmup=10, .mode="threads", .test="mixed",
                           .path=getenv("LRPC_UB_NESTED_PATH")};
-    if (!o->path) o->path = "legacy";
+    if (!o->path) o->path = UD_NESTED_DEFAULT_NAME;
     for (i = 1; i < argc; ++i) {
         const char *key = argv[i];
         if (!strcmp(key, "--help")) return 1;
@@ -193,7 +193,8 @@ int main(int argc, char **argv)
     int result = parse(argc,argv,&o), failed = 0;
     if (result) {
         fprintf(result < 0 ? stderr : stdout, "usage: %s --cpus N,N[,N...] [--mode threads|processes] "
-                "[--test mixed|direct|nested] [--nested-path legacy|fused] [--samples N] [--warmup N]\n",argv[0]);
+                "[--test mixed|direct|nested] [--nested-path legacy|fused] [--samples N] [--warmup N]\n"
+                "default nested path: fused\n",argv[0]);
         return result < 0 ? 2 : 0;
     }
     if (setenv("LRPC_EXECUTION_BACKEND","ub-remote-domain",1) ||

@@ -500,6 +500,10 @@ int main(int argc,char **argv) {
             env.pop(key, None)
         output = self.compile_run(wrapped, args=args, env=env)
         self.assertIn('UB_DOMAIN_MULTI_PASS mode=threads workers=4 unique_cpus=4 calls=220', output)
+        self.assertIn('nested_path=fused', output)
+        output = self.compile_run(wrapped, args=(*args, '--nested-path', 'legacy'), env=env)
+        self.assertIn('UB_DOMAIN_MULTI_PASS', output)
+        self.assertIn('nested_path=legacy', output)
         for key in ('TEST_DUP_SLOT','TEST_BAD_RESULT','TEST_CLOSE_FAIL'):
             output = self.compile_run(wrapped, args=args, env={**env,key:'1','TEST_EXPECT_FAILURE':'1'})
             self.assertNotIn('UB_DOMAIN_MULTI_PASS', output)

@@ -7,13 +7,13 @@ cpu=${LRPC_UB_CPU:-}
 test=direct
 samples=1
 warmup=0
-nested_path=${LRPC_UB_NESTED_PATH:-legacy}
+nested_path=${LRPC_UB_NESTED_PATH-fused}
 name=${LRPC_UB_DOMAIN_NAME:-lrpc_ub_domain}
 emit_samples=
 usage() {
     echo "usage: sh scripts/run-ub-domain-smoke.sh --cpu N [--test direct|nested]"
     echo "       [--samples N] [--warmup N] [--name SHM_NAME] [--nested-path legacy|fused] [--emit-samples]"
-    echo "defaults: direct, samples=1, warmup=0; CPU may also be set by LRPC_UB_CPU"
+    echo "defaults: direct, samples=1, warmup=0, nested-path=fused; CPU may also be set by LRPC_UB_CPU"
     echo "Requires loaded module and B owner (legacy: fresh; --multi: running). Does not load/unload modules."
 }
 while [ "$#" -gt 0 ]; do
