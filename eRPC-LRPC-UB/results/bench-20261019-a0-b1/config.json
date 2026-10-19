@@ -1,0 +1,11 @@
+{
+  "cpu": 1,
+  "name": "lrpc_ub_domain",
+  "rounds": 20,
+  "warmup": 100,
+  "samples": 1000,
+  "started_utc": "2026-10-19T03:08:05.873096+00:00",
+  "scope": "lrpc_invoke",
+  "required_owner": "--multi",
+  "aggregation": "pooled quantiles use all raw timed calls; round metrics also retained"
+}

@@ -1,0 +1,51 @@
+{
+  "config": {
+    "cpu": 1,
+    "name": "lrpc_ub_domain",
+    "rounds": 20,
+    "warmup": 100,
+    "samples": 1000,
+    "started_utc": "2026-10-19T03:08:05.873096+00:00",
+    "scope": "lrpc_invoke",
+    "required_owner": "--multi",
+    "aggregation": "pooled quantiles use all raw timed calls; round metrics also retained"
+  },
+  "cases": {
+    "direct": {
+      "rounds": 20,
+      "calls_measured": 20000,
+      "pooled_p50_ns": 2230,
+      "pooled_p99_ns": 2410,
+      "pooled_avg_ns": 2249.994,
+      "round_p50_median_ns": 2230.0,
+      "round_p99_median_ns": 2355.0,
+      "round_avg_mean_ns": 2249.99,
+      "round_avg_min_ns": 2165.0,
+      "round_avg_max_ns": 2381.4
+    },
+    "nested-legacy": {
+      "rounds": 20,
+      "calls_measured": 20000,
+      "pooled_p50_ns": 2250,
+      "pooled_p99_ns": 2370,
+      "pooled_avg_ns": 2262.559,
+      "round_p50_median_ns": 2245.0,
+      "round_p99_median_ns": 2330.0,
+      "round_avg_mean_ns": 2262.56,
+      "round_avg_min_ns": 2202.1,
+      "round_avg_max_ns": 2346.8
+    },
+    "nested-fused": {
+      "rounds": 20,
+      "calls_measured": 20000,
+      "pooled_p50_ns": 2080,
+      "pooled_p99_ns": 2200,
+      "pooled_avg_ns": 2090.398,
+      "round_p50_median_ns": 2080.0,
+      "round_p99_median_ns": 2145.0,
+      "round_avg_mean_ns": 2090.405,
+      "round_avg_min_ns": 2014.6,
+      "round_avg_max_ns": 2201.7
+    }
+  }
+}
