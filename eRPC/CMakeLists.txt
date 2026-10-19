@@ -429,14 +429,27 @@ elseif(APP STREQUAL "social_network_cxl")
   message(STATUS
     "Building social_network_cxl application with ${TRANSPORT} transport")
 
-  find_package(Protobuf REQUIRED)
+  find_package(Protobuf 3.12 REQUIRED)
   include_directories(${PROTOBUF_INCLUDE_DIRS})
 
   # 设置源文件目录
   set(SN_CXL_DIR ${CMAKE_SOURCE_DIR}/apps/social_network_cxl)
 
-  # 编译 Protobuf (如果需要)
-  protobuf_generate_cpp(SN_PROTO_SRCS SN_PROTO_HDRS ${SN_CXL_DIR}/social_network.proto)
+  # protoc 3.12-3.14 requires this flag for proto3 optional; newer releases
+  # still accept it. Use an explicit command because older FindProtobuf
+  # modules cannot forward PROTOC_OPTIONS through protobuf_generate_cpp().
+  set(SN_PROTO_FILE "${SN_CXL_DIR}/social_network.proto")
+  set(SN_PROTO_SRCS "${CMAKE_CURRENT_BINARY_DIR}/social_network.pb.cc")
+  set(SN_PROTO_HDRS "${CMAKE_CURRENT_BINARY_DIR}/social_network.pb.h")
+  add_custom_command(
+    OUTPUT ${SN_PROTO_SRCS} ${SN_PROTO_HDRS}
+    COMMAND "${Protobuf_PROTOC_EXECUTABLE}"
+      --experimental_allow_proto3_optional
+      --cpp_out "${CMAKE_CURRENT_BINARY_DIR}"
+      --proto_path "${SN_CXL_DIR}" "${SN_PROTO_FILE}"
+    DEPENDS "${SN_PROTO_FILE}" "${Protobuf_PROTOC_EXECUTABLE}"
+    COMMENT "Generating SocialNetwork protobuf with proto3 optional support"
+    VERBATIM)
   # Generated code is compiler/toolchain output. Keep project warnings enabled
   # for handwritten sources without reporting warnings from generated protobuf.
   set_source_files_properties(${SN_PROTO_SRCS} PROPERTIES COMPILE_FLAGS "-w")

@@ -232,7 +232,7 @@ Both machines need:
 
 - a working UB/UBSM installation and `libubsm_sdk.so`
 - CMake and a C++17 compiler
-- Protobuf and `protoc`
+- matching Protobuf libraries and `protoc`, version 3.12 or later
 - gflags and libnuma
 - pkg-config, libmongoc-1.0, and libbson-1.0
 - the header-only nlohmann/json library (`nlohmann/json.hpp`)
@@ -248,6 +248,15 @@ protoc --version
 test -f /usr/include/nlohmann/json.hpp || \
   test -f /home/gxx/.local/include/nlohmann/json.hpp
 ```
+
+The schema uses proto3 `optional`. `protoc` 3.12-3.14 requires
+`--experimental_allow_proto3_optional`; the current application CMake rule
+passes it explicitly, and newer protoc releases also accept it. If an existing
+build reports that this flag was not set, update `eRPC/CMakeLists.txt`, rerun
+the same CMake configure command for that build directory, then rebuild.
+Keep `optional` in the schema and use the matching compiler, headers and
+libraries from one Protobuf installation. `Protobuf_PROTOC_EXECUTABLE` in
+`CMakeCache.txt` identifies the compiler actually selected by CMake.
 
 On Ubuntu or Debian, install the JSON header with:
 

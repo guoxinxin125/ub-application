@@ -61,6 +61,14 @@ libc 分配器、TLS，也不增加 nginx 业务校验或远端写入。
 [原 README_UB.md](../eRPC/apps/social_network_cxl/README_UB.md)，不要使用 VM 脚本或覆盖现有数据库。
 以下 `REPO`、SDK/OBMM 路径、IP 和 NUMA 按实际机器设置。
 
+两端的 Protobuf 库与 `protoc` 应来自匹配的安装，版本至少 3.12。
+本应用的 `.proto` 使用 proto3 `optional`；3.12–3.14 的 `protoc` 需要
+`--experimental_allow_proto3_optional`，当前 `eRPC/CMakeLists.txt` 已显式传入，
+兼容旧版 CMake 的 FindProtobuf。若遇到 “This file contains proto3 optional fields”
+错误，同步此 CMakeLists 后重新执行对应构建目录的 `cmake -S ... -B ...` 配置命令，
+再构建；不要删除 `.proto` 中的 `optional`。用 `protoc --version` 检查环境，
+实际构建选择的编译器还可查看该目录 `CMakeCache.txt` 的 `Protobuf_PROTOC_EXECUTABLE`。
+
 ```sh
 export REPO=/absolute/path/ub-application
 export UBSM_INCLUDE_DIR=/actual/sdk/include
@@ -84,7 +92,8 @@ sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
 ```
 
 EL1 机器改用不带 `--vhe` 的构建与 `ub_lrpc_domain.ko experimental=1`。
-B 构建 owner，不需要 kernel-devel 或 OBMM 开发头：
+B 的域模式需要两组程序：**owner 发布服务域**，以及 **PostStorage/manager 提供普通
+UB-eRPC 应用服务**。先构建 owner；B 不需要 kernel-devel 或 OBMM 开发头：
 
 ```sh
 cd "$REPO/eRPC-LRPC-UB"
@@ -103,18 +112,33 @@ cmake --build "$REPO/eRPC/cmake-build-social-ub-domain" -j2 \
   --target erpc_ub_manager client user_timeline
 ```
 
-已有应用依赖装在私有 prefix 时继续设置 `CMAKE_PREFIX_PATH`、`PKG_CONFIG_PATH`、
-`LD_LIBRARY_PATH`，参考原 README。**A/B 都另建 RPC-only 目录**用于严格基线：
+**B：构建域模式所需的 PostStorage 和 manager。** 这些进程不执行域切换，使用
+`PROXY=OFF` 的 `-rpc` 构建目录；这也是 `run-social.sh --side B --mode domain --config ...`
+默认读取的目录。B 的 LB/nginx 域镜像已包含在上面的 owner 中，无需启动对应 eRPC 进程。
 
 ```sh
+# B，沿用本节开头的 REPO、UBSM 和应用依赖环境变量：
 cmake -S "$REPO/eRPC" -B "$REPO/eRPC/cmake-build-social-ub-rpc" \
   -DAPP=social_network_cxl -DTRANSPORT=ub -DPERF=ON \
   -DERPC_SN_DOMAIN_PROXY=OFF -DERPC_SN_DOMAIN_BACKEND=ub \
   -DUBSM_INCLUDE_DIR="$UBSM_INCLUDE_DIR" -DUBSM_LIBRARY="$UBSM_LIBRARY"
-# A 执行：
+cmake --build "$REPO/eRPC/cmake-build-social-ub-rpc" -j2 \
+  --target erpc_ub_manager post_storage
+```
+
+已有应用依赖装在私有 prefix 时继续设置 `CMAKE_PREFIX_PATH`、`PKG_CONFIG_PATH`、
+`LD_LIBRARY_PATH`，参考原 README。**准备严格 RPC 基线时，A 另建 RPC-only 目录，
+B 复用上面的 `-rpc` 目录并补建 nginx/load_balance**：
+
+```sh
+# A：配置并构建 RPC 基线。
+cmake -S "$REPO/eRPC" -B "$REPO/eRPC/cmake-build-social-ub-rpc" \
+  -DAPP=social_network_cxl -DTRANSPORT=ub -DPERF=ON \
+  -DERPC_SN_DOMAIN_PROXY=OFF -DERPC_SN_DOMAIN_BACKEND=ub \
+  -DUBSM_INCLUDE_DIR="$UBSM_INCLUDE_DIR" -DUBSM_LIBRARY="$UBSM_LIBRARY"
 cmake --build "$REPO/eRPC/cmake-build-social-ub-rpc" -j2 \
   --target erpc_ub_manager client user_timeline
-# B 执行（B 在 domain 模式也使用这里的 PostStorage/manager）：
+# B：基线才需要真正的 nginx/load_balance 进程。
 cmake --build "$REPO/eRPC/cmake-build-social-ub-rpc" -j2 \
   --target erpc_ub_manager post_storage nginx load_balance
 ```
