@@ -12,6 +12,9 @@ Nested 微测试默认使用 **fused**，备选路径用 `--nested-path legacy` 
 `LRPC_UB_NESTED_PATH=legacy` 显式选择；命令行优先于环境变量。
 bench、多连接测试、TLB probe、trace 和直接调用客户端库遵循同一默认值。
 SocialNetwork 独立路由链仍见其接入文档，不会因本默认值变更自动使用 fused。
+应用的独立 A/B 模板位于 `config/social-user-read-a.json` 和
+`config/social-user-read-b.json`；`prepare-social.py` 默认从本包模板生成私有配置，
+不再要求读取旧的机器编号配置。DB 位置和 A/B 执行位置见应用接入说明第 1、4 节。
 同步到两端后、构建前可运行 `sha256sum -c SOURCE_MANIFEST.sha256` 检查传输。
 
 源码中的固定发布格式仍包含 Query domain 与指令；本包的运行步骤只执行

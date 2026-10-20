@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate a private single-lane UB read-only config from an existing UB JSON.
 
+Defaults to the independent A/B experiment template, not a machine-numbered config.
 No DB restore, service restart, region creation or modification of input JSON.
 Client/Timeline run on A; PostStorage and baseline LB/nginx on B. Domain
 publisher is a separate B process. DB endpoints change only on explicit override.
@@ -10,6 +11,8 @@ import copy
 import ipaddress
 import json
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def host(value):
@@ -76,7 +79,8 @@ def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--input', required=True, type=Path)
+    parser.add_argument('--input', type=Path,
+                        help='optional common source JSON; defaults to bundled independent A/B templates')
     parser.add_argument('--output', required=True, type=Path, help='new private output directory')
     parser.add_argument('--host-a', required=True)
     parser.add_argument('--host-b', required=True)
@@ -89,10 +93,13 @@ def main():
     parser.add_argument('--storage-db-port', type=int)
     args = parser.parse_args()
     try:
-        configs = prepare(json.loads(args.input.read_text(encoding='utf-8')), args.host_a,
-                          args.host_b, args.samples, args.numa_a, args.numa_b,
-                          args.timeline_db_host, args.timeline_db_port,
-                          args.storage_db_host, args.storage_db_port)
+        sources = ([args.input] * 2 if args.input else
+                   [ROOT/'config'/('social-user-read-'+side+'.json') for side in ('a','b')])
+        configs = [prepare(json.loads(source.read_text(encoding='utf-8')), args.host_a,
+                           args.host_b, args.samples, args.numa_a, args.numa_b,
+                           args.timeline_db_host, args.timeline_db_port,
+                           args.storage_db_host, args.storage_db_port)[index]
+                   for index, source in enumerate(sources)]
         args.output.mkdir(parents=True, exist_ok=False)
         for side, config in zip(('a', 'b'), configs):
             (args.output/('config-'+side+'.json')).write_text(json.dumps(config, indent=2)+'\n', encoding='utf-8')

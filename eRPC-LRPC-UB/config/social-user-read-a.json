@@ -1,0 +1,58 @@
+{
+  "common": {
+    "test_loop": 1,
+    "concurrency": 1,
+    "client_num": 1,
+    "server_num": 1,
+    "numa_client_node": 0,
+    "numa_server_node": 0,
+    "bind_core_offset": 0,
+    "timeout_second": 120,
+    "latency_file": "./latency",
+    "bandwidth_file": "./bandwidth"
+  },
+  "load_balance": {"server_addr": "B_IP:31850", "rpc_id": 0, "bind_core_offset": 3},
+  "client": {
+    "server_addr": "A_IP:31851",
+    "rpc_id": 1,
+    "generate_num": 10,
+    "user_num": 1,
+    "home_num": 0,
+    "write_num": 0,
+    "bind_core_offset": 0
+  },
+  "nginx": {"server_addr": "B_IP:31852", "rpc_id": 2, "bind_core_offset": 0},
+  "unique_id": {"server_addr": "B_IP:31853", "rpc_id": 3, "bind_core_offset": 12},
+  "url_shorten": {"server_addr": "B_IP:31854", "rpc_id": 4, "bind_core_offset": 15},
+  "compose_post": {"server_addr": "B_IP:31855", "rpc_id": 5, "bind_core_offset": 9},
+  "user_timeline": {"server_addr": "A_IP:31856", "rpc_id": 6, "bind_core_offset": 3},
+  "home_timeline": {
+    "server_addr": "B_IP:31857",
+    "rpc_id": 7,
+    "data_file_path": "./home_timeline.data",
+    "per_read_posts": 1,
+    "bind_core_offset": 18
+  },
+  "user_mention": {"server_addr": "B_IP:31858", "rpc_id": 8, "bind_core_offset": 21},
+  "post_storage": {
+    "server_addr": "B_IP:31859",
+    "rpc_id": 9,
+    "read_total_size": 4,
+    "write_total_size": 4,
+    "write_to_mongodb": false,
+    "bind_core_offset": 6
+  },
+  "user_service": {"server_addr": "B_IP:31860", "rpc_id": 10, "bind_core_offset": 24},
+  "user_timeline_mongodb": {
+    "connections": 100,
+    "addr": "127.0.0.1",
+    "port": "22012",
+    "database": "user-timeline"
+  },
+  "post_storage_mongodb": {
+    "connections": 100,
+    "addr": "127.0.0.1",
+    "port": "20014",
+    "database": "post"
+  }
+}

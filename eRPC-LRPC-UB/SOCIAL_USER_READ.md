@@ -19,13 +19,12 @@
 | --- | --- | --- |
 | A，NUMA 0 | Client、UserTimeline、A manager | 同左 |
 | B，provider NUMA 1 | PostStorage、B manager；另一个 `--social` owner 发布 LB/nginx 代码、配置、页表 | 同位置的 PostStorage、B manager，以及真正的 LB/nginx eRPC 进程 |
-| 数据库 | 保留原 MongoDB 所在机器和数据，仅明确应用连接地址 | 同左 |
+| 数据库（本轮推荐布局） | Timeline/Post 两个 MongoDB 都在 B；A 的 Timeline 通过连接或隧道加载数据 | 使用完全相同的数据库和数据 |
 
-**A/B 是实验角色，不是 98/99 的别名。** 原 `README_UB.md` 将 PostStorage 和数据库放在 98、
-Client 放在 99。本实验保留 PostStorage 在 B，只把 UserTimeline 与 Client 放在 A，
-以便仅 A 需要域切换模块。若保留原 PostStorage 所在物理机，则 A 对应 99、B 对应 98；
-计算 NUMA、provider NUMA 和机器 ID 仍以实际分配为准，不由主机名推断。
-上一版将 PostStorage 放到 A 是不必要的部署变更，现已修正；旧生成配置应重新生成。
+**A 是有 Client/UserTimeline 的机器，B 是 LB/nginx 的服务域发布方和 PostStorage 所在机器。**
+这里不使用旧机器编号或旧的 `config.ub*.json`。本包提供独立 A/B 模板，见第 4 节；
+NUMA 和 CPU 按实际分配调整。若现成 MongoDB 位于其他主机，保留它并显式配置可达地址即可，
+数据库没有必须跟随 Client 或服务域摆放的限制。
 
 PostData 由 B 的 PostStorage 分配在 B 的 UB arena，两种模式都由 A 消费同一布局的 handle。
 使用 `one-sided` 模式，确认实际共享内存导入属性和 handle 的 machine ID；不能仅凭角色表
@@ -37,6 +36,24 @@ PostData 由 B 的 PostStorage 分配在 B 的 UB arena，两种模式都由 A �
 前向：Client → LB 域 → nginx 域 → A 的正常应用上下文 → UserTimeline → PostStorage
 回程：PostStorage → UserTimeline → nginx 域 → LB 域 → A 的正常应用上下文 → Client
 ```
+
+上面是逻辑服务顺序。**域模式下整条 LB/nginx 路由链都在 A 的 CPU 上执行**；
+“B 的域”表示 B 发布并持有域的页表、只读配置，不表示调用时改用 B 的 CPU。
+代码在连接时从 B 复制到 A，A-stack/E-stack 也在 A。当前 legacy 在两个域之间恢复
+A 的 Linux 内核环境；将来应用级 fused 应让 A 的 gate 直接交接到下一域：
+
+```text
+当前：A → LB(B域，A CPU) → 恢复A → nginx(B域，A CPU) → 恢复A
+拟接入 fused：A → LB(B域，A CPU) → gate → nginx(B域，A CPU) → 恢复A
+回程域顺序：nginx-return → LB-return，仍由 A CPU 执行
+```
+
+因此改用 fused 不需要把 LB/nginx 的 owner 搬到 A。A→B域是访问远端服务地址空间，
+B域→B域是 A CPU 上两个 B 发布域之间的切换；它们都可能访问 B 配置及 TLB miss 后的
+B 页表，不发生 CPU 跨机迁移，也不保证每次切换都会触发远端 page walk。
+域调用完成后，Client→UserTimeline 是 A 上的普通进程间 UB-eRPC；
+UserTimeline(A)→PostStorage(B) 才是由两台机器各自 CPU 处理的跨机 UB-eRPC。
+RPC 基线则是在 B 真正运行 LB/nginx 进程，与域模式的“B 发布、A 执行”有所区别。
 
 每个前向/回程链有两个实际域入口、4 次逻辑域切换，中间恢复 A 内核执行交接。
 这不是算术 Nested 微测试的 middle/leaf/resume 六次切换，也不使用其 fused 汇编。
@@ -175,14 +192,38 @@ sudo env LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017 \
 
 ## 4. 生成私有应用配置
 
-以 A 上已经跑通 UB 的 JSON 为输入。脚本复制数据，不覆盖输入/已有输出目录，
-将 Client/Timeline 地址指向 A，PostStorage/LB/nginx 指向 B。
-所有 `*_mongodb` 默认原样保留，仅指定 `--timeline-db-host/port` 或 `--storage-db-host/port`
-时修改对应的应用连接配置；不会迁移数据、修改 mongod 配置或重启数据库。
+本轮使用两份独立模板，不修改原应用配置：
 
-**注意原配置的 Timeline MongoDB 是 `127.0.0.1:20012`。** 若它仍在 B，A 的 localhost
-不是 B！可以使用已经可达的 DB 地址；若现有 mongod 只监听 B 本机，可在 A 单独终端建立
-仅本机监听的 SSH 隧道（保持该终端存活，两种模式复用同一隧道）：
+- `config/social-user-read-a.json`：A 的 Client/Timeline，计算 NUMA 默认 0。
+- `config/social-user-read-b.json`：B 的 PostStorage/manager，以及 RPC 基线 LB/nginx，计算 NUMA 默认 1。
+
+模板中的 `A_IP/B_IP` 必须替换成实际 IPv4 地址后才能用于运行。推荐通过下面的生成脚本
+生成私有 `config-a.json/config-b.json`，它默认分别读取本包独立 A/B 模板，并应用
+`--numa-a/b`。原模板和旧应用 JSON 都不修改，已有输出目录也不会覆盖。
+保留未运行服务的地址项是为了现有应用的配置解析；启动器只启动本轮所需的服务。
+
+### MongoDB 的放置和用途
+
+这轮 UserTimeline read 只需要两组已有数据，**推荐都放 B**：
+
+| 数据 | B 上 MongoDB 端口 | 实际读取它的应用 | 模板中的连接地址 |
+| --- | --- | --- | --- |
+| `user-timeline.user-timeline`，用户到帖子 ID 的关系 | 20012 | A 的 UserTimeline，启动时加载到 A 内存 | A 的 `127.0.0.1:22012`，通过 SSH 隧道转到 B:20012 |
+| `post.post`，帖子内容 | 20014 | B 的 PostStorage，启动时加载到 B 的 UB arena | B 的 `127.0.0.1:20014` |
+
+**MongoDB 存放位置与 UB 远端内存位置是两件事。** 当前只读路径启动时加载 MongoDB，
+每次读请求主要查询已加载的内存索引和 PostData，不是每次请求都查询数据库。
+本轮不启动 UserMention 等服务，不要求额外启动 user/social-graph 数据库。
+两份 JSON 保留相同的 DB 键，但 A 只使用 `user_timeline_mongodb`，B 只使用
+`post_storage_mongodb`；B 模板的 Timeline 项指向 B 本地 20012，但本轮不在 B 启动 Timeline。
+两个集合应来自匹配数据集，Timeline 引用的帖子必须在 Post 数据中。
+
+若已经有可用数据库，不搬迁或重新导入，只通过下面的 override 参数指向它。
+若在新机器上还没有数据，按原 [README 的 MongoDB 数据准备步骤](../eRPC/apps/social_network_cxl/README_UB.md#3-start-mongodb-on-machine-98)
+由操作者将所需两组数据准备到选定数据库主机；该旧文中的物理机器编号不适用于本轮角色。
+配置脚本不会启动 MongoDB、恢复数据、修改监听地址或重启服务。
+
+B 的数据库若只监听 localhost，在 A 单独终端建立仅本机监听的 SSH 隧道，保持终端存活：
 
 ```sh
 # A：UB_B_SSH 替换为有权限的 B 用户@主机；无需更改 B 的 mongod bind 地址。
@@ -190,20 +231,20 @@ ssh -N -T -o ExitOnForwardFailure=yes \
   -L 127.0.0.1:22012:127.0.0.1:20012 UB_B_SSH
 ```
 
-下面的配置生成命令采用此隧道。若 A 已有正确可达的 DB，则改用对应 host/port。
-PostStorage 仍在 B，原 B 本机 `127.0.0.1:20014` 无需改变。
+默认模板已采用此隧道，不需要给 B 的 MongoDB 开放网络监听。然后在 A 生成配置：
 
 ```sh
 cd "$REPO/eRPC-LRPC-UB"
 python3 scripts/prepare-social.py \
-  --input "$REPO/eRPC/apps/social_network_cxl/config/config.ub98.json" \
   --output "$REPO/eRPC-LRPC-UB/campaign-user-read" \
-  --host-a REAL_A_IPV4 --host-b REAL_B_IPV4 --numa-a 0 --numa-b 1 --samples 10 \
-  --timeline-db-host 127.0.0.1 --timeline-db-port 22012
+  --host-a REAL_A_IPV4 --host-b REAL_B_IPV4 --numa-a 0 --numa-b 1 --samples 10
 ```
 
 在两端使用同一次生成的文件：A 用 `config-a.json`，B 两种模式都用 `config-b.json`。
-如样本配置仍有 `IP98` 等数据库占位符，先准备一份填好真实数据库设置的私有输入文件。
+如果 Timeline 数据库可从 A 直接访问，不使用隧道，生成时加
+`--timeline-db-host ACTUAL_DB_HOST --timeline-db-port 20012`；如果 Post 数据库不在 B 本地，
+再加 `--storage-db-host ACTUAL_DB_HOST --storage-db-port 20014`。这些是应用视角的 DB 地址，
+不是 LB/nginx 域地址。需要继承其他已有私有数据配置时仍可显式指定 `--input /path/to/private.json`。
 默认单 lane 时 A Client/Timeline 的 NUMA 内 CPU 偏移分别为 `0..2`、`3..5`；
 B nginx/LB/PostStorage 偏移分别为 `0..2`、`3..5`、`6..8`。
 PostStorage 在两种模式都保留 `6..8`，不因域模式少跑两个服务而移动 CPU。
@@ -221,11 +262,11 @@ B 的 `--social` owner 继续存活。**另开 B 终端**运行 PostStorage 和 
 
 ```sh
 export REPO=/absolute/path/ub-application
-export ERPC_UB_MACHINE_ID=98
+export ERPC_UB_MACHINE_ID=2
 export ERPC_UB_PROVIDER_NUMA=1 ERPC_UB_NUMA_NODE=1
 export ERPC_UB_MEMORY_MODE=one-sided ERPC_UB_REGION_MB=2048 ERPC_UB_ARENA_MB=64
 export ERPC_UB_REGION_PREFIX=sn_lrpc_lab_1017
-export ERPC_UB_MANAGER_SOCKET=/tmp/sn_lrpc_lab_1017_98.sock
+export ERPC_UB_MANAGER_SOCKET=/tmp/sn_lrpc_lab_1017_b.sock
 export LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-domain-b"
 # 按实际依赖设置 LD_LIBRARY_PATH；默认使用 cmake-build-social-ub-rpc。
@@ -236,16 +277,16 @@ sh scripts/run-social.sh --side B --mode domain \
 
 紧接着启动 A，避免 PostStorage 建连等待超时。A 以具有 CAP_SYS_RAWIO 的身份执行；
 下例在 A 的 root 实验 shell 中设置环境，不依赖 sudo 是否保留变量。
-98/99 仅为不同的非零 ID 示例，按实际部署保持一致；不能让两端使用同一 ID。
+这里 A/B 使用逻辑 ID 1/2，和实际主机编号无关；按既有部署需要调整，但两端必须不同且非零。
 
 ```sh
 # 在 A 的实验终端中；REPO 和所有路径使用真实值。
 export REPO=/absolute/path/ub-application
-export ERPC_UB_MACHINE_ID=99
+export ERPC_UB_MACHINE_ID=1
 export ERPC_UB_PROVIDER_NUMA=0
 export ERPC_UB_NUMA_NODE=0
 export ERPC_UB_REGION_PREFIX=sn_lrpc_lab_1017
-export ERPC_UB_MANAGER_SOCKET=/tmp/sn_lrpc_lab_1017_99.sock
+export ERPC_UB_MANAGER_SOCKET=/tmp/sn_lrpc_lab_1017_a.sock
 export ERPC_UB_MEMORY_MODE=one-sided ERPC_UB_REGION_MB=2048 ERPC_UB_ARENA_MB=64
 export LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-domain-a"
@@ -311,11 +352,11 @@ NUMA 2/3 也使用按节点独立的辅助绑核计数器和实际 CPU 数，仍
 ```sh
 # B（其应用依赖和 ldd 已检查）
 export REPO=/absolute/path/ub-application
-export ERPC_UB_MACHINE_ID=98
+export ERPC_UB_MACHINE_ID=2
 export ERPC_UB_PROVIDER_NUMA=1
 export ERPC_UB_NUMA_NODE=1
 export ERPC_UB_REGION_PREFIX=sn_lrpc_lab_1017
-export ERPC_UB_MANAGER_SOCKET=/tmp/sn_lrpc_lab_1017_98.sock
+export ERPC_UB_MANAGER_SOCKET=/tmp/sn_lrpc_lab_1017_b.sock
 export ERPC_UB_MEMORY_MODE=one-sided ERPC_UB_REGION_MB=2048 ERPC_UB_ARENA_MB=64
 export SN_BUILD_DIR="$REPO/eRPC/cmake-build-social-ub-rpc"
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-rpc-b"

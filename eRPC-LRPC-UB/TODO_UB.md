@@ -59,7 +59,7 @@ B 是发布服务域的 owner 机器；当前可用组合是 A 计算 NUMA 0 / B
   与同布局 `eRPC/`，在 A/B 构建各自二进制；确认 A 加载的模块支持 `ud_social`，
   B owner 使用 `--social`。先运行[独立路由探针](SOCIAL_USER_READ.md#3-不依赖数据库的路由探针)，
   不要把算术微测试的 `--multi` owner 用于应用。
-- [ ] 按 [第 4 节](SOCIAL_USER_READ.md#4-生成私有应用配置)从已经跑通 UB-eRPC 的真实配置
+- [ ] 按 [第 4 节](SOCIAL_USER_READ.md#4-生成私有应用配置)从本包独立 A/B 模板
   生成同一份 `config-a.json` / `config-b.json`。确认 MongoDB 地址、A 的 Timeline DB
   可达性、B 的 PostStorage DB、CPU affinity、NUMA、机器 ID、region/arena 容量。
   两种模式使用相同配置、数据集和服务位置：A 为 Client+UserTimeline，B 为 PostStorage；
@@ -77,3 +77,48 @@ B 是发布服务域的 owner 机器；当前可用组合是 A 计算 NUMA 0 / B
 
 现阶段应用范围只有单 Client/lane、并发 1 的 UserTimeline read；HomeTimeline、发帖、
 应用级 fused 以及多 nginx 都不在这轮实验中。
+
+# 本地环境搭建
+# 系统、架构和内核
+cat /etc/os-release
+uname -r
+uname -m
+getconf PAGESIZE
+cat /proc/version
+
+# 编译工具与 Protobuf
+gcc --version | head -1
+g++ --version | head -1
+cmake --version | head -1
+make --version | head -1
+protoc --version
+
+# 主要开发包版本
+rpm -qa | grep -Ei \
+'^(kernel|gcc|glibc|libstdc\+\+|protobuf|cmake|numactl|mongo-c-driver|libmongoc|libbson|nlohmann)'
+
+然后确认真实内核的构建文件：
+
+readlink -f /lib/modules/$(uname -r)/build
+
+ls -l /lib/modules/$(uname -r)/build/Module.symvers
+
+grep -E \
+'^(CONFIG_MODVERSIONS|CONFIG_ARM64_PSEUDO_NMI|CONFIG_KASAN|CONFIG_KCSAN|CONFIG_ARM64_VA_BITS|CONFIG_ARM64_PA_BITS)=' \
+/boot/config-$(uname -r)
+
+awk '$2=="arm64_mm_context_get" || $2=="arm64_mm_context_put" {print}' \
+/lib/modules/$(uname -r)/build/Module.symvers
+
+最后记录 SDK/OBMM 的实际路径和依赖。这里沿用你编译时设置的变量：
+
+printf '%s\n' \
+  "$UBSM_INCLUDE_DIR" "$UBSM_LIBRARY" \
+  "$OBMM_INCLUDE_DIR" "$OBMM_LIBRARY"
+
+readlink -f "$UBSM_LIBRARY" "$OBMM_LIBRARY"
+file "$UBSM_LIBRARY" "$OBMM_LIBRARY"
+ldd "$UBSM_LIBRARY"
+ldd "$OBMM_LIBRARY"
+
+pkg-config --modversion libmongoc-1.0 libbson-1.0 protobuf

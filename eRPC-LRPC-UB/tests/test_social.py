@@ -18,6 +18,35 @@ spec.loader.exec_module(prepare)
 
 
 class Config(unittest.TestCase):
+    def test_independent_ab_templates_and_default_cli(self):
+        templates = [ROOT/'config'/('social-user-read-'+side+'.json') for side in ('a','b')]
+        before = [path.read_bytes() for path in templates]
+        source_a, source_b = [json.loads(value) for value in before]
+        for value in before:
+            self.assertNotIn(b'IP98', value)
+            self.assertNotIn(b'IP99', value)
+        self.assertEqual(source_a['common']['numa_client_node'], 0)
+        self.assertEqual(source_b['common']['numa_client_node'], 1)
+        expected = [prepare.prepare(template, '192.0.2.10', '192.0.2.20',
+                                    samples=11, numa_a=2, numa_b=3)[index]
+                    for index, template in enumerate((source_a, source_b))]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)/'campaign'
+            command = [os.sys.executable, str(ROOT/'scripts/prepare-social.py'),
+                       '--output', str(output), '--host-a', '192.0.2.10',
+                       '--host-b', '192.0.2.20', '--numa-a', '2', '--numa-b', '3',
+                       '--samples', '11']
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for side, config in zip(('a','b'), expected):
+                actual = json.loads((output/('config-'+side+'.json')).read_text())
+                self.assertEqual(actual, config)
+                self.assertEqual(actual['user_timeline_mongodb']['port'], '22012' if side=='a' else '20012')
+                self.assertEqual(actual['post_storage_mongodb']['port'], '20014')
+                self.assertNotIn('A_IP', json.dumps(actual))
+                self.assertNotIn('B_IP', json.dumps(actual))
+        self.assertEqual(before, [path.read_bytes() for path in templates])
+
     def test_cpu_preflight_rejects_disallowed_or_overlapping_blocks(self):
         module_spec = importlib.util.spec_from_file_location('cpu_preflight', ROOT/'scripts/check-social-cpus.py')
         module = importlib.util.module_from_spec(module_spec);module_spec.loader.exec_module(module)
