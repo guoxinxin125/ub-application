@@ -47,7 +47,7 @@ if [ "$side:$mode" = A:domain ]; then
     [ -c /dev/ub_lrpc_domain ] || { echo 'Load the matching experimental UB module on A first.' >&2; exit 1; }
     [ "$(id -u)" = 0 ] || { echo 'A domain application requires CAP_SYS_RAWIO; run this command as root.' >&2; exit 1; }
     export ERPC_SN_DOMAIN_PROXY=1 ERPC_SN_RPC_BASELINE=0 LRPC_UBSM_SDK_MODE=external
-    export LRPC_UB_NESTED_PATH=legacy
+    export LRPC_UB_NESTED_PATH="${LRPC_UB_NESTED_PATH:-legacy}"
 else
     # B PostStorage uses the same RPC-only binary/readiness path in both modes.
     export ERPC_SN_DOMAIN_PROXY=0 ERPC_SN_RPC_BASELINE=1

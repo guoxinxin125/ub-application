@@ -14,12 +14,11 @@ static inline int ud_nested_path_parse(const char *name, unsigned int *path)
     else { errno = EINVAL; return -1; }
     return 0;
 }
-/* Social routing has a separate call chain and does not use the nested gate. */
+/* Social defaults to its validated legacy chain; fused is an explicit choice. */
 static inline int ud_nested_path_parse_profile(const char *name, unsigned int profile,
                                                 unsigned int *path)
 {
     if (ud_nested_path_parse(name ? name : (profile ? "legacy" : NULL), path)) return -1;
-    if (profile && *path != UD_NESTED_LEGACY) { errno = EOPNOTSUPP; return -1; }
     return 0;
 }
 static inline const char *ud_nested_path_name(unsigned int path)

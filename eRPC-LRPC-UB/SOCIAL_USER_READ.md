@@ -1,17 +1,17 @@
 # UserTimeline read：AArch64 UB 路由域接入
 
 这是可选应用路径，保留普通 UB-eRPC、x86/QEMU 接入和 Direct/Nested 微测试。
-代码已完成本地 fixture 回归及相关用户态 AArch64 交叉编译；**未完成目标机全应用链接、
-新模块构建、双机启动或性能验证**。先跑独立路由探针，再跑少量端到端请求。
+legacy 应用链已由用户在双机完成少量端到端验证；新增 fused 应用链目前仅完成本地
+C 层 fixture，**尚未在目标 AArch64 内核构建、装载或双机验证**。先跑独立路由探针，
+再跑少量端到端请求。
 不需要修改启动参数、重启机器、重启 UB 服务或使用 Docker。
 
 ## 1. 第一版范围与摆放
 
 只支持一个 Client、一个发送 lane、并发 1、一个 nginx 域、UserTimeline read。
-不包括 HomeTimeline、发帖、多 nginx、UB 业务写入，以及应用链的 fused 切换。
+不包括 HomeTimeline、发帖、多 nginx、UB 业务写入。
 算术 Nested 微测试的默认路径已改为 fused；本应用 profile 在未指定路径时仍使用
-独立的原路由链。启动脚本显式设置 `LRPC_UB_NESTED_PATH=legacy`；若直接使用
-应用客户端并显式指定 fused，库会以 `EOPNOTSUPP` 拒绝，不会当作已支持应用级 fused。
+独立的 legacy 路由链。显式设置 `LRPC_UB_NESTED_PATH=fused` 才选择应用 fused。
 域调用仍使用多连接池：Client 前向一个连接，Timeline 回程一个连接，同属 A 内核，
 不同 slot/identity/ASID。这里的单 lane 限制只针对首版应用，不取消微测试的多连接能力。
 
@@ -39,12 +39,12 @@ PostData 由 B 的 PostStorage 分配在 B 的 UB arena，两种模式都由 A �
 
 上面是逻辑服务顺序。**域模式下整条 LB/nginx 路由链都在 A 的 CPU 上执行**；
 “B 的域”表示 B 发布并持有域的页表、只读配置，不表示调用时改用 B 的 CPU。
-代码在连接时从 B 复制到 A，A-stack/E-stack 也在 A。当前 legacy 在两个域之间恢复
-A 的 Linux 内核环境；将来应用级 fused 应让 A 的 gate 直接交接到下一域：
+代码在连接时从 B 复制到 A，A-stack/E-stack 也在 A。legacy 在两个域之间恢复
+A 的 Linux 内核环境；fused 由 A 的 gate 直接交接到下一域：
 
 ```text
-当前：A → LB(B域，A CPU) → 恢复A → nginx(B域，A CPU) → 恢复A
-拟接入 fused：A → LB(B域，A CPU) → gate → nginx(B域，A CPU) → 恢复A
+legacy：A → LB(B域，A CPU) → 恢复A → nginx(B域，A CPU) → 恢复A
+fused：A → LB(B域，A CPU) → gate → nginx(B域，A CPU) → 恢复A
 回程域顺序：nginx-return → LB-return，仍由 A CPU 执行
 ```
 
@@ -55,8 +55,10 @@ B 页表，不发生 CPU 跨机迁移，也不保证每次切换都会触发远�
 UserTimeline(A)→PostStorage(B) 才是由两台机器各自 CPU 处理的跨机 UB-eRPC。
 RPC 基线则是在 B 真正运行 LB/nginx 进程，与域模式的“B 发布、A 执行”有所区别。
 
-每个前向/回程链有两个实际域入口、4 次逻辑域切换，中间恢复 A 内核执行交接。
-这不是算术 Nested 微测试的 middle/leaf/resume 六次切换，也不使用其 fused 汇编。
+每个前向/回程链有两个实际域入口：legacy 有 4 次逻辑域切换，fused 有 3 次。
+fused 复用 A 的 nested gate 做两域交接，第二域直接返回 A；没有算术微测试的
+middle→leaf→middle 恢复阶段。对每次调用，gate 在进入第二域前验证第一域的
+BRK/PC、action/target；A 内核返回后仍验证最终消息及切换计数。
 四个入口上下文分别是 LB-forward、nginx-forward、nginx-return、LB-return；
 代码 RX 在 A，参数共享一份连接私有 A-local WB mmap A-stack，各入口有独立 E-stack/ASID，
 B 页表保留、RO 配置在 B。调用期间不分配/释放栈或重新复制代码，也不逐调用失效 TLB。
@@ -102,7 +104,7 @@ cd "$REPO/eRPC-LRPC-UB"
 sh scripts/build.sh caller
 sh scripts/build-module.sh --vhe
 modinfo -F ud_social kernel/ub-domain/ub_lrpc_domain_vhe.ko
-# 应输出 user-read-abi1-single-nginx-legacy-chain
+# 新模块应输出 user-read-abi1-single-nginx-legacy,fused
 # 已加载 VHE 旧模块且所有连接已退出时才执行 rmmod；未加载则跳过：
 sudo rmmod ub_lrpc_domain_vhe
 sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
@@ -187,7 +189,8 @@ sudo env LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017 \
 自定义动态库目录时给 `sudo env` 显式传入实际 `LD_LIBRARY_PATH`。
 应有 `UB_SOCIAL_ROUTE_PASS ... entries_per_chain=2 transitions_per_chain=4`。
 探针仅验证不透明合成 handle 在路由中保持原样，不读取帖子或数据库。
-通过后可保留 B owner，再运行应用。旧微测试 owner 不兼容，错误模式会在建连时拒绝，
+若接着使用第 5 节单终端启动器，先退出此探针 owner；启动器会创建新的同名 owner。
+旧微测试 owner 不兼容，错误模式会在建连时拒绝，
 不会悄悄退回原 RPC，也不要对 `--social` owner 运行算术 Direct/Nested。
 
 ## 4. 生成私有应用配置
@@ -223,15 +226,19 @@ sudo env LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017 \
 由操作者将所需两组数据准备到选定数据库主机；该旧文中的物理机器编号不适用于本轮角色。
 配置脚本不会启动 MongoDB、恢复数据、修改监听地址或重启服务。
 
-B 的数据库若只监听 localhost，在 A 单独终端建立仅本机监听的 SSH 隧道，保持终端存活：
+B 的数据库若只监听 localhost，A 需要本地 22012→B:20012 的 SSH 隧道。
+若先前的登录终端断线，**不要猜测隧道是否仍在运行**，在 A 检查：
 
 ```sh
-# A：UB_B_SSH 替换为有权限的 B 用户@主机；无需更改 B 的 mongod bind 地址。
-ssh -N -T -o ExitOnForwardFailure=yes \
-  -L 127.0.0.1:22012:127.0.0.1:20012 UB_B_SSH
+ss -ltnp '( sport = :22012 )'
+# 若 A 装有 mongosh，再做数据库端到端检查：
+mongosh --quiet --host 127.0.0.1 --port 22012 --eval 'db.adminCommand({ping:1}).ok'
 ```
 
-默认模板已采用此隧道，不需要给 B 的 MongoDB 开放网络监听。然后在 A 生成配置：
+`ss` 只证明本地有监听者；`mongosh` 成功才说明当前能经过它到达数据库。
+第 5 节单终端启动器可用 `--ssh-b B用户@B主机` 自动建立并在退出时关闭其**自己创建的**
+隧道。如果已有可用隧道，不加 `--ssh-b`，启动器不会碰现有进程。默认模板已采用
+本地隧道地址，不需要更改 B 的 mongod bind 地址。然后在 A 生成配置：
 
 ```sh
 cd "$REPO/eRPC-LRPC-UB"
@@ -248,9 +255,11 @@ python3 scripts/prepare-social.py \
 默认单 lane 时 A Client/Timeline 的 NUMA 内 CPU 偏移分别为 `0..2`、`3..5`；
 B nginx/LB/PostStorage 偏移分别为 `0..2`、`3..5`、`6..8`。
 PostStorage 在两种模式都保留 `6..8`，不因域模式少跑两个服务而移动 CPU。
-检查这些 CPU 都在进程允许的 affinity 内且未占用。
+检查这些 CPU 都在进程允许的 affinity 内且服务预留块互不重叠。
 启动器会在创建任何应用 region 前，读取实际 NUMA CPU 列表和当前 affinity 做检查；
-若某个偏移对应被排除的 CPU，会拒绝启动，按报错修改私有 JSON 的该服务 `bind_core_offset`，
+若某个偏移对应被排除的 CPU，会拒绝启动，按报错修改私有 JSON 的该服务 `bind_core_offset`；
+例如 B NUMA1 的可用索引从 13 开始时，可在私有 B 配置中给 nginx/LB/PostStorage 设
+`13/16/19`（各占三项），
 保持不同服务的三 CPU 预留块不重叠。两种模式使用同一组调整后的配置。
 `--numa-a/b` 是计算 NUMA；B owner provider 使用单独的 `LRPC_UB_PROVIDER_NUMA`。
 日志中的源 `rpc_id` 不等于 Linux CPU 号。
@@ -258,7 +267,9 @@ PostStorage 在两种模式都保留 `6..8`，不因域模式少跑两个服务�
 ## 5. 双机运行少量端到端请求
 
 先确认原 MongoDB 和 A 的 DB 连接/隧道可用，保持既有数据，不使用 VM fixture，不重置数据库。
-B 的 `--social` owner 继续存活。**另开 B 终端**运行 PostStorage 和 manager：
+**每台机器只需一个实验终端**。B 的新会话脚本先启动 `--social` owner、等 READY，
+再启动 PostStorage/manager；结束时反序关闭。若之前手动启动了同名 owner，先按正常
+退出顺序结束旧实验，避免重复发布同名共享域：
 
 ```sh
 export REPO=/absolute/path/ub-application
@@ -271,11 +282,12 @@ export LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-domain-b"
 # 按实际依赖设置 LD_LIBRARY_PATH；默认使用 cmake-build-social-ub-rpc。
 cd "$REPO/eRPC-LRPC-UB"
-sh scripts/run-social.sh --side B --mode domain \
+bash scripts/run-social-session.sh --side B --mode domain \
   --config "$REPO/eRPC-LRPC-UB/campaign-user-read/config-b.json"
 ```
 
-紧接着启动 A，避免 PostStorage 建连等待超时。A 以具有 CAP_SYS_RAWIO 的身份执行；
+看到 `UB_SOCIAL_OWNER_READY` 后紧接着启动 A，避免 PostStorage 建连等待超时。
+A 以具有 CAP_SYS_RAWIO 的身份执行；
 下例在 A 的 root 实验 shell 中设置环境，不依赖 sudo 是否保留变量。
 这里 A/B 使用逻辑 ID 1/2，和实际主机编号无关；按既有部署需要调整，但两端必须不同且非零。
 
@@ -292,13 +304,18 @@ export LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-domain-a"
 # 非标准动态库路径时，另外 export LD_LIBRARY_PATH=实际的 SDK/OBMM/应用依赖目录
 cd "$REPO/eRPC-LRPC-UB"
-sh scripts/run-social.sh --side A --mode domain \
-  --config "$REPO/eRPC-LRPC-UB/campaign-user-read/config-a.json"
+bash scripts/run-social-session.sh --side A --mode domain \
+  --config "$REPO/eRPC-LRPC-UB/campaign-user-read/config-a.json" \
+  --ssh-b UB_B_SSH
 ```
 
-脚本复用原 `run_ub.sh`，启动 A 的 manager、UserTimeline、Client；B 启动 PostStorage/manager，
-但不启动普通 LB/nginx。B 无 `--config` 的命令仅启动 owner，有 `--config` 才启动应用，
-这两个 B 终端缺一不可。B PostStorage 在两种模式使用相同 RPC-only 二进制和就绪握手，
+`UB_B_SSH` 替换成有权限的 B 用户@主机。`--ssh-b` 会在当前 A 执行身份下进行 SSH 认证，
+建立私有控制 socket 和本机 22012 转发；若该身份没有 B 的 SSH 凭据，可由普通用户
+预先建立隧道，确认 22012 可用后**省略** `--ssh-b`。若已有隧道占用 22012，
+不要同时指定 `--ssh-b`。它仅清理自己创建的隧道，不会终止既有 SSH 进程。
+脚本复用原 `run_ub.sh`，启动 A 的 manager、UserTimeline、Client；B 同终端管理
+owner 和 PostStorage/manager，但不启动普通 LB/nginx。B PostStorage 在两种模式
+使用相同 RPC-only 二进制和就绪握手，
 不创建域连接。不要在整个 A 启动命令外加 `taskset -c 1`，各线程已有不同绑核。
 SDK 在 `AppRpc` 构造时由 eRPC 初始化，LRPC 使用 `external` 模式；域连接在线程退出、
 `AppRpc` 析构前关闭，避免重复 initialize/finalize。
@@ -313,9 +330,11 @@ grep -E 'SN_DOMAIN_READY|SN_DOMAIN_ERROR|SN_DOMAIN_E2E|SN_DOMAIN_CLASS' \
 
 应有两个 `SN_DOMAIN_READY ... backend=ub`，slot 和 identity 不同。
 Client 最终应有 `SN_DOMAIN_E2E ... completed=10 expected=10 clock=steady_ns scope=call-to-consume`。
-原程序没有名为 `SN_DOMAIN_E2E_PASS` 的输出。Client 完成后 A 启动终端可能仍在等待长期服务，
-在 **A** 按 Ctrl-C 让 Timeline/manager 正常结束，再停止 B 的 PostStorage/manager，
-最后才停止 B owner。不要在 A 连接仍存活时结束 owner。
+原程序没有名为 `SN_DOMAIN_E2E_PASS` 的输出。`check-social.py` 的 PASS 行只验收计数，
+延迟在 A 的 `client.log`：`SN_DOMAIN_E2E` 和 `SN_DOMAIN_CLASS phase=measured class=all` 的
+`p50_ns/p99_ns/avg_ns`。Client 完成后 A 启动终端可能仍在等待长期服务；
+先在 **A** 按 Ctrl-C，等 Timeline/manager 及本会话创建的隧道退出；再在 **B** 按 Ctrl-C，
+脚本会先结束 PostStorage/manager，最后结束 owner。不要在 A 连接仍存活时结束 B。
 将本轮 B `social-domain-b/` 日志复制到 A 的同名本地目录（或使用已有只读共享目录），
 下例 `--peer-logs` 是 **A 可读的路径**，并不自动访问 B：
 
@@ -340,6 +359,41 @@ MongoDB 游标读取失败会输出 `SN_MONGODB_ERROR` 并终止对应服务，�
 NUMA 2/3 也使用按节点独立的辅助绑核计数器和实际 CPU 数，仍需通过 affinity 检查；
 辅助 leader/数据库线程不属于数据面三 CPU 预留块，启动时也要检查它们的实际绑核。
 
+### 应用 fused 路由：先小样本验证
+
+只有 A 的新模块和域客户端/应用需要重新构建；B 的 `--social` owner 发布格式和
+PostStorage 二进制没有变化。按第 2 节先结束旧连接，再在 A 构建、检查并换成本次
+`ud_social=user-read-abi1-single-nginx-legacy,fused` 模块；VHE/EL1 仍按各自原有步骤，
+不要更改机器启动配置。B 按第 5 节同一命令启动新会话。A 显式选择 fused：
+
+```sh
+export LRPC_UB_NESTED_PATH=fused
+bash scripts/run-social-session.sh --side A --mode domain \
+  --config "$REPO/eRPC-LRPC-UB/campaign-user-read/config-a.json" \
+  --ssh-b UB_B_SSH
+```
+
+若 A 已有可用的 22012 隧道，省略 `--ssh-b`。先确认 Client 和 Timeline 都报告
+`SN_DOMAIN_READY ... chain=fused entries=2 transitions=3`；结束顺序仍是 A 后 B。
+两端日志收齐后在 A 验收：
+
+```sh
+python3 scripts/check-social.py \
+  --logs "$REPO/eRPC-LRPC-UB/results/social-domain-a" \
+  --peer-logs "$REPO/eRPC-LRPC-UB/results/social-domain-b" \
+  --mode domain --chain fused --samples 10
+```
+
+若先做无数据库的 fused 路由探针，B 可单独启动第 3 节不带 `--config` 的 owner，
+A 在第 3 节探针命令中把 `LRPC_UB_NESTED_PATH=legacy` 改为 `fused`，确认
+`UB_SOCIAL_ROUTE_PASS ... chain=fused transitions_per_chain=3`。结束探针后先停止
+探针 owner，再用上面的单终端启动器重新发布同名域。
+
+对照延迟时，在**同一新版 A 模块**上分别用显式 `legacy` 和 `fused` 跑独立轮次，
+相同 A/B 配置、数据、CPU、warmup 和样本数，并分别保存日志。legacy 每链 4 次切换，
+fused 每链 3 次；这不等于真实延迟必然降低。新增汇编 gate 尚待 AArch64 编译和双机验证，
+出现 fault/内核异常时停止实验并保留本轮日志，不自动退回 legacy。
+
 ## 6. 相同服务位置的原 UB-eRPC 对照
 
 先按上一节顺序退出域实验。两端使用第 2 节 `PROXY=OFF, BACKEND=ub` 的
@@ -361,18 +415,20 @@ export ERPC_UB_MEMORY_MODE=one-sided ERPC_UB_REGION_MB=2048 ERPC_UB_ARENA_MB=64
 export SN_BUILD_DIR="$REPO/eRPC/cmake-build-social-ub-rpc"
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-rpc-b"
 cd "$REPO/eRPC-LRPC-UB"
-sh scripts/run-social.sh --side B --mode rpc \
+bash scripts/run-social-session.sh --side B --mode rpc \
   --config "$REPO/eRPC-LRPC-UB/campaign-user-read/config-b.json"
 
 # A（另一个终端，保留前述 A 的 machine ID/provider/prefix）
 export SN_BUILD_DIR="$REPO/eRPC/cmake-build-social-ub-rpc"
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-rpc-a"
-sh scripts/run-social.sh --side A --mode rpc \
-  --config "$REPO/eRPC-LRPC-UB/campaign-user-read/config-a.json"
+bash scripts/run-social-session.sh --side A --mode rpc \
+  --config "$REPO/eRPC-LRPC-UB/campaign-user-read/config-a.json" \
+  --ssh-b UB_B_SSH
 ```
 
 B 启动后紧接着启动 A；基线 B 会启动 PostStorage、nginx、LB 和 manager，
-A 只启动 Timeline、Client 和 manager。Client 完成后正常结束 A，再结束 B。
+A 启动 Timeline、Client、manager 和可选隧道。已有可用隧道时省略 `--ssh-b`；
+Client 完成后正常结束 A，再结束 B。RPC 模式不启动 domain owner。
 把本轮 B `social-rpc-b/` 日志复制到 A 可读目录，再在 A 验收：
 
 ```sh
@@ -427,12 +483,11 @@ x86 的细粒度 kernel profile 和 fused 算术 Nested 不会被冒充成应用
 
 `test_social_application.py` 编译实际应用中的测量条件、RPC 返回校验、数据库失败检查和
 NUMA 分配函数，补足 adapter 测试未覆盖的入口策略。DB/网络仍是 fixture，不代表完整应用启动。
-本次清理删除了 UB 客户端无读取者的约 60 KiB scratch、旧 UBSM 服务发布/用户态代码本地化
-实现和未实现的公开函数声明；当前 domain 的 `UD_COMMIT` 代码复制/白名单、页表发布、
-EL1/VHE gate、mmap A-stack 均未改变。不要混用两套目录的 `lrpc.h` 或旧用户态静态库。
-更新后重新编译 A 的 caller、domain/RPC 应用和 B 的 owner/RPC 应用（第 2 节命令）；
-**本次审查修复未修改内核模块**，若已加载带 social 支持的匹配模块，无需为这些用户态修复重载。
-不需要重启 MongoDB、UB 服务或机器。
+此前的审查清理删除了 UB 客户端无读取者的约 60 KiB scratch、旧 UBSM 服务发布/用户态
+代码本地化实现和未实现的公开函数声明；仍不要混用两套目录的 `lrpc.h` 或旧用户态静态库。
+**这次 fused 接入修改了 A 的 EL1/VHE nested gate 和 social 分发代码**，因此运行 fused
+前必须在 A 重新编译并更换匹配模块及域应用（第 2 节命令）；只修改脚本或继续跑已验证的
+legacy/RPC 时不需要因此重启机器、MongoDB 或 UB 服务。B 的 owner 发布格式未变。
 
 本轮源码范围：
 
@@ -442,6 +497,7 @@ EL1/VHE gate、mmap A-stack 均未改变。不要混用两套目录的 `lrpc.h` 
 - `eRPC-LRPC-UB/lib/`：`ub_domain_client.c`、`ub_domain_pool.c`；
   `include/lrpc/ub_domain_pool.h`；`demo/ub/domain_owner.c`、`social_probe.c`；`CMakeLists.txt`。
 - `eRPC-LRPC-UB/scripts/`：`prepare-social.py`、`run-social.sh`、`check-social.py`、`check-social-cpus.py`。
+- 单终端会话脚本：`eRPC-LRPC-UB/scripts/run-social-session.sh`。
 - `eRPC-LRPC-UB/tests/`：`test_social.py`、`test_social_services.py`、`test_multi.py`、
   `test_nested_runtime.py`。
 - `eRPC-LRPC-UB/README.md`、本说明、`SOURCE_MANIFEST.sha256`。

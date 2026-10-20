@@ -160,7 +160,7 @@ int ud_lrpc_connection_info(const struct lrpc_handle *h, struct ud_connection_in
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('FIXTURE_BIND path=legacy', result.stdout)
 
-    def test_profile_defaults_preserve_social_and_reject_unsupported_fused(self):
+    def test_profile_defaults_preserve_social_and_allow_explicit_fused(self):
         src, exe = self.tmp / 'path_defaults.c', self.tmp / 'path_defaults.exe'
         src.write_text(r'''
 #include <assert.h>
@@ -171,7 +171,7 @@ int main(void) {
  assert(!ud_nested_path_parse_profile("legacy",0,&path) && path==UD_NESTED_LEGACY);
  assert(!ud_nested_path_parse_profile(NULL,1,&path) && path==UD_NESTED_LEGACY);
  assert(!ud_nested_path_parse_profile("legacy",1,&path) && path==UD_NESTED_LEGACY);
- assert(ud_nested_path_parse_profile("fused",1,&path)==-1 && errno==EOPNOTSUPP);
+ assert(!ud_nested_path_parse_profile("fused",1,&path) && path==UD_NESTED_FUSED);
  assert(ud_nested_path_parse_profile("",0,&path)==-1 && errno==EINVAL);
  return 0;
 }

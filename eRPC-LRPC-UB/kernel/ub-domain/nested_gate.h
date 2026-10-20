@@ -14,7 +14,14 @@
 #define UDN_TRANSITIONS 648
 #define UDN_COMPLETE 656
 #define UDN_DOMAIN 664
-#define UDN_SIZE 672
+#define UDN_MODE 672
+#define UDN_SOCIAL_ARGS 680
+#define UDN_SOCIAL_TARGET 688
+#define UDN_SIZE 696
+#define UDN_MODE_MICRO 0
+#define UDN_MODE_SOCIAL 1
+#define UDN_SOCIAL_ACTION_OFFSET 196
+#define UDN_SOCIAL_TARGET_OFFSET 200
 #ifndef __ASSEMBLER__
 struct ud_nested_gate {
     struct ud_regs middle, leaf;
@@ -22,6 +29,7 @@ struct ud_nested_gate {
     u64 middle_args, leaf_args;
     u64 call_pc, leaf_pc, return_pc;
     u64 transitions, complete, domain;
+    u64 mode, social_args, social_target;
 };
 #endif
 #endif

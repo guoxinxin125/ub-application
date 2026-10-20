@@ -64,19 +64,24 @@ B 是发布服务域的 owner 机器；当前可用组合是 A 计算 NUMA 0 / B
   可达性、B 的 PostStorage DB、CPU affinity、NUMA、机器 ID、region/arena 容量。
   两种模式使用相同配置、数据集和服务位置：A 为 Client+UserTimeline，B 为 PostStorage；
   domain 的 LB/nginx 是 B 发布的域，RPC 基线的 LB/nginx 是 B 上的真实进程。
-- [ ] 先按 [第 5 节](SOCIAL_USER_READ.md#5-双机运行少量端到端请求)运行 10 个
+- [x] 已按 [第 5 节](SOCIAL_USER_READ.md#5-双机运行少量端到端请求)运行 10 个
   UserTimeline read 请求，检查 `SN_DOMAIN_READY`、`SN_DOMAIN_E2E`、
   `SN_DOMAIN_CLASS`、MongoDB 加载数量和 `scripts/check-social.py` 的 PASS；检查
-  非空帖子是否真正被读取与消费，并留存两端日志和 A `dmesg`。
-- [ ] 退出 domain 应用后，按 [第 6 节](SOCIAL_USER_READ.md#6-相同服务位置的原-ub-erpc-对照)
-  运行同服务位置的原 UB-eRPC 基线，同样先测 10 次并用 `check-social.py` 验收。
+  非空帖子是否真正被读取与消费，并留存两端日志和 A `dmesg`。用户已报告 legacy
+  `UB_SOCIAL_E2E_PASS`，本地仓库尚无这轮完整日志归档，后两项仍需复核。
+- [x] 已按 [第 6 节](SOCIAL_USER_READ.md#6-相同服务位置的原-ub-erpc-对照)
+  运行同服务位置的原 UB-eRPC 基线；用户报告少量请求和 `check-social.py` 验收通过，
+  仍需归档完整日志。
+- [ ] 新增应用 fused：按 [第 5 节 fused 小样本步骤](SOCIAL_USER_READ.md#应用-fused-路由先小样本验证)
+  在 A 上构建/更换新版模块及应用，先独立路由探针，再 10 个端到端请求、验收与 dmesg 检查。
 - [ ] 两条路径都通过后，用新私有配置将 `--samples` 提至 1000，均设置相同的
   `ERPC_SN_DOMAIN_WARMUP=10`，保持相同用户读取序列和数据集，交替多轮测量。
   保存每轮 `SN_DOMAIN_CLASS phase=measured class=all`、`SN_DOMAIN_E2E`、空/非空分类、
   完成数和错误日志。若数据分类或请求数不一致，先排查运行条件，不计算性能收益。
 
 现阶段应用范围只有单 Client/lane、并发 1 的 UserTimeline read；HomeTimeline、发帖、
-应用级 fused 以及多 nginx 都不在这轮实验中。
+多 nginx 不在这轮实验中。应用级 fused 已加入为显式可选路径，尚需先完成
+AArch64 编译、独立路由探针及双机少样本验证，不能把本地 fixture 当成 UB 实测。
 
 # 本地环境搭建
 # 系统、架构和内核

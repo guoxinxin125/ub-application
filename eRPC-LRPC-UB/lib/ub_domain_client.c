@@ -199,7 +199,8 @@ int us_client_call(struct lrpc_handle *h, struct us_call *call)
                     saved, (unsigned long long)m->esr, (unsigned long long)m->far);
     if (!rc && (__atomic_load_n(&m->completion, __ATOMIC_ACQUIRE) == previous ||
                 m->status || m->esr || mapped->fault_vector || mapped->entries != 2 ||
-                mapped->transitions != 4 || mapped->cpu != (unsigned int)h->shadow_cpu ||
+                mapped->transitions != (client->nested_path == UD_NESTED_FUSED ? 3U : 4U) ||
+                mapped->cpu != (unsigned int)h->shadow_cpu ||
                 sched_getcpu() != h->shadow_cpu)) { rc = -1; saved = EPROTO; }
     *call = *mapped;
     __atomic_store_n(&client->invoking, 0, __ATOMIC_RELEASE);

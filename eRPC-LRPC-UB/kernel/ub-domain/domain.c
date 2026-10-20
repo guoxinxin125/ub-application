@@ -483,6 +483,7 @@ static noinline int ud_run_fused(struct ud_session *s, struct ud_regs *result,
     gate.return_pc = UD_VA + middle_size - 4;
     gate.transitions = gate.complete = 0;
     gate.domain = UD_MIDDLE;
+    gate.mode = UDN_MODE_MICRO;
     ud_enter_nested_selected(&gate, tcr, virt_to_phys(s->empty_root));
     call->transitions = gate.transitions;
     *result = gate.domain == UD_LEAF ? gate.leaf : gate.middle;
@@ -661,8 +662,8 @@ static int ud_tlb_probe(struct ud_session *s, void __user *arg)
     if (copy_to_user(arg, &p, sizeof(p))) return -EFAULT;
     return rc;
 }
-/* Legacy-style routing chain: A->LB->A->nginx->A (reverse order on return).
- * Two actual domain entries, NOT the arithmetic middle/leaf/resume benchmark.
+/* Routing chain: legacy A->LB->A->nginx->A, or fused A->LB->nginx->A.
+ * The reverse chain visits nginx before LB. Each call enters two domains.
  * B config is RO, code is A-local RX, arguments are A-local shared WB.
  * No eRPC, allocator, syscall, write grant or data-plane B thread in a domain. */
 static int ud_run_social(struct ud_session *s)
@@ -698,7 +699,40 @@ static int ud_run_social(struct ud_session *s)
     tcr |= (3ULL << 12) | 16ULL;
     call->cpu = raw_smp_processor_id();
     start = ktime_get_ns();
-    for (i = 0; i < 2; ++i) {
+    if (s->nested_path == UD_NESTED_FUSED) {
+        struct ud_nested_gate gate = {0};
+        unsigned long second_size;
+        ud_initial_regs(s, first, &gate.middle);
+        ud_initial_regs(s, first+1, &gate.leaf);
+        gate.middle.x[0] += US_MAPPED_OFFSET;
+        gate.leaf.x[0] += US_MAPPED_OFFSET;
+        ud_profile_service(UD_PROFILE_SOCIAL, first, &size);
+        ud_profile_service(UD_PROFILE_SOCIAL, first+1, &second_size);
+        gate.middle_root = s->p.contract.table_pa[first][0] |
+                           ((u64)s->asid[first] << 48);
+        gate.leaf_root = s->p.contract.table_pa[first+1][0] |
+                         ((u64)s->asid[first+1] << 48);
+        gate.call_pc = UD_VA + size - 4;
+        gate.leaf_pc = UD_VA + second_size - 4;
+        gate.mode = UDN_MODE_SOCIAL;
+        gate.social_args = (u64)s->args[0];
+        gate.social_target = first ? 1 : 2;
+        ud_enter_nested_selected(&gate, tcr, virt_to_phys(s->empty_root));
+        call->transitions = gate.transitions;
+        r = gate.domain == 2 ? gate.leaf : gate.middle;
+        if (gate.complete != 1 || gate.transitions != 3 || gate.domain != 2 ||
+            r.vector != 8 || (r.esr >> 26) != 0x3c ||
+            (r.esr & 0xffff) != 0x4c0 || r.pc != gate.leaf_pc) {
+            rc = -EIO; goto bad;
+        }
+        call->domain[0] = first ? 2 : 1;
+        call->domain[1] = first ? 1 : 2;
+        call->entries = 2;
+        if (call->message.action != (first ? US_ACTION_CLIENT : US_ACTION_RPC) ||
+            call->message.target != (first ? 0 : 102)) {
+            rc = -EPROTO; goto bad;
+        }
+    } else for (i = 0; i < 2; ++i) {
         unsigned int d = first+i;
         ud_initial_regs(s, d, &r); r.x[0] += US_MAPPED_OFFSET;
         ud_profile_service(UD_PROFILE_SOCIAL, d, &size);
@@ -899,6 +933,11 @@ static int __init ud_init(void)
     BUILD_BUG_ON(offsetof(struct ud_nested_gate, transitions) != UDN_TRANSITIONS);
     BUILD_BUG_ON(offsetof(struct ud_nested_gate, complete) != UDN_COMPLETE);
     BUILD_BUG_ON(offsetof(struct ud_nested_gate, domain) != UDN_DOMAIN);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, mode) != UDN_MODE);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, social_args) != UDN_SOCIAL_ARGS);
+    BUILD_BUG_ON(offsetof(struct ud_nested_gate, social_target) != UDN_SOCIAL_TARGET);
+    BUILD_BUG_ON(US_MAPPED_OFFSET + offsetof(struct us_message, action) != UDN_SOCIAL_ACTION_OFFSET);
+    BUILD_BUG_ON(US_MAPPED_OFFSET + offsetof(struct us_message, target) != UDN_SOCIAL_TARGET_OFFSET);
     BUILD_BUG_ON(sizeof(struct ud_nested_gate) != UDN_SIZE);
     BUILD_BUG_ON(offsetof(struct ud_mapped, result) != 16);
     BUILD_BUG_ON(sizeof(struct ud_mapped) > UD_PAGE);
@@ -912,7 +951,7 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MODE ")");
 MODULE_INFO(ud_nested, "legacy,fused");
 MODULE_INFO(ud_multi, "readonly-pool-v1-8-slots-single-importer-kernel");
-MODULE_INFO(ud_social, "user-read-abi1-single-nginx-legacy-chain");
+MODULE_INFO(ud_social, "user-read-abi1-single-nginx-legacy,fused");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

@@ -4,11 +4,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <lrpc/ub_social_client.h>
+#include <lrpc/ub_nested_path.h>
 int main(int argc, char **argv)
 {
     struct lrpc_handle h = {.fd=-1};
     struct ud_connection_info info;
     unsigned long samples = 1, i;
+    unsigned int path;
     char *end;
     int failed = 0;
     if (argc == 3 && !strcmp(argv[1], "--samples")) {
@@ -16,6 +18,9 @@ int main(int argc, char **argv)
         if (errno || !argv[2][0] || *end || argv[2][0] == '-' || !samples || samples > 1000000) return 2;
     } else if (argc != 1) {
         fprintf(stderr, "usage: %s [--samples 1..1000000] (pin one CPU with taskset)\n", argv[0]); return 2;
+    }
+    if (ud_nested_path_parse_profile(getenv("LRPC_UB_NESTED_PATH"), UD_PROFILE_SOCIAL, &path)) {
+        perror("UB_SOCIAL_PATH_FAIL"); return 2;
     }
     if (us_client_open(&h)) { perror("UB_SOCIAL_OPEN_FAIL"); return 1; }
     if (us_client_info(&h, &info)) { failed = 1; goto out; }
@@ -37,7 +42,7 @@ int main(int argc, char **argv)
             expected.target = reverse ? 0 : 102;
             if (us_client_call(&h, &c) || memcmp(&expected, &c.message, sizeof(expected)) ||
                 c.domain[0] != (reverse ? 2U : 1U) || c.domain[1] != (reverse ? 1U : 2U) ||
-                c.entries != 2 || c.transitions != 4) {
+                c.entries != 2 || c.transitions != (path == UD_NESTED_FUSED ? 3U : 4U)) {
                 perror("UB_SOCIAL_ROUTE_FAIL"); failed = 1; goto out;
             }
         }
@@ -45,7 +50,8 @@ int main(int argc, char **argv)
 out:
     if (us_client_close(&h)) { perror("UB_SOCIAL_CLOSE_FAIL"); failed = 1; }
     if (!failed) printf("UB_SOCIAL_ROUTE_PASS samples=%lu calls=%lu slot=%u identity=%llu "
-                        "entries_per_chain=2 transitions_per_chain=4 backend=ub read_only=1\n",
-                        samples, samples*2, info.slot, (unsigned long long)info.identity);
+                        "entries_per_chain=2 transitions_per_chain=%u chain=%s backend=ub read_only=1\n",
+                        samples, samples*2, info.slot, (unsigned long long)info.identity,
+                        path == UD_NESTED_FUSED ? 3U : 4U, ud_nested_path_name(path));
     return failed;
 }

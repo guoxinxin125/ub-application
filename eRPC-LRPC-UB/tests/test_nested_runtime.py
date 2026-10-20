@@ -90,6 +90,7 @@ static void ud_enter_nested_selected(struct ud_nested_gate *g, u64 tcr, u64 empt
  assert(g->middle_args==(uintptr_t)active->args[UD_MIDDLE]);
  assert(g->leaf_args==(uintptr_t)active->args[UD_LEAF]);
  assert(g->call_pc==UD_VA+12 && g->leaf_pc==UD_VA+24 && g->return_pc==UD_VA+28);
+ assert(g->mode==UDN_MODE_MICRO);
  active->storage[UD_MIDDLE][2]=active->storage[UD_MIDDLE][0]+2;
  g->domain=bad_gate==1 ? UD_LEAF : UD_MIDDLE;
  g->transitions=bad_gate==3 ? 6 : 4; g->complete=bad_gate ? 0 : 1;
@@ -111,6 +112,9 @@ int main(void) {
  assert(offsetof(struct ud_nested_gate,transitions)==UDN_TRANSITIONS);
  assert(offsetof(struct ud_nested_gate,complete)==UDN_COMPLETE);
  assert(offsetof(struct ud_nested_gate,domain)==UDN_DOMAIN);
+ assert(offsetof(struct ud_nested_gate,mode)==UDN_MODE);
+ assert(offsetof(struct ud_nested_gate,social_args)==UDN_SOCIAL_ARGS);
+ assert(offsetof(struct ud_nested_gate,social_target)==UDN_SOCIAL_TARGET);
  for(unsigned d=0;d<UD_DOMAINS;d++) {
   s.args[d]=s.storage[d]; s.p.contract.table_pa[d][0]=0x100000+d*0x1000;
   s.asid[d]=0x41+d; s.initial[d]=(struct ud_initial){UD_ARGS,UD_DATA,UD_STACK+4096,UD_VA};

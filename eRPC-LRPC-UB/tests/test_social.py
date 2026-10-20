@@ -64,24 +64,30 @@ class Config(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             peer = path/'b'; peer.mkdir()
-            client = ('SN_DOMAIN_READY backend=ub slot=0 identity=100\n'
+            client = ('SN_DOMAIN_READY backend=ub chain=legacy transitions=4 slot=0 identity=100\n'
                       'SN_DOMAIN_DONE backend=ub calls=10\n'
                       'SN_DOMAIN_E2E completed=10 expected=10 measured=10 clock=steady_ns scope=call-to-consume fixture=0\n'
                       'SN_DOMAIN_MEASUREMENT total=10 measured=10\n'
                       'SN_DOMAIN_CLASS phase=measured class=all count=10\n'
                       'SN_DOMAIN_CLASS phase=measured class=empty count=2\n'
                       'SN_DOMAIN_CLASS phase=measured class=nonempty count=8\n')
-            timeline = 'SN_DOMAIN_READY backend=ub slot=1 identity=101\nSN_DOMAIN_DONE backend=ub calls=10\n'
+            timeline = 'SN_DOMAIN_READY backend=ub chain=legacy transitions=4 slot=1 identity=101\nSN_DOMAIN_DONE backend=ub calls=10\n'
             (path/'client.log').write_text(client);(path/'user_timeline.log').write_text(timeline)
             (peer/'post_storage.log').write_text('storage loaded\n')
             with self.assertRaises(ValueError): module.check(path,'domain',10)
             self.assertEqual(module.check(path,'domain',10,peer)['nonempty'],8)
+            with self.assertRaises(ValueError): module.check(path,'domain',10,peer,'fused')
+            (path/'client.log').write_text(client.replace('chain=legacy transitions=4','chain=fused transitions=3'))
+            (path/'user_timeline.log').write_text(timeline.replace('chain=legacy transitions=4','chain=fused transitions=3'))
+            self.assertEqual(module.check(path,'domain',10,peer,'fused')['nonempty'],8)
+            (path/'client.log').write_text(client)
+            (path/'user_timeline.log').write_text(timeline)
             for bad in (timeline.replace('slot=1','slot=0'),timeline.replace('calls=10','calls=9'),
                         timeline+'SN_DOMAIN_ERROR op=fault\n'):
                 (path/'user_timeline.log').write_text(bad)
                 with self.assertRaises(ValueError): module.check(path,'domain',10,peer)
             (path/'user_timeline.log').write_text('SN_DOMAIN_CONFIG enabled=0\n')
-            (path/'client.log').write_text(client.replace('SN_DOMAIN_READY backend=ub slot=0 identity=100',
+            (path/'client.log').write_text(client.replace('SN_DOMAIN_READY backend=ub chain=legacy transitions=4 slot=0 identity=100',
                                                        'SN_DOMAIN_CONFIG enabled=0'))
             for name in ('nginx','load_balance'): (peer/(name+'.log')).write_text('started\n')
             self.assertEqual(module.check(path,'rpc',10,peer)['all'],10)
@@ -189,7 +195,9 @@ extern "C" int us_client_call(struct lrpc_handle *h,struct us_call *c) {
  assert(c->abi==US_ABI && c->message.source==17 && c->message.value && !c->message.ticket);
  bool reverse=c->direction==US_REVERSE;
  assert(c->message.type==(reverse ? US_USER_RESP : US_USER_REQ));
- c->entries=2; c->transitions=4; c->domain[0]=reverse ? 2 : 1; c->domain[1]=reverse ? 1 : 2;
+ c->entries=2; const char *path=std::getenv("LRPC_UB_NESTED_PATH");
+ c->transitions=path && !std::strcmp(path,"fused") ? 3 : 4;
+ c->domain[0]=reverse ? 2 : 1; c->domain[1]=reverse ? 1 : 2;
  c->message.action=reverse ? US_ACTION_CLIENT : US_ACTION_RPC; c->message.target=reverse ? 0 : 102;
  if(std::getenv("TEST_BAD_RESULT")) ++c->message.machine;
  if(std::getenv("TEST_BAD_TRANSITIONS")) c->transitions=6;
@@ -220,6 +228,7 @@ int main() {
 
     def run_adapter(self, **extra):
         env = {k:v for k,v in os.environ.items() if not k.startswith(('ERPC_SN_DOMAIN_','TEST_'))}
+        env.pop('LRPC_UB_NESTED_PATH', None)
         env.update(ERPC_SN_DOMAIN_PROXY='1',LRPC_UBSM_SDK_MODE='external', **extra)
         return subprocess.run([str(self.exe)],env=env,capture_output=True,text=True,timeout=20)
 
@@ -229,6 +238,13 @@ int main() {
         self.assertEqual(result.stderr.count('SN_DOMAIN_READY'),2)
         self.assertEqual(result.stderr.count('SN_DOMAIN_DONE'),2)
         self.assertIn('backend=ub config=B code=A astack=A',result.stderr)
+        self.assertIn('chain=legacy entries=2 transitions=4',result.stderr)
+
+    def test_adapter_explicit_fused_route(self):
+        result = self.run_adapter(LRPC_UB_NESTED_PATH='fused')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stderr.count('SN_DOMAIN_READY'),2)
+        self.assertIn('chain=fused entries=2 transitions=3',result.stderr)
 
     def test_corrupt_result_and_transition_count_fail_stop(self):
         for key in ('TEST_BAD_RESULT','TEST_BAD_TRANSITIONS'):
@@ -273,7 +289,7 @@ static int ioctl(int fd,unsigned long command) {
  if(fail) {errno=EIO;return -1;}
  struct ud_mapped *m=client.local_args;
  struct us_call *c=(void *)((char *)m+US_MAPPED_OFFSET);
- c->entries=2;c->transitions=bad_transitions ? 6 : 4;c->cpu=1;
+ c->entries=2;c->transitions=bad_transitions ? 6 : (client.nested_path==UD_NESTED_FUSED ? 3 : 4);c->cpu=1;
  c->domain[0]=c->direction ? 2 : 1;c->domain[1]=c->direction ? 1 : 2;
  c->message.action=c->direction ? US_ACTION_CLIENT : US_ACTION_RPC;
  c->message.target=c->direction ? 0 : 102;
@@ -287,19 +303,23 @@ static void *other_owner(void *arg) {
 int main(void) {
  struct lrpc_handle h={.fd=7,.shadow_cpu=1,.astack_offset=UD_HANDLE_MARKER,.astack_map=&client};
  struct us_call c={.abi=US_ABI};
+ unsigned old;
  client.owner=pthread_self();client.profile=UD_PROFILE_SOCIAL;client.local_args=calloc(1,4096);
  assert(client.local_args);
+ for(unsigned path=0;path<=1;path++) {
+ client.nested_path=path;
  for(unsigned i=0;i<1000;i++) {
   memset(&c,0,sizeof(c));c.abi=US_ABI;c.direction=i%2;c.message.source=17;
   c.message.value=i+1;c.message.request=i+1;c.message.machine=99;
-  assert(!us_client_call(&h,&c) && c.entries==2 && c.transitions==4 && !client.invoking);
+  assert(!us_client_call(&h,&c) && c.entries==2 && c.transitions==(path ? 3U : 4U) && !client.invoking);
   assert(c.message.value==i+1 && c.message.machine==99);
  }
  bad_transitions=1;assert(us_client_call(&h,&c)==-1 && errno==EPROTO && !client.invoking);
  bad_transitions=0;stale=1;assert(us_client_call(&h,&c)==-1 && errno==EPROTO && !client.invoking);
  stale=0;fail=1;assert(us_client_call(&h,&c)==-1 && errno==EIO && !client.invoking);fail=0;
- unsigned old=calls;wrong_cpu=1;assert(us_client_call(&h,&c)==-1 && errno==EXDEV && calls==old);wrong_cpu=0;
+ old=calls;wrong_cpu=1;assert(us_client_call(&h,&c)==-1 && errno==EXDEV && calls==old);wrong_cpu=0;
  client.invoking=1;assert(us_client_call(&h,&c)==-1 && errno==EBUSY && calls==old);client.invoking=0;
+ }
  pthread_t t;assert(!pthread_create(&t,NULL,other_owner,&h));assert(!pthread_join(t,NULL) && calls==old);
  free(client.local_args);return 0;
 }
@@ -328,9 +348,11 @@ int main(void) {
 typedef uint64_t u64;
 #define U32_MAX 0xffffffffU
 struct ud_regs {u64 x[31],sp,pc,pstate,esr,far,vector;};
+#include "nested_gate.h"
 struct ud_session {
  void *args[UD_DOMAINS], *empty_root;
  struct ud_prepare p; unsigned long asid[UD_DOMAINS]; bool committed;
+ unsigned nested_path;
 };
 static struct ud_session *active;
 static struct us_heap heap;
@@ -376,6 +398,21 @@ static void ud_enter_selected(struct ud_regs *r,u64 root,u64 tcr,u64 empty,unsig
  if(fault==entries) {r->esr=0xdead;r->vector=5;}
  if(corrupt==entries) ++c->message.payload_offset;
 }
+static void ud_enter_nested_selected(struct ud_nested_gate *g,u64 tcr,u64 empty) {
+ struct us_call *c=(void *)((char *)active->args[0]+US_MAPPED_OFFSET);
+ assert(g->mode==UDN_MODE_SOCIAL && g->social_args==(uintptr_t)active->args[0]);
+ assert(g->middle.x[0]==UD_ARGS+US_MAPPED_OFFSET && g->leaf.x[0]==g->middle.x[0]);
+ assert(g->social_target==(c->direction ? 1U : 2U));
+ g->domain=1;g->transitions=1;
+ ud_enter_selected(&g->middle,g->middle_root,tcr,empty,0);
+ g->transitions=2;
+ if(g->middle.vector!=8 || (g->middle.esr&0xffff)!=0x4c0 ||
+    c->message.action!=US_ACTION_DOMAIN || c->message.target!=g->social_target) return;
+ g->domain=2;
+ ud_enter_selected(&g->leaf,g->leaf_root,tcr,empty,0);
+ g->transitions=3;
+ if(g->leaf.vector==8 && (g->leaf.esr&0xffff)==0x4c0) g->complete=1;
+}
 ''' + dispatch + r'''
 static void initialize(struct ud_session *s,unsigned direction,unsigned request) {
  struct us_call *c=(void *)((char *)s->args[0]+US_MAPPED_OFFSET);
@@ -391,13 +428,15 @@ int main(void) {
   s.args[d]=calloc(1,4096);assert(s.args[d]);
   s.p.contract.table_pa[d][0]=(d+1)*4096;s.asid[d]=100+d;
  }
- for(unsigned n=0;n<1000;n++) for(unsigned direction=0;direction<2;direction++) {
+ for(unsigned path=0;path<=1;path++) for(unsigned n=0;n<1000;n++) for(unsigned direction=0;direction<2;direction++) {
+  s.nested_path=path;
   initialize(&s,direction,n);assert(!ud_run_social(&s));
   struct us_call *c=(void *)((char *)s.args[0]+US_MAPPED_OFFSET);
-  assert(c->entries==2 && c->transitions==4 && c->cpu==1 && !locks && !irqs && !preempt);
+  assert(c->entries==2 && c->transitions==(path ? 3U : 4U) && c->cpu==1 && !locks && !irqs && !preempt);
   assert(c->domain[0]==(direction ? 2U : 1U) && c->domain[1]==(direction ? 1U : 2U));
  }
- for(unsigned direction=0;direction<2;direction++) for(unsigned f=1;f<=2;f++) {
+ for(unsigned path=0;path<=1;path++) for(unsigned direction=0;direction<2;direction++) for(unsigned f=1;f<=2;f++) {
+  s.nested_path=path;
   initialize(&s,direction,1);fault=f;assert(ud_run_social(&s)==-EIO && !s.committed);
   assert(!locks && !irqs && !preempt);fault=0;
   initialize(&s,direction,1);corrupt=f;assert(ud_run_social(&s)==-EPROTO && !s.committed);
@@ -417,6 +456,7 @@ int main(void) {
             src, exe = tmp/'kernel.c',tmp/'kernel.exe';src.write_text(fixture,encoding='utf-8')
             result = subprocess.run([shutil.which('gcc'),'-std=gnu11','-O2','-Wall','-Wextra','-Werror',
                                      '-I'+str(tmp),'-I'+str(ROOT/'include'),'-I'+str(ROOT/'include/uapi'),
+                                     '-I'+str(ROOT/'kernel/ub-domain'),
                                      str(src),'-o',str(exe)],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             result = subprocess.run([str(exe)],capture_output=True,text=True,timeout=20)

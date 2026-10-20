@@ -159,15 +159,28 @@ ud_nested_trap:
     b .Ludn_restore
 
 .Ludn_middle_call:
+    ldr x17, [sp, #96]
+    ldr x17, [x17, #UDN_MODE]
+    cbnz x17, .Ludn_social_call
     ldr x17, [x16, #272]
     and x17, x17, #0xffff
     cmp x17, #0x4c1
     b.ne .Ludn_restore
+    b .Ludn_check_middle_pc
+.Ludn_social_call:
+    ldr x17, [x16, #272]
+    and x17, x17, #0xffff
+    cmp x17, #0x4c0
+    b.ne .Ludn_restore
+.Ludn_check_middle_pc:
     ldr x17, [sp, #96]
     ldr x17, [x17, #UDN_CALL_PC]
     ldr x16, [x16, #256]
     cmp x16, x17
     b.ne .Ludn_restore
+    ldr x16, [sp, #96]
+    ldr x17, [x16, #UDN_MODE]
+    cbnz x17, .Ludn_social_switch
     ldr x16, [sp, #192]
     /* Preserve all middle GPRs, SP and PC exactly once, at suspension. */
     stp x0, x1, [x16, #0]
@@ -205,6 +218,28 @@ ud_nested_trap:
     ldr x1, [x0, #UDN_LEAF_ROOT]
     b .Ludn_switch
 
+.Ludn_social_switch:
+    /* Validate the first service's routing decision before entering the
+     * second domain. Read via A's kernel alias, not a PAN-protected EL0 VA. */
+    dsb sy
+    mov x0, x16
+    ldr x1, [x0, #UDN_SOCIAL_ARGS]
+    ldr w2, [x1, #UDN_SOCIAL_ACTION_OFFSET]
+    cmp w2, #2 /* US_ACTION_DOMAIN */
+    b.ne .Ludn_restore
+    ldr w2, [x1, #UDN_SOCIAL_TARGET_OFFSET]
+    ldr w1, [x0, #UDN_SOCIAL_TARGET]
+    cmp w2, w1
+    b.ne .Ludn_restore
+    add x1, x0, #UDN_LEAF
+    str x1, [sp, #192]
+    mov x1, #1
+    str x1, [sp, #200]
+    mov x1, #2
+    str x1, [x0, #UDN_DOMAIN]
+    ldr x1, [x0, #UDN_LEAF_ROOT]
+    b .Ludn_switch
+
 .Ludn_leaf_return:
     ldr x17, [x16, #272]
     and x17, x17, #0xffff
@@ -215,6 +250,9 @@ ud_nested_trap:
     ldr x16, [x16, #256]
     cmp x16, x17
     b.ne .Ludn_restore
+    ldr x16, [sp, #96]
+    ldr x17, [x16, #UDN_MODE]
+    cbnz x17, .Ludn_social_complete
     /* Complete prior EL0 stores before reading the kernel alias of A-stack. */
     dsb sy
     ldr x0, [sp, #96]
@@ -230,6 +268,12 @@ ud_nested_trap:
     mov x1, #1 /* UD_MIDDLE */
     str x1, [x0, #UDN_DOMAIN]
     ldr x1, [x0, #UDN_MIDDLE_ROOT]
+    b .Ludn_switch
+.Ludn_social_complete:
+    /* The second routing service is final; there is no middle continuation. */
+    mov x17, #1
+    str x17, [x16, #UDN_COMPLETE]
+    b .Ludn_restore
 .Ludn_switch:
     ldr x2, [x0, #UDN_TRANSITIONS]
     add x2, x2, #1
