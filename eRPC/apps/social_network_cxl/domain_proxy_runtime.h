@@ -18,6 +18,7 @@
 #include <sched.h>
 #ifdef ERPC_SN_DOMAIN_UB
 #include <lrpc/ub_social_client.h>
+#include <lrpc/ub_nested_path.h>
 #else
 #include <lrpc/multi_client.h>
 static_assert(RM_CLIENTS == 8 && RM_SERVICES == 4, "update domain topology capacity checks");
@@ -234,13 +235,17 @@ class Runtime {
     if (sn_diag::enabled() || (sampling && std::strcmp(sampling, "0")))
       fail(role, lane, "ub-x86-kernel-profile-unsupported", 0, ENOTSUP);
     ub_client_.fd = -1;
+    if (ud_nested_path_parse_profile(std::getenv("LRPC_UB_NESTED_PATH"), UD_PROFILE_SOCIAL,
+                                     &ub_path_))
+      fail(role, lane, "ub-path", 0, errno);
     if (us_client_open(&ub_client_)) fail(role, lane, "ub-prepare", 0, errno);
     opened_ = true;
     struct ud_connection_info info{};
     if (us_client_info(&ub_client_, &info) || !info.multi || !info.identity || info.slot >= UD_CLIENTS)
       fail(role, lane, "ub-prepare-info", 0, EPROTO);
-    std::fprintf(stderr, "SN_DOMAIN_READY role=%s lane=%u source=%u wire_abi=%u slot=%u identity=%llu services=2 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=legacy entries=2 transitions=4\n",
-                 role, lane, source, kWireAbi, info.slot, static_cast<unsigned long long>(info.identity));
+    std::fprintf(stderr, "SN_DOMAIN_READY role=%s lane=%u source=%u wire_abi=%u slot=%u identity=%llu services=2 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=%s entries=2 transitions=%u\n",
+                 role, lane, source, kWireAbi, info.slot, static_cast<unsigned long long>(info.identity),
+                 ud_nested_path_name(ub_path_), ub_path_ == UD_NESTED_FUSED ? 3U : 4U);
 #else
     struct rm_prepare plan{}; plan.abi = RM_ABI; plan.count = proxies + 1;
     for (uint32_t i = 0; i < plan.count; ++i) plan.service[i] = i + 1;
@@ -343,7 +348,8 @@ class Runtime {
     if (ret) fail(role_, lane_, "ub-domain-call", wire, saved, service, 0, c.fault_vector, source);
     struct us_message result = c.message;
     result.action = input.action; result.target = input.target;
-    if (std::memcmp(&input, &result, sizeof(input)) || c.entries != 2 || c.transitions != 4 ||
+    if (std::memcmp(&input, &result, sizeof(input)) || c.entries != 2 ||
+        c.transitions != (ub_path_ == UD_NESTED_FUSED ? 3U : 4U) ||
         c.domain[0] != service || c.domain[1] != (reverse ? 1U : 2U) ||
         c.message.action != (reverse ? US_ACTION_CLIENT : US_ACTION_RPC) ||
         c.message.target != (reverse ? 0U : kUserEndpoint))
@@ -423,6 +429,7 @@ class Runtime {
   uint32_t lane_ = 0, proxies_ = 0;
 #ifdef ERPC_SN_DOMAIN_UB
   struct lrpc_handle ub_client_{};
+  unsigned int ub_path_ = UD_NESTED_LEGACY;
   bool opened_ = false;
   uint64_t calls_ = 0;
 #elif defined(ERPC_SN_DOMAIN_PROXY)
