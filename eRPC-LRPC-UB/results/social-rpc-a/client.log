@@ -1,0 +1,22 @@
+SN_DOMAIN_CONFIG role=client enabled=0 path=original-rpc
+SN_DOMAIN_INIT source=1 lane=0 peer=timeline-ready ready=1
+SN_DOMAIN_INIT source=1 lane=0 peer=post-storage-ready ready=1
+SN_DOMAIN_INIT source=1 lane=0 peer=load-balance-ready ready=1
+SN_DOMAIN_INIT source=1 lane=0 peer=nginx-ready ready=1
+SN_UB_POST_READ_MODE=fields
+UB: ub_manager rejected endpoint unregister
+SN_DOMAIN_MEASUREMENT source=1 lane=0 abi=2 warmup=0 measured=1000 total=1000 clock=steady_ns slow_ns=50000 slow_limit=32 logging=after-join legacy_timer=off
+SN_DOMAIN_CLASS source=1 lane=0 phase=warmup class=all count=0 min_ns=0 p50_ns=0 p99_ns=0 avg_ns=0.0 max_ns=0 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_CLASS source=1 lane=0 phase=warmup class=empty count=0 min_ns=0 p50_ns=0 p99_ns=0 avg_ns=0.0 max_ns=0 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_CLASS source=1 lane=0 phase=warmup class=nonempty count=0 min_ns=0 p50_ns=0 p99_ns=0 avg_ns=0.0 max_ns=0 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_SLOW_SUMMARY source=1 lane=0 phase=warmup matched=0 printed=0 dropped=0 threshold_ns=50000
+SN_DOMAIN_CLASS source=1 lane=0 phase=measured class=all count=1000 min_ns=16920 p50_ns=32990 p99_ns=40280 avg_ns=33780.1 max_ns=1301120 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_CLASS source=1 lane=0 phase=measured class=empty count=60 min_ns=16920 p50_ns=17710 p99_ns=1301120 avg_ns=39321.7 max_ns=1301120 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_CLASS source=1 lane=0 phase=measured class=nonempty count=940 min_ns=28090 p50_ns=33160 p99_ns=40280 avg_ns=33426.3 max_ns=152760 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_SLOW source=1 lane=0 phase=measured request=1 wire=1 class=empty count=0 payload_bytes=0 e2e_ns=1301120 forward_ns=0 kernel_sampled=0
+SN_DOMAIN_SLOW source=1 lane=0 phase=measured request=810 wire=810 class=nonempty count=1 payload_bytes=2048 e2e_ns=152760 forward_ns=0 kernel_sampled=0
+SN_DOMAIN_SLOW source=1 lane=0 phase=measured request=2 wire=2 class=nonempty count=1 payload_bytes=2048 e2e_ns=58070 forward_ns=0 kernel_sampled=0
+SN_DOMAIN_SLOW source=1 lane=0 phase=measured request=305 wire=305 class=nonempty count=1 payload_bytes=2048 e2e_ns=55370 forward_ns=0 kernel_sampled=0
+SN_DOMAIN_SLOW_SUMMARY source=1 lane=0 phase=measured matched=4 printed=4 dropped=0 threshold_ns=50000
+SN_DOMAIN_E2E source=1 completed=1000 expected=1000 nonempty=0 empty=0 fixture=0 p50_ns=32990.0 p99_ns=40280.0 avg_ns=33780.1 scope=call-to-consume fixture_validation_included=0 clock=steady_ns cold_included=1 warmup=0 measured=1000
+Rpc 1: Created Server session_num = 0 for client [H: 76.53.137.81:31850, R: 20, S: 1] from 76.53.137.81 (rpc 20)
