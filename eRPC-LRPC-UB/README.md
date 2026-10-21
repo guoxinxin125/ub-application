@@ -4,15 +4,16 @@
 `eRPC-LRPC/` 生成，也不用维护第二个 trace 目录。`SOURCE_MANIFEST.sha256`
 记录传输源码的 SHA-256；修改后运行 `python3 scripts/manifest.py --refresh`
 更新清单，传到 A、B 后运行 `python3 scripts/manifest.py --check` 核对。
-这里包含 Direct/Nested、只读多连接、PA 探针，以及可选的 UserTimeline 路由接入；
+这里包含 Direct/Nested、只读多连接、PA 探针，以及可选的 UserTimeline/HomeTimeline read 路由接入；
 没有 QEMU、Go、currency、旧 shadow 程序或第三方源码。应用接入需另外同步 `eRPC/`
-中的应用与构建依赖，详见 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)。
+中的应用与构建依赖，详见 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)及
+[HomeTimeline UB 接入说明](SOCIAL_HOME_READ.md)。
 下一轮 Direct/Nested 20 轮性能测量及应用验证清单见 [UB 真机实验待办](TODO_UB.md)。
 Nested 微测试默认使用 **fused**，备选路径用 `--nested-path legacy` 或
 `LRPC_UB_NESTED_PATH=legacy` 显式选择；命令行优先于环境变量。
 bench、多连接测试、TLB probe、trace 和直接调用客户端库遵循同一默认值。
-SocialNetwork 应用链独立默认 legacy，显式设置 `LRPC_UB_NESTED_PATH=fused`
-可选择新增 fused 路径；它还需要目标 AArch64 模块与双机验证，见接入说明。
+SocialNetwork 应用链同样默认 fused；显式设置 `LRPC_UB_NESTED_PATH=legacy`
+可选择备选路径。HomeTimeline 接入还需要目标 AArch64 模块与双机验证，见接入说明。
 双机应用可用 `scripts/run-social-session.sh` 在每台机器以一个前台命令管理本轮进程；
 脚本只会结束本轮自己启动的 owner 或 SSH 隧道，不改变既有数据库/UB 服务。
 应用的独立 A/B 模板位于 `config/social-user-read-a.json` 和

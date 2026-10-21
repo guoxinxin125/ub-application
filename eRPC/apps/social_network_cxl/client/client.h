@@ -151,6 +151,7 @@ class ClientContext : public BasicContext {
   sn_domain::Runtime domain_runtime;
   sn_measure::Campaign domain_measurement;
   int domain_user_session = -1;
+  int domain_home_session = -1;
   int baseline_nginx_session = -1;
   int domain_ready_status = -1;
   std::atomic<uint32_t> domain_inflight[kAppMaxBuffer]{};
@@ -158,6 +159,7 @@ class ClientContext : public BasicContext {
   std::atomic<uint64_t> domain_fixture_nonempty{0}, domain_fixture_empty{0};
   uint64_t domain_ack_start[kAppMaxBuffer]{};
   std::atomic<uint64_t> domain_e2e_start[kAppMaxBuffer]{};
+  std::atomic<uint64_t> domain_tx_begin_ns[kAppMaxBuffer]{};
   std::atomic<uint64_t> domain_forward_ns[kAppMaxBuffer]{};
 };
 
@@ -248,7 +250,7 @@ void init_specific_config() {
   try {
     if ((sn_domain::enabled() || sn_measure::rpc_baseline()) && sn_measure::enabled()) {
       if (FLAGS_client_num != 1 || FLAGS_server_num != 1 || FLAGS_concurrency != 1 ||
-          user_num_ != 1 || home_num_ || write_num_ || sn_domain::source_count() != 1 ||
+          user_num_ + home_num_ != 1 || write_num_ || sn_domain::source_count() != 1 ||
           !sn_domain::boolean_env("ERPC_SN_DOMAIN_FINISH"))
         sn_domain::fail("client", 0, "measurement-requires-single-lane-read", 0, EINVAL);
       sn_measure::Campaign validation;
@@ -335,10 +337,17 @@ void generate_user_timeline_req_msgbuf(AppRpc *rpc_,
 void generate_home_timeline_req_msgbuf(AppRpc *rpc_,
                                        SPSC_QUEUE *consumer_queue) {
   for (int64_t i = 0; i < generate_data_num; i++) {
-    auto req_msgbuf =
-        rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<HomeTimeLineReq>));
-    new (req_msgbuf.buf_) RPCMsgReq<HomeTimeLineReq>(
-        RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ, 0, {0, i, 0, 1});
+    const bool domain = sn_domain::enabled();
+    auto req_msgbuf = rpc_->alloc_msg_buffer_or_die(domain ?
+        sizeof(RPCMsgReq<DomainHomeRequest>) : sizeof(RPCMsgReq<HomeTimeLineReq>));
+    if (domain) {
+      DomainHomeRequest request{}; request.request = {0, i, 0, 1};
+      new (req_msgbuf.buf_) RPCMsgReq<DomainHomeRequest>(
+          RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_REQ, 0, request);
+    } else {
+      new (req_msgbuf.buf_) RPCMsgReq<HomeTimeLineReq>(
+          RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ, 0, {0, i, 0, 1});
+    }
     consumer_queue->push(req_msgbuf);
   }
 }

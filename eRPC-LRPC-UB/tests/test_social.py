@@ -47,6 +47,41 @@ class Config(unittest.TestCase):
                 self.assertNotIn('B_IP', json.dumps(actual))
         self.assertEqual(before, [path.read_bytes() for path in templates])
 
+    def test_home_read_private_config_and_roles(self):
+        module_spec = importlib.util.spec_from_file_location('home_roles', ROOT/'scripts/check-social-cpus.py')
+        module = importlib.util.module_from_spec(module_spec); module_spec.loader.exec_module(module)
+        template = json.loads((ROOT/'config/social-user-read-a.json').read_text(encoding='utf-8'))
+        a, b = prepare.prepare(template, '192.0.2.10', '192.0.2.20', workload='home')
+        for config in (a, b):
+            self.assertEqual((config['client']['user_num'], config['client']['home_num']), (0, 1))
+            self.assertEqual(config['social_graph_mongodb']['connections'],
+                             config['user_timeline_mongodb']['connections'])
+            self.assertEqual(module.services_for(config, 'A', 'domain'), ['home_timeline', 'client'])
+            self.assertEqual(module.services_for(config, 'B', 'rpc'), ['post_storage', 'nginx', 'load_balance'])
+            self.assertTrue(config['home_timeline']['server_addr'].startswith('192.0.2.10:'))
+            self.assertTrue(config['user_timeline']['server_addr'].startswith('192.0.2.20:'))
+
+    def test_home_log_checker_selects_home_timeline(self):
+        module_spec = importlib.util.spec_from_file_location('home_log_check', ROOT/'scripts/check-social.py')
+        module = importlib.util.module_from_spec(module_spec); module_spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            a, b = Path(directory)/'a', Path(directory)/'b'
+            a.mkdir(); b.mkdir()
+            (a/'client.log').write_text(
+                'SN_DOMAIN_READY backend=ub chain=fused transitions=3 slot=0 identity=100\n'
+                'SN_DOMAIN_DONE backend=ub calls=2\n'
+                'SN_DOMAIN_E2E completed=2 expected=2 measured=2 clock=steady_ns scope=call-to-consume fixture=0\n'
+                'SN_DOMAIN_MEASUREMENT total=2 measured=2\n'
+                'SN_DOMAIN_CLASS phase=measured class=all count=2\n'
+                'SN_DOMAIN_CLASS phase=measured class=empty count=1\n'
+                'SN_DOMAIN_CLASS phase=measured class=nonempty count=1\n')
+            (a/'home_timeline.log').write_text(
+                'SN_DOMAIN_READY backend=ub chain=fused transitions=3 slot=1 identity=101\n'
+                'SN_DOMAIN_DONE backend=ub calls=2\n')
+            (b/'post_storage.log').write_text('storage ready\n')
+            self.assertEqual(module.check(a, 'domain', 2, b, 'fused', 'home')['nonempty'], 1)
+            with self.assertRaises(FileNotFoundError): module.check(a, 'domain', 2, b, 'fused', 'user')
+
     def test_cpu_preflight_rejects_disallowed_or_overlapping_blocks(self):
         module_spec = importlib.util.spec_from_file_location('cpu_preflight', ROOT/'scripts/check-social-cpus.py')
         module = importlib.util.module_from_spec(module_spec);module_spec.loader.exec_module(module)
@@ -80,6 +115,12 @@ class Config(unittest.TestCase):
             (path/'client.log').write_text(client.replace('chain=legacy transitions=4','chain=fused transitions=3'))
             (path/'user_timeline.log').write_text(timeline.replace('chain=legacy transitions=4','chain=fused transitions=3'))
             self.assertEqual(module.check(path,'domain',10,peer,'fused')['nonempty'],8)
+            command = [os.sys.executable, str(ROOT/'scripts/check-social.py'),
+                       '--logs', str(path), '--peer-logs', str(peer),
+                       '--mode', 'domain', '--samples', '10']
+            result = subprocess.run(command,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn('chain=fused',result.stdout)
             (path/'client.log').write_text(client)
             (path/'user_timeline.log').write_text(timeline)
             for bad in (timeline.replace('slot=1','slot=0'),timeline.replace('calls=10','calls=9'),
@@ -194,11 +235,12 @@ extern "C" int us_client_call(struct lrpc_handle *h,struct us_call *c) {
  auto *m=static_cast<Mock *>(h->astack_map); assert(m->owner==std::this_thread::get_id());
  assert(c->abi==US_ABI && c->message.source==17 && c->message.value && !c->message.ticket);
  bool reverse=c->direction==US_REVERSE;
- assert(c->message.type==(reverse ? US_USER_RESP : US_USER_REQ));
+ bool home=c->message.type==(reverse ? US_HOME_RESP : US_HOME_REQ);
+ assert(home || c->message.type==(reverse ? US_USER_RESP : US_USER_REQ));
  c->entries=2; const char *path=std::getenv("LRPC_UB_NESTED_PATH");
  c->transitions=path && !std::strcmp(path,"fused") ? 3 : 4;
  c->domain[0]=reverse ? 2 : 1; c->domain[1]=reverse ? 1 : 2;
- c->message.action=reverse ? US_ACTION_CLIENT : US_ACTION_RPC; c->message.target=reverse ? 0 : 102;
+ c->message.action=reverse ? US_ACTION_CLIENT : US_ACTION_RPC; c->message.target=reverse ? 0 : (home ? 103 : 102);
  if(std::getenv("TEST_BAD_RESULT")) ++c->message.machine;
  if(std::getenv("TEST_BAD_TRANSITIONS")) c->transitions=6;
  ++calls; return 0;
@@ -214,8 +256,13 @@ int main() {
   sn_domain::Origin origin{2,17,0,1,i,2};
   timeline.reverse(i,origin,98,0x1000+i,64,2048);
  }
+ for(uint32_t i=1;i<=1000;i++) {
+  assert(client.forward(i,i-1,17,sn_domain::ReadService::Home)==2);
+  sn_domain::Origin origin{2,17,0,1,i,2};
+  timeline.reverse(i,origin,98,0x1000+i,64,2048,sn_domain::ReadService::Home);
+ }
  client.close(); timeline.close();
- assert(opens==2 && closes==2 && calls==2000);
+ assert(opens==2 && closes==2 && calls==4000);
  return 0;
 }
 ''',encoding='utf-8')
@@ -391,7 +438,7 @@ static void ud_enter_selected(struct ud_regs *r,u64 root,u64 tcr,u64 empty,unsig
  unsigned expected=c->direction*2+entries;
  assert(d==expected); ++entries;
  if(d==0) {c->message.action=US_ACTION_DOMAIN;c->message.target=config->nginx[0];}
- if(d==1) {c->message.action=US_ACTION_RPC;c->message.target=config->user_endpoint;}
+ if(d==1) {c->message.action=US_ACTION_RPC;c->message.target=c->message.type==US_HOME_REQ ? config->home_endpoint : config->user_endpoint;}
  if(d==2) {c->message.action=US_ACTION_DOMAIN;c->message.target=config->return_domain;}
  if(d==3) {c->message.action=US_ACTION_CLIENT;c->message.target=0;}
  r->vector=8;r->esr=(0x3cULL<<26)|0x4c0;r->pc=UD_VA+4;
@@ -428,9 +475,11 @@ int main(void) {
   s.args[d]=calloc(1,4096);assert(s.args[d]);
   s.p.contract.table_pa[d][0]=(d+1)*4096;s.asid[d]=100+d;
  }
- for(unsigned path=0;path<=1;path++) for(unsigned n=0;n<1000;n++) for(unsigned direction=0;direction<2;direction++) {
+ for(unsigned path=0;path<=1;path++) for(unsigned n=0;n<1000;n++) for(unsigned direction=0;direction<2;direction++) for(unsigned home=0;home<2;home++) {
   s.nested_path=path;
-  initialize(&s,direction,n);assert(!ud_run_social(&s));
+  initialize(&s,direction,n);
+  if(home) ((struct us_call *)((char *)s.args[0]+US_MAPPED_OFFSET))->message.type=direction ? US_HOME_RESP : US_HOME_REQ;
+  assert(!ud_run_social(&s));
   struct us_call *c=(void *)((char *)s.args[0]+US_MAPPED_OFFSET);
   assert(c->entries==2 && c->transitions==(path ? 3U : 4U) && c->cpu==1 && !locks && !irqs && !preempt);
   assert(c->domain[0]==(direction ? 2U : 1U) && c->domain[1]==(direction ? 1U : 2U));

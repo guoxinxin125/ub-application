@@ -14,6 +14,8 @@
 #define US_REVERSE 1U
 #define US_USER_REQ 9U
 #define US_USER_RESP 10U
+#define US_HOME_REQ 11U
+#define US_HOME_RESP 12U
 #define US_ACTION_RPC 1U
 #define US_ACTION_DOMAIN 2U
 #define US_ACTION_CLIENT 3U

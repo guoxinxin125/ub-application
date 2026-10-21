@@ -8,6 +8,7 @@
 #endif
 #include "../post_data.h"
 #include "../ub_breakdown.h"
+#include "../domain_proxy.h"
 #include <hdr_histogram.h>
 #include <future>
 #include <map>
@@ -49,6 +50,11 @@ public:
     erpc::MsgBuffer resp_forward_msgbuf[kAppMaxBuffer];
     erpc::MsgBuffer resp_backward_msgbuf[kAppMaxBuffer];
     uint64_t post_storage_start_ns[kAppMaxBuffer]{};
+    sn_domain::Runtime domain_runtime;
+    std::atomic<bool> domain_sender_ready{false};
+    sn_domain::Pending domain_pending[kAppMaxBuffer];
+    std::array<int, 64> domain_return_sessions{};
+    uint64_t domain_ack_start[kAppMaxBuffer]{};
     std::atomic<uint64_t> read_queue_start_ns[kAppMaxBuffer]{};
     std::atomic<uint64_t> forward_queue_start_ns[kAppMaxBuffer]{};
 
@@ -85,6 +91,8 @@ public:
     bool is_pinged{false};
     uint32_t ping_req_number{0};
     std::atomic<bool> mongodb_init_finished{false};
+    sn_domain::Pending *domain_pending{};
+    std::atomic<bool> *domain_sender_ready{};
 
     void reset_stat()
     {
@@ -122,6 +130,8 @@ public:
             ctx->read_queue_start_ns = client_contexts_[i]->read_queue_start_ns;
             ctx->req_forward_msgbuf_ptr = client_contexts_[i]->req_forward_msgbuf;
             ctx->req_backward_msgbuf_ptr = client_contexts_[i]->req_backward_msgbuf;
+            ctx->domain_pending = client_contexts_[i]->domain_pending;
+            ctx->domain_sender_ready = &client_contexts_[i]->domain_sender_ready;
             server_contexts_.push_back(ctx);
         }
     }
@@ -200,6 +210,11 @@ public:
 // must be used after init_service_config
 
 void init_specific_config(){
+    try { sn_domain::validate_config("home_timeline"); }
+    catch (const std::exception &error) {
+        std::fprintf(stderr, "SN_DOMAIN_CONFIG_ERROR role=home_timeline reason=%s\n", error.what());
+        std::exit(EXIT_FAILURE);
+    }
     auto value = config_json_all["compose_post"]["server_addr"];
     my_assert(!value.is_null());
     compose_post_addr = value;

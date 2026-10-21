@@ -679,7 +679,8 @@ static int ud_run_social(struct ud_session *s)
     if (call->abi != US_ABI || call->direction > US_REVERSE ||
         !call->message.source || call->message.source > U32_MAX ||
         !call->message.value || call->message.value > U32_MAX || call->message.request > U32_MAX ||
-        call->message.type != (call->direction ? US_USER_RESP : US_USER_REQ) ||
+        (call->message.type != (call->direction ? US_USER_RESP : US_USER_REQ) &&
+         call->message.type != (call->direction ? US_HOME_RESP : US_HOME_REQ)) ||
         call->message.status || call->message.action || call->message.target || call->message.ticket)
         return -EINVAL;
     input = call->message;
@@ -729,7 +730,8 @@ static int ud_run_social(struct ud_session *s)
         call->domain[1] = first ? 1 : 2;
         call->entries = 2;
         if (call->message.action != (first ? US_ACTION_CLIENT : US_ACTION_RPC) ||
-            call->message.target != (first ? 0 : 102)) {
+            call->message.target != (first ? 0 :
+                (input.type == US_HOME_REQ ? 103 : 102))) {
             rc = -EPROTO; goto bad;
         }
     } else for (i = 0; i < 2; ++i) {
@@ -744,7 +746,8 @@ static int ud_run_social(struct ud_session *s)
         call->domain[i] = first ? (i ? 1 : 2) : i+1;
         ++call->entries;
         if (call->message.action != (i ? (first ? US_ACTION_CLIENT : US_ACTION_RPC) : US_ACTION_DOMAIN) ||
-            call->message.target != (i ? (first ? 0 : 102) : (first ? 1 : 2))) {
+            call->message.target != (i ? (first ? 0 :
+                (input.type == US_HOME_REQ ? 103 : 102)) : (first ? 1 : 2))) {
             rc = -EPROTO; goto bad;
         }
     }
@@ -951,7 +954,7 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MODE ")");
 MODULE_INFO(ud_nested, "legacy,fused");
 MODULE_INFO(ud_multi, "readonly-pool-v1-8-slots-single-importer-kernel");
-MODULE_INFO(ud_social, "user-read-abi1-single-nginx-legacy,fused");
+MODULE_INFO(ud_social, "user-home-read-abi1-single-nginx-legacy,fused");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

@@ -1,17 +1,16 @@
 # UserTimeline read：AArch64 UB 路由域接入
 
 这是可选应用路径，保留普通 UB-eRPC、x86/QEMU 接入和 Direct/Nested 微测试。
-legacy 应用链已由用户在双机完成少量端到端验证；新增 fused 应用链目前仅完成本地
-C 层 fixture，**尚未在目标 AArch64 内核构建、装载或双机验证**。先跑独立路由探针，
-再跑少量端到端请求。
+legacy 和 fused 应用链都已由用户在双机完成端到端验证。修改代码或测量口径后，
+仍须重新构建 A 侧应用并在目标机器复测；先跑少量请求，再跑性能轮次。
 不需要修改启动参数、重启机器、重启 UB 服务或使用 Docker。
 
 ## 1. 第一版范围与摆放
 
 只支持一个 Client、一个发送 lane、并发 1、一个 nginx 域、UserTimeline read。
-不包括 HomeTimeline、发帖、多 nginx、UB 业务写入。
-算术 Nested 微测试的默认路径已改为 fused；本应用 profile 在未指定路径时仍使用
-独立的 legacy 路由链。显式设置 `LRPC_UB_NESTED_PATH=fused` 才选择应用 fused。
+本页不包括 HomeTimeline（另见 [HomeTimeline read](SOCIAL_HOME_READ.md)）、发帖、多 nginx、UB 业务写入。
+算术 Nested 微测试和本应用的默认路径均为 fused；显式设置
+`LRPC_UB_NESTED_PATH=legacy` 才选择旧路由链。
 域调用仍使用多连接池：Client 前向一个连接，Timeline 回程一个连接，同属 A 内核，
 不同 slot/identity/ASID。这里的单 lane 限制只针对首版应用，不取消微测试的多连接能力。
 
@@ -104,7 +103,7 @@ cd "$REPO/eRPC-LRPC-UB"
 sh scripts/build.sh caller
 sh scripts/build-module.sh --vhe
 modinfo -F ud_social kernel/ub-domain/ub_lrpc_domain_vhe.ko
-# 新模块应输出 user-read-abi1-single-nginx-legacy,fused
+# 新模块应输出 user-home-read-abi1-single-nginx-legacy,fused
 # 已加载 VHE 旧模块且所有连接已退出时才执行 rmmod；未加载则跳过：
 sudo rmmod ub_lrpc_domain_vhe
 sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
@@ -363,7 +362,7 @@ NUMA 2/3 也使用按节点独立的辅助绑核计数器和实际 CPU 数，仍
 
 只有 A 的新模块和域客户端/应用需要重新构建；B 的 `--social` owner 发布格式和
 PostStorage 二进制没有变化。按第 2 节先结束旧连接，再在 A 构建、检查并换成本次
-`ud_social=user-read-abi1-single-nginx-legacy,fused` 模块；VHE/EL1 仍按各自原有步骤，
+`ud_social=user-home-read-abi1-single-nginx-legacy,fused` 模块；VHE/EL1 仍按各自原有步骤，
 不要更改机器启动配置。B 按第 5 节同一命令启动新会话。A 显式选择 fused：
 
 ```sh
@@ -455,6 +454,43 @@ grep -E 'SN_DOMAIN_E2E |SN_DOMAIN_MEASUREMENT |SN_DOMAIN_CLASS ' \
 这仍是受控、相同应用算法的 UB-eRPC 对照，不是原生 DeathStarBench gRPC 基线。
 下一轮回到 domain 模式时，取消基线留下的 `SN_BUILD_DIR` 或显式设回 A 的 `-domain` 目录；
 启动新的 B owner，重新建立域连接，不复用已经退出的连接。
+
+### 同口径 breakdown：重新测 fused 与 RPC
+
+这版 Client 的两条路径统一在取出 UserTimeline 请求后、执行各自的请求准备前开始，
+在响应处理线程完成帖子引用的消费及可选 fixture 验证后结束；引用释放在窗口外。
+因此本版 `scope=call-to-consume` 包含两条路径各自的请求构造，不能与修改前的
+`SN_DOMAIN_E2E` 数值直接混比。A 上重新构建 `client`，RPC 和 domain 会话都使用这个
+新二进制；B 的普通服务和 A 的内核模块不因**仅这次客户端打点修改**而需要更换。
+
+正常延迟轮次保持 `ERPC_SN_DOMAIN_PROFILE=0 ERPC_SN_PROFILE=0`，使用相同的
+`ERPC_SN_DOMAIN_WARMUP`、样本配置、CPU/NUMA、数据库和数据集，分别运行 fused 与 RPC。
+`run-social.sh` 的 domain 默认链是 fused；验收脚本也按 domain=fused、RPC=legacy
+自动选择预期链，显式测 legacy 时同时传 `LRPC_UB_NESTED_PATH=legacy` 和
+`check-social.py --chain legacy`。各轮结束后读取 A 的 Client 日志：
+
+```sh
+grep -E '^SN_DOMAIN_(E2E|CLASS|BREAKDOWN|BREAKDOWN_CONTRACT) ' \
+  "$REPO/eRPC-LRPC-UB/results/social-domain-a/client.log" \
+  "$REPO/eRPC-LRPC-UB/results/social-rpc-a/client.log"
+```
+
+`SN_DOMAIN_BREAKDOWN phase=measured class=all` 的三段互不重叠；也有
+`class=empty|nonempty` 供相同结果类型的对照。`prepare_to_send` 从统一起点
+到开始 flush/发送，fused 包含前向域调用、RPC 包含普通请求构造；
+`send_to_handler` 从开始 flush/发送到 A 的响应 handler 入口，包含发送、远端/本地
+服务及回程，**不是单独的网络延迟**；`handler_to_consume` 是 A 上的响应解析、引用
+导入/帖子消费及可选验证。逐请求校验三段之和等于端到端时长。
+`forward_domain` 只在 domain 路径出现，是 `prepare_to_send` 的子集，不能再加到总和。
+报告中的 p50/p99 是各段分别计算的分位数，不能将它们相加；同一批请求的均值可以相加。
+
+若要找 `send_to_handler` 内部的原因，再分别在 A、B 的**诊断轮次**设置
+`ERPC_SN_DOMAIN_PROFILE=1 ERPC_SN_PROFILE=1`，查看 Client/Timeline 的
+`SN_DOMAIN_PROFILE` 前向/回程域调用及各服务的 `SN_UB_PROFILE` 队列、PostStorage
+查找/引用保留等阶段。两类旧 profile 是聚合统计且有不同的采样/预热范围，
+不可直接与逐请求三段相减，也不可用两台机器的绝对时间戳相减。
+诊断轮次会引入额外计时开销，应与正式性能轮次分开保存；确认空/非空分类、请求数
+一致后，再据各段变化判断收益是否主要来自替代 LB/nginx 的 RPC 往返。
 
 ## 7. 安全边界与本地验证
 

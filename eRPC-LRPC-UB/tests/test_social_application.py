@@ -79,7 +79,7 @@ int main(int argc,char **argv) {
     def test_actual_baseline_response_fixture_is_opt_in(self):
         source = (APP/'client/client.cpp').read_text(encoding='utf-8')
         start = source.index('        const PostData *data = post.buffer.buf_')
-        block = source[start:source.index('        const uint64_t elapsed', start)]
+        block = source[start:source.index('        const uint64_t begin', start)]
         exe = self.compile('response', r'''
 #include <atomic>
 #include <cstdlib>
@@ -155,15 +155,33 @@ int main(int argc,char **) {
 #include "domain_measure.h"
 int main() {
  sn_measure::Campaign c; c.configure(2);
- if(!c.record(1,1,0,100,0,0) || !c.record(2,2,1,200,0,2048) || !c.report(1,0)) return 1;
+ if(!c.record(1,1,0,100,130,170,200,10,0) ||
+    !c.record(2,2,1,300,340,420,500,0,2048) || !c.report(1,0)) return 1;
+ sn_measure::Campaign bad; bad.configure(1);
+ if(bad.record(1,1,0,100,90,170,200,0,0) ||
+    bad.record(1,1,0,100,130,170,200,40,0)) return 2;
 }
-''')
+''', '-std=c++11')
         for fixture in ('0','1'):
             result = self.run_case(exe, ERPC_SN_DOMAIN_FIXTURE=fixture)
             self.assertEqual(result.returncode,0,result.stderr)
             rows = [line for line in result.stderr.splitlines() if line.startswith('SN_DOMAIN_CLASS ')]
             self.assertEqual(len(rows),6)
             self.assertTrue(all('fixture_validation_included='+fixture in row for row in rows))
+            parts = [line for line in result.stderr.splitlines()
+                     if line.startswith('SN_DOMAIN_BREAKDOWN ') and
+                     'phase=measured class=all' in line]
+            self.assertEqual(len(parts),4)
+            self.assertTrue(any('stage=prepare_to_send count=2' in row and 'avg_ns=35.0' in row
+                                for row in parts))
+            self.assertTrue(any('stage=send_to_handler count=2' in row and 'avg_ns=60.0' in row
+                                for row in parts))
+            self.assertTrue(any('stage=handler_to_consume count=2' in row and 'avg_ns=55.0' in row
+                                for row in parts))
+            self.assertTrue(any('stage=forward_domain count=1' in row and 'composition=prepare-subset' in row
+                                for row in parts))
+            self.assertIn('phase=measured class=nonempty stage=send_to_handler count=1', result.stderr)
+            self.assertNotIn('phase=measured class=nonempty stage=forward_domain', result.stderr)
 
     def test_actual_auxiliary_cpu_allocator_supports_sparse_asymmetric_nodes(self):
         source = (APP/'social_network_commons.h').read_text(encoding='utf-8')

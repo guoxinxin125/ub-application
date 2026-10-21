@@ -21,9 +21,13 @@ def services_for(config, side, mode):
         raise ValueError('invalid side/mode')
     address = lambda name: config[name]['server_addr'].rsplit(':', 1)[0]
     a, b = address('client'), address('nginx')
-    if a == b or address('user_timeline') != a or address('load_balance') != b or address('post_storage') != b:
+    user, home = config['client']['user_num'], config['client']['home_num']
+    if (user, home) not in ((1, 0), (0, 1)) or config['client']['write_num'] != 0:
+        raise ValueError('require exactly one read workload')
+    timeline = 'home_timeline' if home else 'user_timeline'
+    if a == b or address(timeline) != a or address('load_balance') != b or address('post_storage') != b:
         raise ValueError('require A=Client/Timeline, B=PostStorage/nginx/LB in both modes; regenerate config')
-    return ['user_timeline', 'client'] if side == 'A' else (
+    return [timeline, 'client'] if side == 'A' else (
         ['post_storage'] if mode == 'domain' else ['post_storage', 'nginx', 'load_balance'])
 
 

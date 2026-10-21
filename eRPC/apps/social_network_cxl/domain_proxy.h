@@ -54,6 +54,10 @@ inline uint32_t proxy_count() {
   return static_cast<uint32_t>(n);
 }
 inline uint32_t source_count() { return static_cast<uint32_t>(clients().size()); }
+inline ReadService read_service() {
+  return config_u32(config_json_all.at("client").at("home_num")) == 1 ?
+      ReadService::Home : ReadService::User;
+}
 inline uint32_t source_index() {
   static const uint32_t index = [] {
     const char *env = std::getenv("ERPC_SN_DOMAIN_CLIENT_ID");
@@ -102,8 +106,14 @@ inline void validate_config(const char *role) {
   const uint32_t stride = request_stride(lanes, source_count());
   if (FLAGS_concurrency == 0 || FLAGS_concurrency > kSlots / stride ||
       config_u32(client.at("generate_num")) == 0 || config_u32(client.at("generate_num")) > UINT32_MAX / stride ||
-      config_u32(client.at("user_num")) == 0 || config_u32(client.at("home_num")) != 0 || config_u32(client.at("write_num")) != 0)
-    throw std::invalid_argument("user-read-only workload or disjoint in-flight budget invalid");
+      !((config_u32(client.at("user_num")) == 1 && config_u32(client.at("home_num")) == 0) ||
+        (config_u32(client.at("user_num")) == 0 && config_u32(client.at("home_num")) == 1)) ||
+      config_u32(client.at("write_num")) != 0)
+    throw std::invalid_argument("single user/home read workload or disjoint in-flight budget invalid");
+#ifndef ERPC_SN_DOMAIN_UB
+  if (read_service() == ReadService::Home)
+    throw std::invalid_argument("HomeTimeline domain route currently requires the UB backend");
+#endif
   (void)proxy_count();
 #ifdef ERPC_SN_DOMAIN_UB
   if (lanes != 1 || source_count() != 1 || proxy_count() != 1 || FLAGS_concurrency != 1)
@@ -137,8 +147,9 @@ inline void validate_config(const char *role) {
     FLAGS_server_addr = r.address; FLAGS_rpc_id = r.rpc_id; FLAGS_bind_core_offset = r.bind_core_offset;
     if (source_count() > 1) FLAGS_latency_file += "-client-" + std::to_string(source);
   }
-  std::fprintf(stderr, "SN_DOMAIN_CONFIG role=%s enabled=1 wire_abi=%u scope=user-timeline-read source=%u clients=%u lanes=%u receivers=%u proxies=%u stride=%u connections=%u routing=per-source-lane-round-robin fallback=none\n",
-      role, kWireAbi, source, source_count(), lanes, lanes, proxy_count(), stride, (source_count() + 1) * lanes);
+  std::fprintf(stderr, "SN_DOMAIN_CONFIG role=%s enabled=1 wire_abi=%u scope=%s-timeline-read source=%u clients=%u lanes=%u receivers=%u proxies=%u stride=%u connections=%u routing=per-source-lane-round-robin fallback=none\n",
+      role, kWireAbi, read_service() == ReadService::Home ? "home" : "user",
+      source, source_count(), lanes, lanes, proxy_count(), stride, (source_count() + 1) * lanes);
   for (const auto &r : clients())
     std::fprintf(stderr, "SN_DOMAIN_PEER role=%s source=%u receiver_base=%u lanes=%u\n", role, r.id, r.rpc_id, lanes);
   for (const auto &r : nginx_instances())

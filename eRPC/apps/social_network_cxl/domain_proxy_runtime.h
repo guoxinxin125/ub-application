@@ -30,6 +30,8 @@ constexpr uint32_t kSlots = 15360;
 // Version 2 separates campaign-wide request identity from the LB selection key.
 constexpr uint32_t kWireAbi = 2;
 constexpr uint32_t kUserEndpoint = 102;
+constexpr uint32_t kHomeEndpoint = 103;
+enum class ReadService : uint32_t { User, Home };
 struct Origin {
   uint32_t abi, source, lane, receiver_rpc, original_request, nginx_domain;
 };
@@ -282,12 +284,13 @@ class Runtime {
     fail(role, lane, "build-option-disabled", 0, ENOTSUP);
 #endif
   }
-  uint32_t forward(uint32_t wire, uint32_t key, uint32_t source) {
-    return call(false, wire, source, 1, 0, 0, 0, 0, 0, key);
+  uint32_t forward(uint32_t wire, uint32_t key, uint32_t source,
+                   ReadService read = ReadService::User) {
+    return call(false, wire, source, 1, 0, 0, 0, 0, 0, key, read);
   }
   void reverse(uint32_t wire, const Origin &o, uint64_t machine, uint64_t block,
-               uint64_t offset, uint64_t bytes) {
-    if (call(true, wire, o.source, o.nginx_domain, o.receiver_rpc, machine, block, offset, bytes, route_key(o.original_request)) != o.receiver_rpc)
+               uint64_t offset, uint64_t bytes, ReadService read = ReadService::User) {
+    if (call(true, wire, o.source, o.nginx_domain, o.receiver_rpc, machine, block, offset, bytes, route_key(o.original_request), read) != o.receiver_rpc)
       fail(role_, lane_, "return-target", wire, EPROTO);
   }
  private:
@@ -330,14 +333,17 @@ class Runtime {
   }
 #endif
   uint32_t call(bool reverse, uint32_t wire, uint32_t source, uint32_t service,
-                uint32_t receiver, uint64_t machine, uint64_t block, uint64_t offset, uint64_t bytes, uint32_t key) {
+                uint32_t receiver, uint64_t machine, uint64_t block, uint64_t offset, uint64_t bytes, uint32_t key,
+                ReadService read) {
 #ifdef ERPC_SN_DOMAIN_PROXY
     if (!opened_) fail(role_, lane_, "not-prepared", wire, ENOTCONN);
 #ifdef ERPC_SN_DOMAIN_UB
     if (service != (reverse ? 2U : 1U)) fail(role_, lane_, "ub-service", wire, EINVAL);
     struct us_call c{}; c.abi = US_ABI; c.direction = reverse ? US_REVERSE : US_FORWARD;
     c.message.source = source; c.message.request = reverse ? wire : key;
-    c.message.value = wire; c.message.type = reverse ? US_USER_RESP : US_USER_REQ;
+    c.message.value = wire;
+    c.message.type = read == ReadService::Home ? (reverse ? US_HOME_RESP : US_HOME_REQ) :
+                                                   (reverse ? US_USER_RESP : US_USER_REQ);
     c.message.machine = machine; c.message.block = block;
     c.message.payload_offset = offset; c.message.payload_bytes = bytes;
     const struct us_message input = c.message;
@@ -352,11 +358,12 @@ class Runtime {
         c.transitions != (ub_path_ == UD_NESTED_FUSED ? 3U : 4U) ||
         c.domain[0] != service || c.domain[1] != (reverse ? 1U : 2U) ||
         c.message.action != (reverse ? US_ACTION_CLIENT : US_ACTION_RPC) ||
-        c.message.target != (reverse ? 0U : kUserEndpoint))
+        c.message.target != (reverse ? 0U : (read == ReadService::Home ? kHomeEndpoint : kUserEndpoint)))
       fail(role_, lane_, "ub-result-contract", wire, EPROTO, service);
     if (!reverse && metrics().on) ++routes_[0];
     return reverse ? receiver : 2;
 #else
+    if (read != ReadService::User) fail(role_, lane_, "home-requires-ub-domain", wire, ENOTSUP);
     struct rm_call c{}; c.abi = RM_ABI; c.chain = 1; c.service = service;
     c.function = reverse ? RM_NGINX_RETURN : RM_LB_FORWARD;
     // Existing approved LB code reads message.request for selection. Carry the
@@ -419,7 +426,7 @@ class Runtime {
 #endif
 #else
     (void)reverse; (void)source; (void)service; (void)receiver; (void)key;
-    (void)machine; (void)block; (void)offset; (void)bytes;
+    (void)machine; (void)block; (void)offset; (void)bytes; (void)read;
     fail(role_, lane_, "build-option-disabled", wire, ENOTSUP);
 #endif
   }

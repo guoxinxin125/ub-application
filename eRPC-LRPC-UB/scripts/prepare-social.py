@@ -25,14 +25,17 @@ def host(value):
 
 def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
             timeline_db_host=None, timeline_db_port=None,
-            storage_db_host=None, storage_db_port=None):
+            storage_db_host=None, storage_db_port=None, workload='user'):
     a, b = host(a), host(b)
+    if workload not in ('user', 'home'):
+        raise ValueError('workload must be user or home')
     if a == b or not 1 <= samples <= 5000 or min(numa_a, numa_b) < 0:
         raise ValueError('require two different hosts, nonnegative NUMA, 1..5000 samples')
     configs = [copy.deepcopy(original), copy.deepcopy(original)]
-    placements = {'client': a, 'user_timeline': a, 'post_storage': b,
+    timeline = workload+'_timeline'
+    placements = {'client': a, timeline: a, 'post_storage': b,
                   'nginx': b, 'load_balance': b}
-    offsets = {'client': 0, 'user_timeline': 3, 'post_storage': 6,
+    offsets = {'client': 0, timeline: 3, 'post_storage': 6,
                'nginx': 0, 'load_balance': 3}
     for c, numa in zip(configs, (numa_a, numa_b)):
         # Unused services remain in the endpoint audit, so assign explicit B
@@ -51,7 +54,10 @@ def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
         common.update(client_num=1, server_num=1, concurrency=1,
                       numa_client_node=numa, numa_server_node=numa,
                       test_loop=1, timeout_second=120)
-        c['client'].update(generate_num=samples, user_num=1, home_num=0, write_num=0)
+        c['client'].update(generate_num=samples, user_num=int(workload == 'user'),
+                           home_num=int(workload == 'home'), write_num=0)
+        if workload == 'home':
+            c.setdefault('social_graph_mongodb', {})['connections'] = c['user_timeline_mongodb']['connections']
         c.pop('domain_proxy', None)  # Explicitly one client and one nginx.
         for key, db_host, db_port in (
                 ('user_timeline_mongodb', timeline_db_host, timeline_db_port),
@@ -87,6 +93,7 @@ def main():
     parser.add_argument('--numa-a', type=int, default=0)
     parser.add_argument('--numa-b', type=int, default=1)
     parser.add_argument('--samples', type=int, default=10)
+    parser.add_argument('--workload', choices=('user', 'home'), default='user')
     parser.add_argument('--timeline-db-host')
     parser.add_argument('--timeline-db-port', type=int)
     parser.add_argument('--storage-db-host')
@@ -98,15 +105,15 @@ def main():
         configs = [prepare(json.loads(source.read_text(encoding='utf-8')), args.host_a,
                            args.host_b, args.samples, args.numa_a, args.numa_b,
                            args.timeline_db_host, args.timeline_db_port,
-                           args.storage_db_host, args.storage_db_port)[index]
+                           args.storage_db_host, args.storage_db_port, args.workload)[index]
                    for index, source in enumerate(sources)]
         args.output.mkdir(parents=True, exist_ok=False)
         for side, config in zip(('a', 'b'), configs):
             (args.output/('config-'+side+'.json')).write_text(json.dumps(config, indent=2)+'\n', encoding='utf-8')
     except (ValueError, KeyError, OSError) as exc:
         parser.error(str(exc))
-    print('UB_SOCIAL_CONFIG_READY scope=user-read client=1 lane=1 concurrency=1 nginx=1 '
-          'A=client,user_timeline B=post_storage,lb,nginx,domain-owner database=explicit-overrides-only')
+    print(f'UB_SOCIAL_CONFIG_READY scope={args.workload}-read client=1 lane=1 concurrency=1 nginx=1 '
+          f'A=client,{args.workload}_timeline B=post_storage,lb,nginx,domain-owner database=explicit-overrides-only')
 
 
 if __name__ == '__main__': main()

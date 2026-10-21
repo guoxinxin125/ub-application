@@ -10,11 +10,14 @@ void connect_sessions(ClientContext *c)
 {
 
     // connect to backward server
-    c->compose_post_session_number = c->rpc_->create_session(compose_post_addr, get_remote_rpc_id(compose_post_addr));
-    my_assert(c->compose_post_session_number >= 0);
-
-    c->nginx_session_number = c->rpc_->create_session(nginx_addr, get_remote_rpc_id(nginx_addr));
-    my_assert(c->nginx_session_number >= 0);
+    if (!sn_domain::enabled()) {
+        if (!sn_measure::rpc_baseline()) {
+            c->compose_post_session_number = c->rpc_->create_session(compose_post_addr, get_remote_rpc_id(compose_post_addr));
+            my_assert(c->compose_post_session_number >= 0);
+        }
+        c->nginx_session_number = c->rpc_->create_session(nginx_addr, get_remote_rpc_id(nginx_addr));
+        my_assert(c->nginx_session_number >= 0);
+    }
 
     // c->client_session_number = c->rpc_->create_session(client_addr, get_remote_rpc_id(client_addr));
     // my_assert(c->client_session_number >= 0);
@@ -23,10 +26,26 @@ void connect_sessions(ClientContext *c)
     my_assert(c->post_storage_session_number >= 0);
 
     // while (c->num_sm_resps_ != 4)
-    while (c->num_sm_resps_ != 3)
+    size_t domain_sessions = 0;
+    if (sn_domain::enabled()) {
+        c->domain_return_sessions.fill(-1);
+        for (const auto &client : sn_domain::clients())
+            for (uint32_t i = 0; i < FLAGS_server_num; ++i) {
+                const uint32_t receiver = client.rpc_id + i;
+                const int session = c->rpc_->create_session(client.address, static_cast<uint8_t>(receiver));
+                if (session < 0) sn_domain::fail("home_timeline", static_cast<uint32_t>(c->client_id_),
+                                                "create-client-session", 0, EHOSTUNREACH);
+                c->domain_return_sessions[receiver] = session;
+                ++domain_sessions;
+            }
+    }
+    const uint64_t deadline = sn_domain::enabled() ? sn_domain::now_ns() + UINT64_C(30000000000) : 0;
+    while (c->num_sm_resps_ != (sn_domain::enabled() ? 1 : (sn_measure::rpc_baseline() ? 2 : 3)) + domain_sessions)
     {
         // // printf("[home_timeline] Waiting for sessions... num_sm_resps_=%zu\n", c->num_sm_resps_);
         c->rpc_->run_event_loop(kAppEvLoopMs);
+        if (deadline && sn_domain::now_ns() >= deadline)
+            sn_domain::fail("home_timeline", static_cast<uint32_t>(c->client_id_), "session-ready-timeout", 0, ETIMEDOUT);
         if (unlikely(ctrl_c_pressed == 1))
         {
             // // printf("Ctrl-C pressed. Exiting\n");
@@ -34,6 +53,22 @@ void connect_sessions(ClientContext *c)
         }
     }
     // // printf("[home_timeline] All sessions established! num_sm_resps_=%zu\n", c->num_sm_resps_);
+}
+void domain_ready_handler(erpc::ReqHandle *handle, void *context) {
+    auto *ctx = static_cast<ServerContext *>(context);
+    const auto *buffer = handle->get_req_msgbuf();
+    invalidate_msgbuf_before_read(ctx->rpc_, *buffer);
+    if (buffer->get_data_size() != sizeof(RPCMsgReq<PingRPCReq>))
+        sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->server_id_), "ready-size", 0, EPROTO);
+    RPCMsgReq<PingRPCReq> request(RPC_TYPE::RPC_DOMAIN_READY, 0, {});
+    std::memcpy(&request, buffer->buf_, sizeof(request));
+    const bool ready = ctx->mongodb_init_finished.load(std::memory_order_acquire) &&
+        ctx->domain_sender_ready->load(std::memory_order_acquire);
+    const int status = request.req_common.type != RPC_TYPE::RPC_DOMAIN_READY || request.req_common.req_number != 0 ||
+        request.req_control.timestamp != sn_domain::kWireAbi ? EPROTO : (ready ? 0 : EAGAIN);
+    new (handle->pre_resp_msgbuf_.buf_) RPCMsgResp<PingRPCResp>(RPC_TYPE::RPC_DOMAIN_READY, 0, status, {sn_domain::kWireAbi});
+    ctx->rpc_->resize_msg_buffer(&handle->pre_resp_msgbuf_, sizeof(RPCMsgResp<PingRPCResp>));
+    ctx->rpc_->enqueue_response(handle, &handle->pre_resp_msgbuf_);
 }
 
 void ping_handler(erpc::ReqHandle *req_handle, void *_context)
@@ -150,6 +185,36 @@ void home_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
     sn_profile::record(sn_profile::Stage::kTimelineRxAck, ack_start);
 
 }
+void domain_home_timeline_read_req_handler(erpc::ReqHandle *handle, void *context) {
+    auto *ctx = static_cast<ServerContext *>(context);
+    const uint64_t received = sn_domain::metrics().start();
+    if (!sn_domain::enabled() || !ctx->mongodb_init_finished.load(std::memory_order_acquire))
+        sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->server_id_), "domain-receive-not-ready", 0, EAGAIN);
+    const auto *buffer = handle->get_req_msgbuf();
+    invalidate_msgbuf_before_read(ctx->rpc_, *buffer);
+    if (buffer->get_data_size() != sizeof(RPCMsgReq<DomainHomeRequest>))
+        sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->server_id_), "domain-request-size", 0, EPROTO);
+    RPCMsgReq<DomainHomeRequest> incoming(RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_REQ, 0, {});
+    std::memcpy(&incoming, buffer->buf_, sizeof(incoming));
+    const uint32_t wire = incoming.req_common.req_number;
+    if (incoming.req_common.type != RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_REQ ||
+        !sn_domain::origin_valid(incoming.req_control.origin, wire))
+        sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->server_id_), "domain-request-origin", wire, EPROTO);
+    const size_t slot = wire % kAppMaxBuffer;
+    ctx->domain_pending[slot].store(wire, incoming.req_control.origin);
+    erpc::MsgBuffer local = ctx->rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<HomeTimeLineReq>));
+    new (local.buf_) RPCMsgReq<HomeTimeLineReq>(RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ, wire,
+                                                   incoming.req_control.request);
+    local.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ));
+    local.set_hdr_req_num(wire);
+    ctx->read_queue_start_ns[slot].store(sn_profile::start(), std::memory_order_relaxed);
+    ctx->forward_all_mpmc_queue->push(local);
+    ++ctx->stat_req_home_timeline_read_req_tot;
+    ctx->rpc_->resize_msg_buffer(&handle->pre_resp_msgbuf_, 0);
+    ctx->rpc_->enqueue_response(handle, &handle->pre_resp_msgbuf_);
+    if (sn_measure::measured(incoming.req_control.origin.original_request))
+        sn_domain::metrics().finish(sn_domain::Stage::kReceive, received);
+}
 
 void post_storage_read_resp_handler(erpc::ReqHandle *req_handle, void *_context)
 {
@@ -251,6 +316,15 @@ void callback_home_timeline_read_resp(void *_context, void *_tag)
     uint32_t req_id = req_id_ptr;
     auto *ctx = static_cast<ClientContext *>(_context);
 
+    if (sn_domain::enabled()) {
+        const auto *response = reinterpret_cast<const RPCMsgReq<DomainHomeResponse> *>(ctx->req_backward_msgbuf[req_id].buf_);
+        const uint32_t wire = response->req_common.req_number;
+        if (sn_measure::measured(response->req_control.origin.original_request))
+            sn_domain::metrics().finish(sn_domain::Stage::kAck, ctx->domain_ack_start[req_id]);
+        ctx->domain_ack_start[req_id] = 0;
+        ctx->domain_pending[req_id].clear(wire);
+    }
+
     // erpc::MsgBuffer &req_msgbuf = ctx->req_backward_msgbuf[req_id];
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[req_id];
 
@@ -263,6 +337,41 @@ void callback_home_timeline_read_resp(void *_context, void *_tag)
 
 void handler_home_timeline_read_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
+    if (sn_domain::enabled()) {
+        if (req_msgbuf.get_data_size() != sizeof(RPCMsgReq<PostStorageReadCXLResp>))
+            sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->client_id_), "result-size", 0, EPROTO);
+        invalidate_msgbuf_before_read(ctx->rpc_, req_msgbuf);
+        RPCMsgReq<PostStorageReadCXLResp> result(RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP, 0, {});
+        std::memcpy(&result, req_msgbuf.buf_, sizeof(result));
+        const uint32_t wire = result.req_common.req_number;
+        const size_t slot = wire % kAppMaxBuffer;
+        require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot], "home_timeline.domain_response", slot);
+        const sn_domain::Origin origin = ctx->domain_pending[slot].get(wire);
+        if (result.req_common.type != RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP ||
+            result.req_control.count > 1 || !sn_domain::origin_valid(origin, wire))
+            sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->client_id_), "result-identity", wire, EPROTO);
+        const auto &post = result.req_control.post;
+        ctx->domain_runtime.reverse(wire, origin, post.machine_id, post.block_offset,
+                                    post.payload_offset, post.payload_length, sn_domain::ReadService::Home);
+        const int session = ctx->domain_return_sessions[origin.receiver_rpc];
+        if (session < 0 || !ctx->rpc_->is_connected(session))
+            sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->client_id_), "return-session", wire, ENOTCONN);
+        erpc::MsgBuffer outgoing = ctx->rpc_->alloc_msg_buffer_or_die(sizeof(RPCMsgReq<DomainHomeResponse>));
+        DomainHomeResponse response{}; response.origin = origin; response.response = result.req_control;
+        new (outgoing.buf_) RPCMsgReq<DomainHomeResponse>(RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_RESP, wire, response);
+        outgoing.set_hdr_req_type(static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_RESP));
+        outgoing.set_hdr_req_num(wire);
+        release_msgbuf(ctx->rpc_, req_msgbuf);
+        ctx->req_backward_msgbuf[slot] = outgoing;
+        flush_msgbuf_before_send(ctx->rpc_, outgoing);
+        ctx->domain_ack_start[slot] = sn_measure::measured(origin.original_request) ? sn_domain::metrics().start() : 0;
+        const uint64_t send = ctx->domain_ack_start[slot];
+        ctx->rpc_->enqueue_request(session, static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_RESP),
+            &ctx->req_backward_msgbuf[slot], &ctx->resp_backward_msgbuf[slot],
+            callback_home_timeline_read_resp, reinterpret_cast<void *>(slot));
+        sn_domain::metrics().finish(sn_domain::Stage::kSend, send);
+        return;
+    }
     const size_t slot = req_msgbuf.get_hdr_req_num() % kAppMaxBuffer;
     require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
                               "home_timeline.req_backward_msgbuf", slot);
@@ -357,6 +466,8 @@ void handler_post_storage_read_req(ClientContext *ctx, const erpc::MsgBuffer &re
 void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus)
 {
     ctx->client_id_ = thread_id;
+    sn_domain::metrics().configure("home_timeline-send", static_cast<uint32_t>(thread_id), 0);
+    sn_domain::pin_worker("home_timeline", static_cast<uint32_t>(thread_id));
     std::vector<size_t> port_vec = flags_get_cxl_ports(0);
     uint8_t phy_port = port_vec.at(thread_id % port_vec.size());
 
@@ -379,6 +490,11 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
     }
 
     connect_sessions(ctx);
+    if (sn_domain::enabled()) {
+        ctx->domain_runtime.open("home_timeline", static_cast<uint32_t>(thread_id), sn_domain::proxy_count());
+        ctx->domain_sender_ready.store(true, std::memory_order_release);
+    }
+    if (sn_measure::rpc_baseline()) ctx->domain_sender_ready.store(true, std::memory_order_release);
 
     while (true)
     {
@@ -428,11 +544,14 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
             break;
         }
     }
+    ctx->domain_runtime.close();
+    sn_domain::metrics().report();
 }
 
 void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus)
 {
     ctx->server_id_ = thread_id;
+    sn_domain::metrics().configure("home_timeline-receive", static_cast<uint32_t>(thread_id), 0);
     std::vector<size_t> port_vec = flags_get_cxl_ports(0);
     uint8_t phy_port = port_vec.at(thread_id % port_vec.size());
 
@@ -460,6 +579,7 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
             break;
         }
     }
+    sn_domain::metrics().report();
 }
 void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *consumer_back, MPMC_QUEUE *consumer_fwd, AppRpc *rpc_, AppRpc *server_rpc_, std::atomic<uint64_t> *read_queue_start_ns, std::atomic<uint64_t> *forward_queue_start_ns)
 {
@@ -535,13 +655,15 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
 void mongodb_init(AppContext *ctx){
     mongodb_client_pool = init_mongodb_client_pool(config_json_all, "user_timeline", mongodb_conns_num);
     mongoc_client_t *mongodb_client =  mongoc_client_pool_pop(mongodb_client_pool);
+    if (!mongodb_client) mongodb_load_failure("home_timeline", "client-create");
 
     auto collection = mongoc_client_get_collection(mongodb_client, "user-timeline", "user-timeline");
 
-    my_assert(collection);
+    if (!collection) mongodb_load_failure("home_timeline", "collection-create");
 
     bson_t* query = bson_new();
     mongoc_cursor_t* cursor = mongoc_collection_find_with_opts(collection, query, nullptr, nullptr);
+    if (!cursor) mongodb_load_failure("home_timeline", "cursor-create");
 
     const bson_t *doc;
 
@@ -568,6 +690,7 @@ void mongodb_init(AppContext *ctx){
         }
     }
 
+    require_mongodb_query_success(cursor, "home_timeline");
     bson_destroy(query);
     mongoc_cursor_destroy(cursor);
     mongoc_collection_destroy(collection);
@@ -601,6 +724,10 @@ void leader_thread_func()
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_PING), ping_handler);
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_WRITE_REQ), home_timeline_write_req_handler);
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ), home_timeline_read_req_handler);
+    if (sn_domain::enabled()) nexus.register_req_func(
+        static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_REQ), domain_home_timeline_read_req_handler);
+    if (sn_domain::enabled() || sn_measure::rpc_baseline()) nexus.register_req_func(
+        static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_READY), domain_ready_handler);
 
     nexus.register_req_func(static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_READ_RESP), post_storage_read_resp_handler);
 

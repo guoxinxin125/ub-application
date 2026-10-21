@@ -20,8 +20,9 @@ class Services(unittest.TestCase):
         payload, symbols = ARTIFACT
         for domain, name in enumerate(('lb_forward','nginx_forward','nginx_return','lb_return')):
             code = payload[symbols['us_'+name+'_start']:symbols['us_'+name+'_end']]
-            for key in (0,1,15359,15360,2**32-1):
-                with self.subTest(domain=domain,key=key):
+            for key, home in ((key, home) for key in (0,1,15359,15360,2**32-1)
+                              for home in (False, True)):
+                with self.subTest(domain=domain,key=key,home=home):
                     cpu = Uc(UC_ARCH_ARM64,UC_MODE_ARM)
                     args,heap,base = 0x100000,0x200000,0x300000
                     cpu.mem_map(args,4096,UC_PROT_READ|UC_PROT_WRITE)
@@ -30,7 +31,8 @@ class Services(unittest.TestCase):
                     cfg = (1,1 if domain in (0,3) else 2,15360,1,2,0,0,0,101,102,103,1,0)
                     cpu.mem_write(heap,struct.pack('<13I',*cfg))
                     cpu.mem_protect(heap,4096,UC_PROT_READ)
-                    message = (17,key,99,4096,128,2048,123,0,9 if domain<2 else 10,0,0,0)
+                    message = (17,key,99,4096,128,2048,123,0,
+                               (11 if home else 9) if domain<2 else (12 if home else 10),0,0,0)
                     cpu.mem_write(args,struct.pack('<8Q4I',*message));cpu.mem_write(base,code)
                     cpu.reg_write(arm.UC_ARM64_REG_X0,args);cpu.reg_write(arm.UC_ARM64_REG_X1,heap)
                     stopped,reads = [],[]
@@ -47,7 +49,7 @@ class Services(unittest.TestCase):
                     self.assertEqual(len(stopped),1)
                     actual = struct.unpack('<8Q4I',bytes(cpu.mem_read(args,80)))
                     expected = list(message)
-                    expected[9],expected[10] = ((2,2),(1,102),(2,1),(3,0))[domain]
+                    expected[9],expected[10] = ((2,2),(1,103 if home else 102),(2,1),(3,0))[domain]
                     self.assertEqual(actual,tuple(expected))
                     self.assertEqual(bytes(cpu.mem_read(heap,52)),struct.pack('<13I',*cfg))
                     if domain<3: self.assertTrue(reads)

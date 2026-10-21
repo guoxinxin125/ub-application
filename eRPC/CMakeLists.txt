@@ -559,7 +559,7 @@ elseif(APP STREQUAL "social_network_cxl")
       ${NLOHMANN_JSON_INCLUDE_DIR}
     )
     target_compile_features(${program_name} PRIVATE cxx_std_17)
-    if(ERPC_SN_DOMAIN_PROXY AND (program_name STREQUAL "client" OR program_name STREQUAL "user_timeline"))
+    if(ERPC_SN_DOMAIN_PROXY AND (program_name STREQUAL "client" OR program_name STREQUAL "user_timeline" OR program_name STREQUAL "home_timeline"))
       target_compile_definitions(${program_name} PRIVATE ERPC_SN_DOMAIN_PROXY=1)
       if(ERPC_SN_DOMAIN_BACKEND STREQUAL "ub")
         target_compile_definitions(${program_name} PRIVATE ERPC_SN_DOMAIN_UB=1)
