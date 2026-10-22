@@ -1,0 +1,15 @@
+ub_manager: machine=1 region=sn_lrpc_lab_1020_0000000000000001 bytes=2147483648 socket=/tmp/sn_lrpc_lab_1020_a.sock
+ub_manager: shutting down region=sn_lrpc_lab_1020_0000000000000001; waiting up to 30000 ms for peer mappings
+[2026-10-22 12:01:50.112 +08:00][ERROR][2049007][281473040916512][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_lab_1020_0000000000000001
+[2026-10-22 12:01:50.112 +08:00][ERROR][2049007][281473040916512][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-22 12:01:50.112 +08:00][ERROR][2049007][281473040916512][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-22 12:01:50.613 +08:00][ERROR][2049007][281473040916512][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_lab_1020_0000000000000001
+[2026-10-22 12:01:50.613 +08:00][ERROR][2049007][281473040916512][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-22 12:01:50.613 +08:00][ERROR][2049007][281473040916512][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-22 12:01:51.114 +08:00][ERROR][2049007][281473040916512][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_lab_1020_0000000000000001
+[2026-10-22 12:01:51.114 +08:00][ERROR][2049007][281473040916512][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-22 12:01:51.114 +08:00][ERROR][2049007][281473040916512][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-22 12:01:51.616 +08:00][ERROR][2049007][281473040916512][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_lab_1020_0000000000000001
+[2026-10-22 12:01:51.616 +08:00][ERROR][2049007][281473040916512][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-22 12:01:51.616 +08:00][ERROR][2049007][281473040916512][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+UB: deleted region sn_lrpc_lab_1020_0000000000000001 after 5 attempts while peers released their mappings

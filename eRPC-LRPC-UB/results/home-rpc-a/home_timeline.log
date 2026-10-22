@@ -1,0 +1,6 @@
+SN_DOMAIN_CONFIG role=home_timeline enabled=0 path=original-rpc
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_lab_1020_a.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_lab_1020_a.sock
+[home_timeline] mongodb init finished! Total init 9424 posts
+Rpc 7: Created Server session_num = 0 for client [H: 76.53.137.82:31851, R: 21, S: 2] from 76.53.137.82 (rpc 21)
+Rpc 7: Created Server session_num = 1 for client [H: 76.53.137.81:31852, R: 22, S: 0] from 76.53.137.81 (rpc 22)
