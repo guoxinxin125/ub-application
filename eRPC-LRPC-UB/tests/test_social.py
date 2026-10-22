@@ -399,7 +399,7 @@ struct ud_regs {u64 x[31],sp,pc,pstate,esr,far,vector;};
 struct ud_session {
  void *args[UD_DOMAINS], *empty_root;
  struct ud_prepare p; unsigned long asid[UD_DOMAINS]; bool committed;
- unsigned nested_path;
+ unsigned nested_path, profile;
 };
 static struct ud_session *active;
 static struct us_heap heap;
@@ -424,7 +424,7 @@ static u64 ktime_get_ns(void) {static u64 n;return ++n;}
 static int ud_mapping(struct ud_session *s,bool init) {(void)s;(void)init;return fail_mapping ? -ESTALE : 0;}
 static int ud_supported(void) {return fail_supported ? -EOPNOTSUPP : 0;}
 static const unsigned char *ud_profile_service(unsigned p,unsigned d,unsigned long *size) {
- static unsigned char code[8]; assert(p==UD_PROFILE_SOCIAL && d<4);*size=8;return code;
+ static unsigned char code[8]; assert((p==UD_PROFILE_SOCIAL || p==UD_PROFILE_SOCIAL_WRITE) && d<4);*size=8;return code;
 }
 static void ud_initial_regs(struct ud_session *s,unsigned d,struct ud_regs *r) {
  (void)s;memset(r,0,sizeof(*r));r->x[0]=UD_ARGS;r->x[1]=UD_DATA+us_config_offset(d);
@@ -438,7 +438,8 @@ static void ud_enter_selected(struct ud_regs *r,u64 root,u64 tcr,u64 empty,unsig
  unsigned expected=c->direction*2+entries;
  assert(d==expected); ++entries;
  if(d==0) {c->message.action=US_ACTION_DOMAIN;c->message.target=config->nginx[0];}
- if(d==1) {c->message.action=US_ACTION_RPC;c->message.target=c->message.type==US_HOME_REQ ? config->home_endpoint : config->user_endpoint;}
+ if(d==1) {c->message.action=US_ACTION_RPC;c->message.target=c->message.type==US_WRITE_REQ ? 104 : c->message.type==US_HOME_REQ ? config->home_endpoint : config->user_endpoint;
+            if(c->message.type==US_WRITE_REQ) c->message.ticket=c->message.value;}
  if(d==2) {c->message.action=US_ACTION_DOMAIN;c->message.target=config->return_domain;}
  if(d==3) {c->message.action=US_ACTION_CLIENT;c->message.target=0;}
  r->vector=8;r->esr=(0x3cULL<<26)|0x4c0;r->pc=UD_VA+4;
@@ -470,7 +471,7 @@ static void initialize(struct ud_session *s,unsigned direction,unsigned request)
  s->committed=true;entries=0;active=s;
 }
 int main(void) {
- struct ud_session s={0};us_heap_init(&heap);
+ struct ud_session s={.profile=UD_PROFILE_SOCIAL};us_heap_init(&heap);
  for(unsigned d=0;d<4;d++) {
   s.args[d]=calloc(1,4096);assert(s.args[d]);
   s.p.contract.table_pa[d][0]=(d+1)*4096;s.asid[d]=100+d;
@@ -491,6 +492,18 @@ int main(void) {
   initialize(&s,direction,1);corrupt=f;assert(ud_run_social(&s)==-EPROTO && !s.committed);
   assert(!locks && !irqs && !preempt);corrupt=0;
  }
+ s.profile=UD_PROFILE_SOCIAL_WRITE;
+ for(unsigned path=0;path<=1;path++) {
+  s.nested_path=path;
+  initialize(&s,0,1);
+  struct us_call *write=(void *)((char *)s.args[0]+US_MAPPED_OFFSET);
+  write->message.type=US_WRITE_REQ;
+  assert(!ud_run_social(&s) && write->message.ticket==write->message.value);
+ }
+ s.profile=UD_PROFILE_SOCIAL;
+ initialize(&s,0,1);
+ ((struct us_call *)((char *)s.args[0]+US_MAPPED_OFFSET))->message.type=US_WRITE_REQ;
+ assert(ud_run_social(&s)==-EINVAL && !locks && !irqs && !preempt);
  initialize(&s,0,1);fail_mapping=1;assert(ud_run_social(&s)==-ESTALE && !locks && !irqs && !preempt);
  fail_mapping=0;fail_supported=1;assert(ud_run_social(&s)==-EOPNOTSUPP && !locks && !irqs && !preempt);
  for(unsigned d=0;d<4;d++) free(s.args[d]);

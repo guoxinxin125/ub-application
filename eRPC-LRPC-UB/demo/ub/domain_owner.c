@@ -17,13 +17,17 @@ int main(int argc, char **argv)
     const char *pos[2] = {NULL, NULL}, *name;
     struct ud_publication *pub;
     struct ud_contract c;
-    unsigned int d, l;
+    unsigned int d, l, slot, index;
     unsigned long size;
-    int rc, failed = 0, count, multi = 0, social = 0, i, j;
+    static __u64 observed[UD_CLIENTS][UD_PAGE / sizeof(__u64)];
+    int rc, failed = 0, count, multi = 0, social = 0, write = 0, i, j;
     for (i = j = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--social")) {
             if (social) return 2;
             social = 1;
+        } else if (!strcmp(argv[i], "--social-write")) {
+            if (social || write) return 2;
+            social = write = 1;
         } else if (!strcmp(argv[i], "--multi")) {
             if (multi) return 2;
             multi = 1;
@@ -34,7 +38,7 @@ int main(int argc, char **argv)
     count = ub_provider_parse(&options, argc, argv, 1, pos, 2);
     if (count < 0) {
         fprintf(stderr, "usage: %s [SHM_NAME] [--provider-host HOST] "
-                "[--provider-numa N] [--provider-socket N] [--provider-port N] [--multi|--social]\n"
+                "[--provider-numa N] [--provider-socket N] [--provider-port N] [--multi|--social|--social-write]\n"
                 "legacy: %s B_PROVIDER_HOST SHM_NAME\n", argv[0], argv[0]);
         return 2;
     }
@@ -47,11 +51,13 @@ int main(int argc, char **argv)
         __u64 generation;
         if (getrandom(&generation, sizeof(generation), 0) != sizeof(generation) || !generation ||
             ud_pool_initialize_profile(region.base, generation,
+                                       write ? UD_PROFILE_SOCIAL_WRITE :
                                        social ? UD_PROFILE_SOCIAL : UD_PROFILE_MICRO)) {
             fprintf(stderr, "UB_DOMAIN_OWNER_FAIL pool-init\n"); failed = 1; goto out;
         }
         printf("UB_DOMAIN_OWNER_READY multi=1 capacity=%u generation=%llu page_tables=B heap=B profile=%s\n",
-               UD_CLIENTS, (unsigned long long)generation, social ? "social-user-read" : "micro");
+               UD_CLIENTS, (unsigned long long)generation,
+               write ? "social-write-probe" : social ? "social-user-read" : "micro");
         fflush(stdout);
         while (!stopped) {
             rc = ud_pool_poll(region.base);
@@ -59,6 +65,23 @@ int main(int argc, char **argv)
             if (rc) {
                 printf("UB_DOMAIN_POOL_PUBLISHED count=%d b_service_executions=0\n", rc);
                 fflush(stdout);
+            }
+            if (write) {
+                /* Observer only. No B service dispatch; changed values prove B visibility. */
+                for (slot = 0; slot < UD_CLIENTS; ++slot) {
+                    volatile __u64 *slots = (volatile __u64 *)((char *)region.base + UD_WRITE_HEAP(slot));
+                    for (index = 0; index < UD_PAGE / sizeof(__u64); ++index) {
+                        __u64 value = __atomic_load_n(&slots[index], __ATOMIC_ACQUIRE);
+                        if (value != observed[slot][index]) {
+                            observed[slot][index] = value;
+                            if (value) {
+                                printf("UB_DOMAIN_WRITE_OBSERVED slot=%u index=%u value=%llu\n",
+                                       slot, index, (unsigned long long)value);
+                                fflush(stdout);
+                            }
+                        }
+                    }
+                }
             }
             usleep(1000);
         }
@@ -71,7 +94,7 @@ int main(int argc, char **argv)
     while (!stopped && !__atomic_load_n(&pub->request, __ATOMIC_ACQUIRE)) usleep(1000);
     if (stopped) goto out;
     memcpy(&c, &pub->contract, sizeof(c));
-    if (!ud_contract_valid(&c) || c.nonce != pub->request) {
+    if (!ud_contract_valid(&c) || c.write_pa || c.nonce != pub->request) {
         fprintf(stderr, "UB_DOMAIN_OWNER_FAIL contract\n"); failed = 1; goto out;
     }
     for (d = 0; d < UD_DOMAINS; ++d) {

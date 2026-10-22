@@ -71,6 +71,9 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context) {
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
+    if (req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_REQ ||
+        req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ)
+        sn_profile::flow_point("load_balance", req_msgbuf->get_hdr_req_num(), "forward_receive");
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ:
             ctx->stat_req_compose_post_tot++;
@@ -114,6 +117,9 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
+    if (req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_RESP ||
+        req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP)
+        sn_profile::flow_point("load_balance", req_msgbuf->get_hdr_req_num(), "reverse_receive");
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_RESP:
             ctx->stat_req_compose_post_resp_tot++;
@@ -223,8 +229,9 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
                         const ProxyInlineMessage *inline_msg = nullptr) {
     const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
                                                     : inline_msg->req_type;
-    const size_t slot = (inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
-                                               : inline_msg->req_num) % kAppMaxBuffer;
+    const uint32_t request = inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
+                                                   : inline_msg->req_num;
+    const size_t slot = request % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
                               "load_balance.req_forward_msgbuf", slot);
@@ -242,6 +249,9 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
     ctx->rpc_->enqueue_request(session_num, req_type,
                                &ctx->req_forward_msgbuf[slot], &resp_msgbuf,
                                callback_common_req, reinterpret_cast<void *>(slot));
+    if (req_type == static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_REQ) ||
+        req_type == static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ))
+        sn_profile::flow_point("load_balance", request, "forward_enqueue");
     sn_profile::record(sn_profile::Stage::kProxyForwardTxEnqueue,
                        enqueue_start);
 }
@@ -264,8 +274,9 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
                          const ProxyInlineMessage *inline_msg = nullptr) {
     const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
                                                     : inline_msg->req_type;
-    const size_t slot = (inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
-                                               : inline_msg->req_num) % kAppMaxBuffer;
+    const uint32_t request = inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
+                                                   : inline_msg->req_num;
+    const size_t slot = request % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
                               "load_balance.req_backward_msgbuf", slot);
@@ -281,6 +292,9 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
     ctx->rpc_->enqueue_request(ctx->backward_session_num_, req_type,
                                &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
                                callback_common_resp, reinterpret_cast<void *>(slot));
+    if (req_type == static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP) ||
+        req_type == static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP))
+        sn_profile::flow_point("load_balance", request, "reverse_enqueue");
     sn_profile::record(sn_profile::Stage::kProxyReverseTxEnqueue,
                        enqueue_start);
 }

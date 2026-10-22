@@ -52,6 +52,8 @@ elseif(UBLRPC_ROLE STREQUAL "caller")
     target_link_libraries(lrpc-ub-domain-multi PRIVATE lrpc)
     add_executable(lrpc-ub-social-probe demo/ub/social_probe.c)
     target_link_libraries(lrpc-ub-social-probe PRIVATE lrpc)
+    add_executable(lrpc-ub-domain-write-probe demo/ub/domain_write_probe.c)
+    target_link_libraries(lrpc-ub-domain-write-probe PRIVATE lrpc)
     add_executable(lrpc-ub-domain-tlb-probe demo/ub/domain_tlb_probe.c)
     target_link_libraries(lrpc-ub-domain-tlb-probe PRIVATE lrpc)
     add_executable(lrpc-ub-domain-trace demo/ub/domain_trace.c)
@@ -60,7 +62,8 @@ elseif(UBLRPC_ROLE STREQUAL "caller")
     target_link_libraries(lrpc-ub-pa-probe PRIVATE lrpc)
     get_filename_component(UBSM_LIBRARY_DIR "${UBSM_LIBRARY}" DIRECTORY)
     get_filename_component(OBMM_LIBRARY_DIR "${OBMM_LIBRARY}" DIRECTORY)
-    set_target_properties(lrpc-ub-domain-bench lrpc-ub-domain-multi lrpc-ub-social-probe lrpc-ub-domain-tlb-probe
+    set_target_properties(lrpc-ub-domain-bench lrpc-ub-domain-multi lrpc-ub-social-probe
+        lrpc-ub-domain-write-probe lrpc-ub-domain-tlb-probe
         lrpc-ub-domain-trace
         lrpc-ub-pa-probe PROPERTIES
         BUILD_RPATH "${UBSM_LIBRARY_DIR};${OBMM_LIBRARY_DIR}")

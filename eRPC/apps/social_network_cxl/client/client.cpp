@@ -125,6 +125,7 @@ void domain_timeline_read_resp_handler(erpc::ReqHandle *handle, void *context,
     std::memcpy(&response, buffer->buf_, sizeof(response));
     const auto &o = response.req_control.origin;
     const uint32_t wire = response.req_common.req_number;
+    sn_profile::flow_point_at("client", o.original_request, "response_arrival", response_arrival);
     sn_diag::point_at("client_receive", wire, response_arrival);
     sn_diag::Event *diagnostic_receive = sn_diag::begin("client_consume", wire);
     if (response.req_control.response.count > 1)
@@ -150,6 +151,7 @@ void domain_timeline_read_resp_handler(erpc::ReqHandle *handle, void *context,
     }
     const uint64_t begin = origin->domain_e2e_start[slot].load(std::memory_order_acquire);
     const uint64_t done = sn_domain::now_ns();
+    sn_profile::flow_point_at("client", o.original_request, "consume_done", done);
     const uint64_t elapsed_ns = begin ? done - begin : 0;
     sn_diag::point("client_complete", wire);
     sn_diag::finish(diagnostic_receive);
@@ -240,6 +242,8 @@ void timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_context, bo
     auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
     const PostStorageReadCXLResp &reference_resp = req->req_control;
     const uint32_t req_number = req_common->req_number;
+    if (sn_measure::rpc_baseline())
+        sn_profile::flow_point_at("client", req_number, "response_arrival", response_arrival);
     if ((sn_domain::enabled() || sn_measure::rpc_baseline()) &&
         req_common->type != (home ? RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP : RPC_TYPE::RPC_USER_TIMELINE_READ_RESP))
         sn_domain::fail("client", static_cast<uint32_t>(ctx->server_id_), "timeline-response-type", req_number, EPROTO);
@@ -264,6 +268,7 @@ void timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_context, bo
         }
         const uint64_t begin = origin->domain_e2e_start[slot].load(std::memory_order_acquire);
         const uint64_t done = sn_domain::now_ns();
+        sn_profile::flow_point_at("client", req_number, "consume_done", done);
         const uint64_t elapsed = begin ? done - begin : 0;
         sn_diag::point("client_complete", req_number);
         sn_diag::finish(diagnostic_receive);
@@ -472,9 +477,11 @@ void handler_timeline_read_req(ClientContext *ctx, REQ_MSG req_msg, bool home) {
     req_msgbuf = home ? ctx->home_timeline_req_queue->pop() : ctx->user_timeline_req_queue->pop();
     // The comparison starts at the same application boundary for both routes.
     const uint64_t call_begin = sn_measure::enabled() ? sn_domain::now_ns() : 0;
+    sn_profile::flow_point_at("client", req_msg.req_id, "after_pop", call_begin);
     if (sn_domain::enabled()) {
         const uint32_t lane = static_cast<uint32_t>(ctx->client_id_);
         const uint32_t wire = sn_domain::client_wire(req_msg.req_id, lane);
+        sn_profile::flow_point_at("client", wire, "wire_identity", call_begin, req_msg.req_id);
         const size_t slot = req_msg.req_id % kAppMaxBuffer;
         if (ctx->domain_inflight[slot].load(std::memory_order_acquire))
             sn_domain::fail("client", lane, "request-slot-busy", wire, EBUSY);
@@ -483,10 +490,13 @@ void handler_timeline_read_req(ClientContext *ctx, REQ_MSG req_msg, bool home) {
         ctx->domain_e2e_start[slot].store(start, std::memory_order_release);
         sn_diag::point("client_call_begin", wire);
         const uint64_t forward_begin = sn_measure::enabled() ? sn_domain::now_ns() : 0;
+        sn_profile::flow_point_at("client", req_msg.req_id, "forward_begin", forward_begin);
         const uint32_t nginx = ctx->domain_runtime.forward(wire, sn_domain::route_key(req_msg.req_id),
             sn_domain::source_id(), home ? sn_domain::ReadService::Home : sn_domain::ReadService::User);
+        const uint64_t forward_end = sn_measure::enabled() ? sn_domain::now_ns() : 0;
+        sn_profile::flow_point_at("client", req_msg.req_id, "forward_end", forward_end);
         sn_diag::point("client_forward_done", wire);
-        if (sn_measure::enabled()) ctx->domain_forward_ns[slot].store(sn_domain::now_ns()-forward_begin, std::memory_order_release);
+        if (sn_measure::enabled()) ctx->domain_forward_ns[slot].store(forward_end-forward_begin, std::memory_order_release);
         const sn_domain::Origin origin{sn_domain::kWireAbi, sn_domain::source_id(), lane,
             sn_domain::receiver_base() + lane % static_cast<uint32_t>(FLAGS_server_num),
             req_msg.req_id, nginx};
@@ -500,7 +510,9 @@ void handler_timeline_read_req(ClientContext *ctx, REQ_MSG req_msg, bool home) {
             request->req_control.origin = origin;
         }
         ctx->domain_inflight[slot].store(wire, std::memory_order_release);
+        sn_profile::flow_point("client", req_msg.req_id, "request_ready");
         if (sn_measure::enabled()) ctx->domain_tx_begin_ns[slot].store(sn_domain::now_ns(), std::memory_order_release);
+        sn_profile::flow_point("client", req_msg.req_id, "send_begin");
         flush_msgbuf_before_send(ctx->rpc_, req_msgbuf);
         ctx->domain_ack_start[slot] = sn_measure::measured(req_msg.req_id) ? sn_domain::metrics().start() : 0;
         const uint64_t send = ctx->domain_ack_start[slot];
@@ -509,12 +521,14 @@ void handler_timeline_read_req(ClientContext *ctx, REQ_MSG req_msg, bool home) {
             static_cast<uint8_t>(home ? RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_REQ :
                                  RPC_TYPE::RPC_DOMAIN_USER_TIMELINE_READ_REQ), &req_msgbuf, &resp_msgbuf,
             callback_common, reinterpret_cast<void *>(req_msg.req_id));
+        sn_profile::flow_point("client", req_msg.req_id, "enqueue_done");
         sn_diag::point("client_send_done", wire);
         sn_domain::metrics().finish(sn_domain::Stage::kSend, send);
         return;
     }
     new (req_msgbuf.buf_) CommonReq{ home ? RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ :
         RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, req_msg.req_id };
+    sn_profile::flow_point("client", req_msg.req_id, "request_ready");
 
     if (sn_measure::rpc_baseline()) {
         const size_t slot = req_msg.req_id % kAppMaxBuffer;
@@ -528,6 +542,7 @@ void handler_timeline_read_req(ClientContext *ctx, REQ_MSG req_msg, bool home) {
     }
     if (sn_measure::rpc_baseline())
         ctx->domain_tx_begin_ns[req_msg.req_id % kAppMaxBuffer].store(sn_domain::now_ns(), std::memory_order_release);
+    sn_profile::flow_point("client", req_msg.req_id, "send_begin");
     flush_msgbuf_before_send(ctx->rpc_, req_msgbuf);
     ctx->domain_ack_start[req_msg.req_id % kAppMaxBuffer] = sn_measure::measured(req_msg.req_id) ? sn_domain::metrics().start() : 0;
     const uint64_t send = ctx->domain_ack_start[req_msg.req_id % kAppMaxBuffer];
@@ -536,6 +551,7 @@ void handler_timeline_read_req(ClientContext *ctx, REQ_MSG req_msg, bool home) {
         RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ : RPC_TYPE::RPC_USER_TIMELINE_READ_REQ),
         &req_msgbuf, &resp_msgbuf,
         callback_common, reinterpret_cast<void *>(req_msg.req_id));
+    sn_profile::flow_point("client", req_msg.req_id, "enqueue_done");
     if (sn_measure::rpc_baseline()) sn_diag::point("client_send_done", req_msg.req_id);
     sn_domain::metrics().finish(sn_domain::Stage::kSend, send);
 }

@@ -103,7 +103,7 @@ cd "$REPO/eRPC-LRPC-UB"
 sh scripts/build.sh caller
 sh scripts/build-module.sh --vhe
 modinfo -F ud_social kernel/ub-domain/ub_lrpc_domain_vhe.ko
-# 新模块应输出 user-home-read-abi1-single-nginx-legacy,fused
+# 新模块应输出 user-home-read-and-opt-in-write-probe-abi2-legacy,fused
 # 已加载 VHE 旧模块且所有连接已退出时才执行 rmmod；未加载则跳过：
 sudo rmmod ub_lrpc_domain_vhe
 sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
@@ -362,7 +362,7 @@ NUMA 2/3 也使用按节点独立的辅助绑核计数器和实际 CPU 数，仍
 
 只有 A 的新模块和域客户端/应用需要重新构建；B 的 `--social` owner 发布格式和
 PostStorage 二进制没有变化。按第 2 节先结束旧连接，再在 A 构建、检查并换成本次
-`ud_social=user-home-read-abi1-single-nginx-legacy,fused` 模块；VHE/EL1 仍按各自原有步骤，
+`ud_social=user-home-read-and-opt-in-write-probe-abi2-legacy,fused` 模块；VHE/EL1 仍按各自原有步骤，
 不要更改机器启动配置。B 按第 5 节同一命令启动新会话。A 显式选择 fused：
 
 ```sh
@@ -491,6 +491,59 @@ grep -E '^SN_DOMAIN_(E2E|CLASS|BREAKDOWN|BREAKDOWN_CONTRACT) ' \
 不可直接与逐请求三段相减，也不可用两台机器的绝对时间戳相减。
 诊断轮次会引入额外计时开销，应与正式性能轮次分开保存；确认空/非空分类、请求数
 一致后，再据各段变化判断收益是否主要来自替代 LB/nginx 的 RPC 往返。
+
+### 细粒度请求路径诊断（两个 profile 开关同时开启）
+
+新版应用还在两个开关**同时为 1** 时记录 `SN_FLOW_EVENT`。事件按请求号保存在
+各线程的有界缓冲区，线程退出后才写日志；`SN_FLOW_CONTRACT dropped=0` 才能用于
+汇总。正常性能轮次保持两个开关为 0，不产生这些额外时间戳。诊断轮次在 A、B
+各自启动前设置：
+
+```sh
+export ERPC_SN_DOMAIN_PROFILE=1 ERPC_SN_PROFILE=1
+```
+
+同步本次 `eRPC/apps/social_network_cxl/` 修改后，A 的 domain/RPC 构建目录
+均需重新构建 `client user_timeline`；B 的 RPC 构建目录需重新构建
+`nginx load_balance post_storage`，domain 轮的 B 只需重建 `post_storage`。
+分别在相应机器执行：
+
+```sh
+# A：两个版本都重建
+cmake --build "$REPO/eRPC/cmake-build-social-ub-domain" -j2 --target client user_timeline
+cmake --build "$REPO/eRPC/cmake-build-social-ub-rpc" -j2 --target client user_timeline
+# B：RPC 版三个服务；domain 轮也使用该目录中的 post_storage
+cmake --build "$REPO/eRPC/cmake-build-social-ub-rpc" -j2 --target nginx load_balance post_storage
+```
+
+不涉及内核 ABI，**不需要为这些用户态打点重新 insmod**。按第 5/6 节运行，
+为诊断轮设置独立 `SN_LOG_DIR`；Client 完成后先结束 A，再结束 B，让线程
+写出事件。domain 模式会把原始请求号编码为 wire request；A Client 记录
+`wire_identity`，脚本据此关联 Timeline/PostStorage，缺映射会报错而不会误算。
+当前汇总按一个 Client source/lane 关联；若配置了多 lane，脚本会拒绝混合统计。
+将 B 日志复制到 A 可读位置后，在 A 运行：
+
+```sh
+python3 scripts/analyze-social-flow.py --mode domain \
+  --a-logs "$REPO/eRPC-LRPC-UB/results/social-domain-profile-a" \
+  --b-logs "$REPO/eRPC-LRPC-UB/results/social-domain-profile-b"
+python3 scripts/analyze-social-flow.py --mode rpc \
+  --a-logs "$REPO/eRPC-LRPC-UB/results/social-rpc-profile-a" \
+  --b-logs "$REPO/eRPC-LRPC-UB/results/social-rpc-profile-b"
+```
+
+`SN_FLOW_SUMMARY` 将 A Client 的准备/发送/消费、A Timeline 的本地处理与
+PostStorage 往返、domain 前向/反向调用，以及 B 的 LB/nginx 正反向驻留时间和
+同机 LB↔nginx 交接分别列出。`forward_domain` 是 `client_prepare` 子段，
+`reverse_domain` 是 `timeline_after_storage` 子段；不要重复相加。
+这里的“驻留”从服务 handler 收到请求到将下一跳入队，包含该服务的队列等待、
+调度和转发准备，**不是纯 CPU 处理时间**；纯局部操作可再看同轮的 `SN_UB_PROFILE`。
+`storage_roundtrip` 是 A 观察到的应用级往返，包含 B 的服务、传输与排队，
+不是单向网络延迟。B 的 LB/nginx 在 domain 轮不是 B 上的 eRPC 进程，因此只在
+RPC 轮输出这些 B 服务段。**A/B 的绝对 `steady_ns` 时间戳不能直接相减**；
+脚本只对同一台机器内的事件求差。fused 域链内部每次页表切换/每个域服务的
+独立耗时仍需专门的内核侧诊断接口，本用户态打点只给出整个前向/反向域调用。
+各段 p50/p99 不能相加；诊断轮本身有打点开销，不可替代正式延迟轮次。
 
 ## 7. 安全边界与本地验证
 

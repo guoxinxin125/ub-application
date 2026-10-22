@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 int us_client_open(struct lrpc_handle *handle);
+int us_client_open_write(struct lrpc_handle *handle);
 /* One pinned owner thread. Zero-initialize each request's output fields
  * (action/target/status/ticket); the connection's mapped A-stack is reused.
  * Embedded eRPC callers select external SDK ownership before starting threads. */

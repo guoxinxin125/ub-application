@@ -16,6 +16,44 @@ ARTIFACT = None
 
 @unittest.skipUnless(ARTIFACT, 'run with --object')
 class Services(unittest.TestCase):
+    def test_write_profile_only_touches_bounded_data_page(self):
+        payload, symbols = ARTIFACT
+        code = payload[symbols['us_nginx_forward_write_start']:
+                       symbols['us_nginx_forward_write_end']]
+        for request_type, expected_target in ((13, 104), (9, 102)):
+            with self.subTest(request_type=request_type):
+                cpu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
+                args, heap, base, data = 0x100000, 0x200000, 0x300000, 0x100008000
+                cpu.mem_map(args, 4096, UC_PROT_READ | UC_PROT_WRITE)
+                cpu.mem_map(heap, 4096, UC_PROT_READ | UC_PROT_WRITE)
+                cpu.mem_map(base, 4096, UC_PROT_READ | UC_PROT_EXEC)
+                cpu.mem_map(data, 4096, UC_PROT_READ | UC_PROT_WRITE)
+                cfg = (1, 2, 15360, 1, 2, 0, 0, 0, 101, 102, 103, 1, 0)
+                cpu.mem_write(heap, struct.pack('<13I', *cfg))
+                cpu.mem_protect(heap, 4096, UC_PROT_READ)
+                message = (17, 513, 99, 4096, 128, 2048, 42, 0,
+                           request_type, 0, 0, 0)
+                cpu.mem_write(args, struct.pack('<8Q4I', *message))
+                cpu.mem_write(base, code)
+                cpu.reg_write(arm.UC_ARM64_REG_X0, args)
+                cpu.reg_write(arm.UC_ARM64_REG_X1, heap)
+                stopped = []
+                def hook(uc, pc, size, unused):
+                    instruction = struct.unpack('<I', bytes(uc.mem_read(pc, 4)))[0]
+                    if instruction & 0xffe0001f == 0xd4200000:
+                        self.assertEqual(pc, base + len(code) - 4)
+                        stopped.append(pc)
+                        uc.emu_stop()
+                cpu.hook_add(UC_HOOK_CODE, hook)
+                cpu.emu_start(base, base + len(code), count=64)
+                self.assertEqual(len(stopped), 1)
+                result = struct.unpack('<8Q4I', bytes(cpu.mem_read(args, 80)))
+                self.assertEqual(result[7], 42 if request_type == 13 else 0)
+                self.assertEqual(result[9:11], (1, expected_target))
+                self.assertEqual(struct.unpack('<Q', bytes(cpu.mem_read(data+8, 8)))[0],
+                                 42 if request_type == 13 else 0)
+                self.assertEqual(bytes(cpu.mem_read(heap, 52)), struct.pack('<13I', *cfg))
+
     def test_actual_instructions_preserve_message_and_only_read_config(self):
         payload, symbols = ARTIFACT
         for domain, name in enumerate(('lb_forward','nginx_forward','nginx_return','lb_return')):

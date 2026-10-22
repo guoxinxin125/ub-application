@@ -46,6 +46,10 @@ static inline const unsigned char *ud_profile_service(unsigned p,unsigned d,unsi
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             return result.stdout
 
+    def test_page_table_layout_with_write_grant(self):
+        output = self.compile_run((ROOT/'tests/test_ub_domain_layout.c').read_text(encoding='utf-8'))
+        self.assertIn('UB_DOMAIN_LAYOUT_PASS', output)
+
     def test_publication_slot_isolation_and_reuse(self):
         self.compile_run(r'''
 #include <assert.h>
@@ -512,6 +516,52 @@ int main(int argc,char **argv) {
             output = self.compile_run(wrapped, args=cli, env={**env,'TEST_EXPECT_FAILURE':'1'})
             self.assertNotIn('UB_DOMAIN_MULTI_PASS', output)
 
+
+    def test_write_profile_isolates_per_connection_page(self):
+        self.compile_run(r'''
+#include <assert.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <lrpc/ub_domain_pool.h>
+int main(void) {
+ void *base=malloc(UD_BYTES); assert(base);
+ assert(UD_WRITE_HEAP(UD_CLIENTS-1)+UD_PAGE<=UD_BYTES);
+ assert(!ud_pool_initialize_profile(base,77,UD_PROFILE_SOCIAL_WRITE));
+ for(unsigned slot=0;slot<2;slot++) {
+  struct ud_pool_publication *p=(void *)((char *)base+UD_POOL_SLOT(slot));
+  struct ud_contract *c=&p->pub.contract;
+  c->magic=UD_MAGIC;c->abi=UD_ABI;c->nonce=slot+1;
+  c->wb_index=4;c->nc_index=3;c->heap_pa=0x980000030000ULL;
+  c->write_pa=0x980000300000ULL+slot*UD_PAGE;
+  for(unsigned d=0;d<UD_DOMAINS;d++) {
+   c->code_pa[d]=0x800000+d*0x10000;
+   c->stack_pa[d]=c->code_pa[d]+UD_PAGE;
+   c->args_pa[d]=c->code_pa[d]+2*UD_PAGE;
+   for(unsigned l=0;l<4;l++) c->table_pa[d][l]=0x980000110000ULL+UD_POOL_TABLE(slot,d,l);
+  }
+  assert(ud_contract_valid(c));
+  __atomic_store_n(&p->pub.request,c->nonce,__ATOMIC_RELEASE);
+ }
+ assert(ud_pool_poll(base)==2);
+ for(unsigned slot=0;slot<2;slot++) {
+  struct ud_pool_publication *p=(void *)((char *)base+UD_POOL_SLOT(slot));
+  __u64 *root=(void *)((char *)base+UD_POOL_TABLE(slot,1,3));
+  assert(!p->error && p->pub.complete==p->pub.request);
+  assert((root[8]&UD_PA_MASK)==p->pub.contract.write_pa);
+  assert(!(root[8]&(1ULL<<7)) && (root[4]&(1ULL<<7)));
+  assert(!((__u64 *)((char *)base+UD_POOL_TABLE(slot,0,3)))[8]);
+ }
+ assert(((struct ud_pool_publication *)((char *)base+UD_POOL_SLOT(0)))->pub.contract.write_pa !=
+        ((struct ud_pool_publication *)((char *)base+UD_POOL_SLOT(1)))->pub.contract.write_pa);
+ struct ud_pool_publication *bad=(void *)((char *)base+UD_POOL_SLOT(2));
+ bad->pub.contract=((struct ud_pool_publication *)((char *)base+UD_POOL_SLOT(0)))->pub.contract;
+ bad->pub.contract.nonce=3;bad->pub.contract.write_pa=0;
+ __atomic_store_n(&bad->pub.request,3,__ATOMIC_RELEASE);
+ assert(ud_pool_poll(base)==1 && bad->error==EINVAL);
+ free(base);return 0;
+}
+''', 'lib/ub_domain_pool.c')
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

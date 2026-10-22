@@ -82,7 +82,7 @@ struct ud_session {
     struct ud_prepare p;
     void *code[UD_DOMAINS], *stack[UD_DOMAINS], *args[UD_DOMAINS];
     struct ud_initial initial[UD_DOMAINS];
-    struct file *import_file[UD_DOMAINS * 4 + 1];
+    struct file *import_file[UD_DOMAINS * 4 + 2];
     bool prepared, committed;
 };
 
@@ -200,6 +200,9 @@ static int ud_import_pa(struct ud_session *s, unsigned long offset, u64 *pa,
         pr_warn_ratelimited("ub_domain: import PTE must be valid EL0 Normal-NC (offset=%lx)\n", offset);
         return rc;
     }
+    if (s->profile == UD_PROFILE_SOCIAL_WRITE &&
+        offset == UD_WRITE_HEAP(s->pool_slot) &&
+        (!(vma->vm_flags & VM_WRITE) || !pte_write(pte))) return -EACCES;
     if (!ud_pa_valid(*pa)) return -ERANGE;
     if (initialize) s->import_file[slot] = get_file(vma->vm_file);
     return 0;
@@ -221,6 +224,13 @@ static int ud_mapping(struct ud_session *s, bool initialize)
     if (rc) return rc;
     if (initialize) s->p.contract.heap_pa = pa;
     else if (s->p.contract.heap_pa != pa) return -ESTALE;
+    if (s->profile == UD_PROFILE_SOCIAL_WRITE) {
+        rc = ud_import_pa(s, UD_WRITE_HEAP(s->pool_slot), &pa,
+                          UD_DOMAINS*4+1, initialize);
+        if (rc) return rc;
+        if (initialize) s->p.contract.write_pa = pa;
+        else if (s->p.contract.write_pa != pa) return -ESTALE;
+    }
     return 0;
 }
 
@@ -325,7 +335,7 @@ static int ud_prepare_pages(struct ud_session *s, const struct ud_prepare *input
         s->p.contract.stack_pa[d] = virt_to_phys(s->stack[d]);
         /* Routing domains share one connection-private A-stack, so the route
          * handoff needs neither a payload copy nor a remote argument access. */
-        s->p.contract.args_pa[d] = virt_to_phys(s->args[s->profile == UD_PROFILE_SOCIAL ? 0 : d]);
+        s->p.contract.args_pa[d] = virt_to_phys(s->args[s->profile != UD_PROFILE_MICRO ? 0 : d]);
     }
     if (!ud_contract_valid(&s->p.contract)) { rc = -ERANGE; goto fail; }
     return 0;
@@ -413,7 +423,7 @@ static int ud_commit(struct ud_session *s)
     for (d = 0; d < UD_DOMAINS; ++d) {
         struct ud_initial initial = {UD_ARGS, UD_DATA, UD_STACK + UD_PAGE, UD_VA};
         const unsigned char *code = ud_profile_service(s->profile, d, &size);
-        if (s->profile == UD_PROFILE_SOCIAL) initial.heap += us_config_offset(d);
+        if (s->profile != UD_PROFILE_MICRO) initial.heap += us_config_offset(d);
         for (l = 0; l < 4; ++l) {
             ud_build_table(&s->p.contract, d, l, expected);
             rc = ud_copy(s, s->multi ? UD_POOL_TABLE(s->pool_slot,d,l) : UD_TABLE(d,l), actual, UD_PAGE);
@@ -431,7 +441,7 @@ static int ud_commit(struct ud_session *s)
     }
     rc = ud_copy(s, UD_HEAP, actual, UD_PAGE);
     if (rc) goto out;
-    if (s->profile == UD_PROFILE_SOCIAL) {
+    if (s->profile != UD_PROFILE_MICRO) {
         if (!us_heap_valid((void *)actual)) { rc = -EBADMSG; goto out; }
     } else {
         if (actual[0] != 100) { rc = -EBADMSG; goto out; }
@@ -665,7 +675,8 @@ static int ud_tlb_probe(struct ud_session *s, void __user *arg)
 /* Routing chain: legacy A->LB->A->nginx->A, or fused A->LB->nginx->A.
  * The reverse chain visits nginx before LB. Each call enters two domains.
  * B config is RO, code is A-local RX, arguments are A-local shared WB.
- * No eRPC, allocator, syscall, write grant or data-plane B thread in a domain. */
+ * The opt-in write profile alone maps a per-connection B data page RW/NC.
+ * No eRPC, allocator, syscall or data-plane B thread in a domain. */
 static int ud_run_social(struct ud_session *s)
 {
     struct ud_mapped *m = s->args[0];
@@ -680,7 +691,9 @@ static int ud_run_social(struct ud_session *s)
         !call->message.source || call->message.source > U32_MAX ||
         !call->message.value || call->message.value > U32_MAX || call->message.request > U32_MAX ||
         (call->message.type != (call->direction ? US_USER_RESP : US_USER_REQ) &&
-         call->message.type != (call->direction ? US_HOME_RESP : US_HOME_REQ)) ||
+         call->message.type != (call->direction ? US_HOME_RESP : US_HOME_REQ) &&
+         (s->profile != UD_PROFILE_SOCIAL_WRITE || call->direction != US_FORWARD ||
+          call->message.type != US_WRITE_REQ)) ||
         call->message.status || call->message.action || call->message.target || call->message.ticket)
         return -EINVAL;
     input = call->message;
@@ -707,8 +720,8 @@ static int ud_run_social(struct ud_session *s)
         ud_initial_regs(s, first+1, &gate.leaf);
         gate.middle.x[0] += US_MAPPED_OFFSET;
         gate.leaf.x[0] += US_MAPPED_OFFSET;
-        ud_profile_service(UD_PROFILE_SOCIAL, first, &size);
-        ud_profile_service(UD_PROFILE_SOCIAL, first+1, &second_size);
+        ud_profile_service(s->profile, first, &size);
+        ud_profile_service(s->profile, first+1, &second_size);
         gate.middle_root = s->p.contract.table_pa[first][0] |
                            ((u64)s->asid[first] << 48);
         gate.leaf_root = s->p.contract.table_pa[first+1][0] |
@@ -731,13 +744,14 @@ static int ud_run_social(struct ud_session *s)
         call->entries = 2;
         if (call->message.action != (first ? US_ACTION_CLIENT : US_ACTION_RPC) ||
             call->message.target != (first ? 0 :
-                (input.type == US_HOME_REQ ? 103 : 102))) {
+                (input.type == US_WRITE_REQ ? 104 :
+                 input.type == US_HOME_REQ ? 103 : 102))) {
             rc = -EPROTO; goto bad;
         }
     } else for (i = 0; i < 2; ++i) {
         unsigned int d = first+i;
         ud_initial_regs(s, d, &r); r.x[0] += US_MAPPED_OFFSET;
-        ud_profile_service(UD_PROFILE_SOCIAL, d, &size);
+        ud_profile_service(s->profile, d, &size);
         ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
                           tcr, virt_to_phys(s->empty_root), 0);
         call->transitions += 2;
@@ -747,13 +761,16 @@ static int ud_run_social(struct ud_session *s)
         ++call->entries;
         if (call->message.action != (i ? (first ? US_ACTION_CLIENT : US_ACTION_RPC) : US_ACTION_DOMAIN) ||
             call->message.target != (i ? (first ? 0 :
-                (input.type == US_HOME_REQ ? 103 : 102)) : (first ? 1 : 2))) {
+                (input.type == US_WRITE_REQ ? 104 :
+                 input.type == US_HOME_REQ ? 103 : 102)) : (first ? 1 : 2))) {
             rc = -EPROTO; goto bad;
         }
     }
     {
         struct us_message result = call->message;
         result.action = input.action; result.target = input.target;
+        if (input.type == US_WRITE_REQ && result.ticket == input.value)
+            result.ticket = input.ticket;
         if (memcmp(&result, &input, sizeof(input))) { rc = -EPROTO; goto bad; }
     }
     rc = 0; goto timed;
@@ -781,12 +798,12 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         u32 profile;
         if (s->prepared) { rc = -EBUSY; break; }
         if (copy_from_user(&profile, p, sizeof(profile))) { rc = -EFAULT; break; }
-        if (profile > UD_PROFILE_SOCIAL) { rc = -EINVAL; break; }
+        if (profile > UD_PROFILE_SOCIAL_WRITE) { rc = -EINVAL; break; }
         s->profile = profile; rc = 0; break;
     }
     case UD_SOCIAL_CALL: {
         struct ud_mapped *m = s->args[0];
-        if (!s->committed || s->profile != UD_PROFILE_SOCIAL) { rc = -ENOTCONN; break; }
+        if (!s->committed || s->profile == UD_PROFILE_MICRO) { rc = -ENOTCONN; break; }
         rc = ud_run_social(s);
         m->status = rc ? -rc : 0;
         smp_store_release(&m->completion, ++s->completion);
@@ -953,8 +970,8 @@ module_exit(ud_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MODE ")");
 MODULE_INFO(ud_nested, "legacy,fused");
-MODULE_INFO(ud_multi, "readonly-pool-v1-8-slots-single-importer-kernel");
-MODULE_INFO(ud_social, "user-home-read-abi1-single-nginx-legacy,fused");
+MODULE_INFO(ud_multi, "pool-v2-8-slots-single-importer-kernel");
+MODULE_INFO(ud_social, "user-home-read-and-opt-in-write-probe-abi2-legacy,fused");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

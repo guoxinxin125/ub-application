@@ -3,19 +3,21 @@
 #define UB_LRPC_UB_DOMAIN_H
 #include <linux/types.h>
 #include <linux/ioctl.h>
-#define UD_ABI 1
+#define UD_ABI 2
 #define UD_MAGIC 0x5542444f4d303031ULL
 #define UD_BYTES 0x400000
 #define UD_PAGE 4096
 #define UD_DOMAINS 4
 #define UD_TABLE(d,l) (0x10000 + (d)*0x4000 + (l)*0x1000)
 #define UD_HEAP 0x30000
+#define UD_WRITE_HEAP(c) (0x300000UL + (c) * UD_PAGE)
 #define UD_IMAGE(d) (0x40000 + (d)*0x1000)
 #define UD_CONTEXT(d) (0x50000 + (d)*0x1000)
 #define UD_VA 0x100000000ULL
 #define UD_STACK (UD_VA + 0x2000)
 #define UD_DATA (UD_VA + 0x4000)
 #define UD_ARGS (UD_VA + 0x6000)
+#define UD_WRITE (UD_VA + 0x8000)
 #define UD_DIRECT 0
 #define UD_MIDDLE 1
 #define UD_LEAF 2
@@ -28,6 +30,8 @@ struct ud_contract {
     __u64 table_pa[UD_DOMAINS][4];
     __u64 heap_pa;
     __u64 code_pa[UD_DOMAINS], stack_pa[UD_DOMAINS], args_pa[UD_DOMAINS];
+    /* Zero for read-only profiles; one B-owned, connection-private page otherwise. */
+    __u64 write_pa;
 };
 struct ud_publication {
     struct ud_contract contract;
@@ -84,10 +88,11 @@ struct ud_trace_call {
 #define UD_NESTED_LEGACY 0U
 #define UD_NESTED_FUSED 1U
 #define UD_SET_NESTED_PATH _IOW('U', 0x86, __u32)
-/* Optional multi-connection publisher. Original ABI/layout stays unchanged.
+/* Optional multi-connection publisher. Contract/pool ABI 2 adds an opt-in
+ * writable B page; both endpoints and A's module must be rebuilt together.
  * Slots are allocated by ONE importing A kernel, not remote atomic RMWs. */
 #define UD_POOL_MAGIC 0x5542504f4f4c3031ULL
-#define UD_POOL_ABI 1U
+#define UD_POOL_ABI 2U
 #define UD_CLIENTS 8U
 #define UD_POOL_SLOT(c) (0x100000UL + (c) * 0x1000UL)
 #define UD_POOL_TABLE(c,d,l) (0x110000UL + (c) * 0x10000UL + (d) * 0x4000UL + (l) * 0x1000UL)
@@ -110,9 +115,10 @@ struct ud_connection_info {
 };
 #define UD_POOL_PREPARE _IOWR('U', 0x87, struct ud_pool_prepare)
 #define UD_CONNECTION_INFO _IOR('U', 0x88, struct ud_connection_info)
-/* Profile is immutable after PREPARE. Existing connections default to micro. */
+/* Profile is immutable after PREPARE. Default remains the read-only micro path. */
 #define UD_PROFILE_MICRO 0U
 #define UD_PROFILE_SOCIAL 1U
+#define UD_PROFILE_SOCIAL_WRITE 2U
 #define UD_PROFILE_OFFSET 64U
 #define UD_PROFILE_MAGIC 0x554250524f463031ULL
 struct ud_profile_header { __u64 magic; __u32 abi, profile; };

@@ -3,6 +3,7 @@
 #include <lrpc/ub_social.h>
 extern const unsigned char us_lb_forward_start[], us_lb_forward_end[];
 extern const unsigned char us_nginx_forward_start[], us_nginx_forward_end[];
+extern const unsigned char us_nginx_forward_write_start[], us_nginx_forward_write_end[];
 extern const unsigned char us_nginx_return_start[], us_nginx_return_end[];
 extern const unsigned char us_lb_return_start[], us_lb_return_end[];
 extern const unsigned char ud_direct_start[], ud_direct_end[];
@@ -25,7 +26,11 @@ static inline const unsigned char *ud_profile_service(unsigned int profile,
                                                        unsigned int d, unsigned long *size)
 {
     const unsigned char *start, *end;
-    if (profile != UD_PROFILE_SOCIAL) return ud_service(d, size);
+    if (profile == UD_PROFILE_MICRO) return ud_service(d, size);
+    if (profile == UD_PROFILE_SOCIAL_WRITE && d == 1) {
+        *size = (unsigned long)(us_nginx_forward_write_end - us_nginx_forward_write_start);
+        return us_nginx_forward_write_start;
+    }
     switch (d) {
     case 0: start=us_lb_forward_start; end=us_lb_forward_end; break;
     case 1: start=us_nginx_forward_start; end=us_nginx_forward_end; break;

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <functional>
 #include <thread>
+#include <vector>
 #endif
 
 // Application-level timings are opt-in and independent of transport profiling.
@@ -81,6 +82,16 @@ inline bool enabled() {
   static const bool value = [] {
     const char *env = std::getenv("ERPC_SN_PROFILE");
     return env != nullptr && env[0] == '1' && env[1] == '\0';
+  }();
+  return value;
+}
+
+// A diagnostic-only, per-request timeline. Both switches must be explicit so
+// ordinary campaign runs retain only the existing coarse measurement cost.
+inline bool flow_enabled() {
+  static const bool value = [] {
+    const char *env = std::getenv("ERPC_SN_DOMAIN_PROFILE");
+    return enabled() && env != nullptr && env[0] == '1' && env[1] == '\0';
   }();
   return value;
 }
@@ -185,11 +196,45 @@ struct Counter {
 };
 
 struct ThreadStats {
+  struct FlowEvent {
+    const char *role;
+    const char *stage;
+    uint64_t at_ns;
+    uint32_t request;
+    uint32_t original_request;
+  };
+  static constexpr size_t kFlowCapacity = 32768;
   std::array<Counter, static_cast<size_t>(Stage::kCount)> counters{};
   uint64_t samples = 0;
   uint64_t report_index = 0;
+  std::vector<FlowEvent> flow_events;
+  uint64_t flow_dropped = 0;
 
-  ~ThreadStats() { report(); }
+  ~ThreadStats() { report(); report_flow(); }
+
+  void record_flow(const char *role, uint32_t request, const char *stage,
+                   uint64_t at_ns, uint32_t original_request) {
+    if (flow_events.size() == kFlowCapacity) {
+      ++flow_dropped;
+      return;
+    }
+    if (flow_events.empty()) flow_events.reserve(kFlowCapacity);
+    flow_events.push_back({role, stage, at_ns, request, original_request});
+  }
+
+  void report_flow() {
+    if (flow_events.empty() && !flow_dropped) return;
+    const size_t thread = std::hash<std::thread::id>()(std::this_thread::get_id());
+    for (const FlowEvent &event : flow_events)
+      std::fprintf(stderr,
+                   "SN_FLOW_EVENT role=%s thread=%zu request=%u stage=%s at_ns=%llu original=%u clock=steady_ns\n",
+                   event.role, thread, event.request, event.stage,
+                   static_cast<unsigned long long>(event.at_ns), event.original_request);
+    std::fprintf(stderr,
+                 "SN_FLOW_CONTRACT thread=%zu events=%zu dropped=%llu clock=steady_ns scope=same-host-only logging=thread-exit\n",
+                 thread, flow_events.size(),
+                 static_cast<unsigned long long>(flow_dropped));
+  }
 
   void report() {
     if (samples == 0) return;
@@ -248,10 +293,26 @@ inline void record(Stage stage, uint64_t started_ns) {
   thread_stats().record(stage, finished_ns - started_ns);
 }
 
+inline void flow_point_at(const char *role, uint32_t request,
+                          const char *stage, uint64_t at_ns,
+                          uint32_t original_request = 0) {
+  if (!flow_enabled() || !request || !at_ns) return;
+  thread_stats().record_flow(role, request, stage, at_ns, original_request);
+}
+
+inline void flow_point(const char *role, uint32_t request, const char *stage) {
+  if (!flow_enabled() || !request) return;
+  flow_point_at(role, request, stage, now_ns());
+}
+
 #else
 inline bool enabled() { return false; }
+inline bool flow_enabled() { return false; }
 inline uint64_t start() { return 0; }
 inline void record(Stage, uint64_t) {}
+inline void flow_point_at(const char *, uint32_t, const char *, uint64_t,
+                          uint32_t = 0) {}
+inline void flow_point(const char *, uint32_t, const char *) {}
 #endif
 
 }  // namespace sn_profile

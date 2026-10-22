@@ -39,6 +39,21 @@ int main(void)
     c.table_pa[0][0] |= 1; assert(!ud_contract_valid(&c));
     c.table_pa[0][0] &= ~1ULL;
     c.heap_pa = 1ULL << 48; assert(!ud_contract_valid(&c));
+    c.heap_pa = 0x12340000;
+    c.write_pa = 0x12350000;
+    assert(ud_contract_valid(&c));
+    for (d = 0; d < UD_DOMAINS; ++d) {
+        ud_build_table(&c, d, 3, tables[3]);
+        if (d == 1) {
+            assert((tables[3][8] & UD_PA_MASK) == c.write_pa);
+            assert(tables[3][8] & UD_UXN);
+            assert(!(tables[3][8] & (1ULL << 7))); /* RW */
+            assert(((tables[3][8] >> 2) & 7) == c.nc_index);
+        } else assert(!tables[3][8]);
+        assert(tables[3][4] & (1ULL << 7)); /* B config stays RO */
+    }
+    c.write_pa = c.heap_pa; assert(!ud_contract_valid(&c));
+    c.write_pa = c.table_pa[0][0]; assert(!ud_contract_valid(&c));
     puts("UB_DOMAIN_LAYOUT_PASS hardware_execution_tested=0");
     return 0;
 }

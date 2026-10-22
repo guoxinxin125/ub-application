@@ -111,6 +111,11 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     rc = lrpc_ubsm_query_pa(&client->region, &info, UD_HEAP, &address);
     if (rc) { ud_error(rc); goto fail; }
     if (address.pa != p.contract.heap_pa) { errno = ESTALE; goto fail; }
+    if (profile == UD_PROFILE_SOCIAL_WRITE) {
+        rc = lrpc_ubsm_query_pa(&client->region, &info, UD_WRITE_HEAP(pool.slot), &address);
+        if (rc) { ud_error(rc); goto fail; }
+        if (address.pa != p.contract.write_pa) { errno = ESTALE; goto fail; }
+    } else if (p.contract.write_pa) { errno = EPROTO; goto fail; }
     if (client->info.multi) {
         pool_pub = (void *)((char *)client->region.base + UD_POOL_SLOT(pool.slot));
         pub = &pool_pub->pub;
@@ -152,7 +157,9 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
            "call_object=connection-reuse nested_path=%s multi=%u slot=%u identity=%llu generation=%llu service_profile=%s\n",
            h->shadow_cpu, profile ? "none" : "middle-suspend-only", ud_nested_path_name(nested_path),
            client->info.multi, client->info.slot, (unsigned long long)client->info.identity,
-           (unsigned long long)client->info.generation, profile ? "social-user-read" : "micro");
+           (unsigned long long)client->info.generation,
+           profile == UD_PROFILE_SOCIAL_WRITE ? "social-write-probe" :
+           profile ? "social-user-read" : "micro");
     return 0;
 fail:
     saved = errno;
@@ -167,6 +174,10 @@ int ud_lrpc_bind(struct lrpc_handle *h, uint32_t procedure, uint64_t epoch)
 int us_client_open(struct lrpc_handle *h)
 {
     return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL);
+}
+int us_client_open_write(struct lrpc_handle *h)
+{
+    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL_WRITE);
 }
 int us_client_info(const struct lrpc_handle *h, struct ud_connection_info *info)
 {
@@ -184,7 +195,9 @@ int us_client_call(struct lrpc_handle *h, struct us_call *call)
     if (!h || h->fd < 0 || h->astack_offset != UD_HANDLE_MARKER || !h->astack_map || !call ||
         call->abi != US_ABI || call->direction > US_REVERSE) return ud_error(-EINVAL);
     client = h->astack_map;
-    if (client->profile != UD_PROFILE_SOCIAL || !client->local_args) return ud_error(-ENOTCONN);
+    if ((client->profile != UD_PROFILE_SOCIAL &&
+         client->profile != UD_PROFILE_SOCIAL_WRITE) || !client->local_args)
+        return ud_error(-ENOTCONN);
     if (!pthread_equal(client->owner, pthread_self())) return ud_error(-EPERM);
     if (sched_getcpu() != h->shadow_cpu) return ud_error(-EXDEV);
     if (!__atomic_compare_exchange_n(&client->invoking, &idle, 1, 0,

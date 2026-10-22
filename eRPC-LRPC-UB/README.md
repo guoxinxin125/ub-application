@@ -5,6 +5,7 @@
 记录传输源码的 SHA-256；修改后运行 `python3 scripts/manifest.py --refresh`
 更新清单，传到 A、B 后运行 `python3 scripts/manifest.py --check` 核对。
 这里包含 Direct/Nested、只读多连接、PA 探针，以及可选的 UserTimeline/HomeTimeline read 路由接入；
+另外提供隔离的[服务域远端写入探针](SOCIAL_WRITE_PROBE.md)，它尚未接入发帖业务。
 没有 QEMU、Go、currency、旧 shadow 程序或第三方源码。应用接入需另外同步 `eRPC/`
 中的应用与构建依赖，详见 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)及
 [HomeTimeline UB 接入说明](SOCIAL_HOME_READ.md)。
@@ -117,7 +118,7 @@ sh scripts/build.sh owner
 sh scripts/build.sh caller
 sh scripts/build-module.sh --vhe
 modinfo -F ud_multi kernel/ub-domain/ub_lrpc_domain_vhe.ko
-# 应有 readonly-pool-v1-8-slots-single-importer-kernel
+# 应有 pool-v2-8-slots-single-importer-kernel
 
 # 确认所有本项目连接已退出；如原来加载的是 VHE 模块：
 sudo rmmod ub_lrpc_domain_vhe

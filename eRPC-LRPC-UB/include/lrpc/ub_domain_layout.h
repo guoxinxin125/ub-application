@@ -14,12 +14,18 @@ static inline int ud_contract_valid(const struct ud_contract *c)
     unsigned int d, l;
     if (c->magic != UD_MAGIC || c->abi != UD_ABI || !c->nonce ||
         c->reserved || c->wb_index > 7 || c->nc_index > 7 ||
-        c->wb_index == c->nc_index || !ud_pa_valid(c->heap_pa)) return 0;
+        c->wb_index == c->nc_index || !ud_pa_valid(c->heap_pa) ||
+        (c->write_pa && (!ud_pa_valid(c->write_pa) ||
+                         c->write_pa == c->heap_pa))) return 0;
     for (d = 0; d < UD_DOMAINS; ++d) {
         if (!ud_pa_valid(c->code_pa[d]) || !ud_pa_valid(c->stack_pa[d]) ||
             !ud_pa_valid(c->args_pa[d])) return 0;
         for (l = 0; l < 4; ++l)
-            if (!ud_pa_valid(c->table_pa[d][l])) return 0;
+            if (!ud_pa_valid(c->table_pa[d][l]) ||
+                (c->write_pa && c->write_pa == c->table_pa[d][l])) return 0;
+        if (c->write_pa && (c->write_pa == c->code_pa[d] ||
+                            c->write_pa == c->stack_pa[d] ||
+                            c->write_pa == c->args_pa[d])) return 0;
     }
     return 1;
 }
@@ -42,6 +48,8 @@ static inline void ud_build_table(const struct ud_contract *c,
         table[2] = c->stack_pa[d] | wb | UD_UXN;
         table[4] = c->heap_pa | nc | (1ULL << 7) | UD_UXN;
         table[6] = c->args_pa[d] | wb | UD_UXN;
+        if (c->write_pa && d == 1)
+            table[8] = c->write_pa | nc | UD_UXN; /* B data, RW/NX; config stays RO. */
     }
 }
 #endif

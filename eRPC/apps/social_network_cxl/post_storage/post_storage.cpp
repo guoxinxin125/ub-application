@@ -326,6 +326,7 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
       reinterpret_cast<RPCMsgReq<PostStorageReadCXLReq> *>(req_msgbuf->buf_);
   const uint32_t req_number = req->req_common.req_number;
   sn_diag::point_at("storage_receive", req_number, diagnostic_arrival);
+  sn_profile::flow_point("post_storage", req_number, "request_arrival");
   sn_diag::Event *diagnostic_read = sn_diag::begin("storage_read", req_number);
   const int64_t post_id = req->req_control.post_id;
   my_assert(req_msgbuf->get_data_size() ==
@@ -368,6 +369,7 @@ void post_storage_read_req_handler(erpc::ReqHandle *req_handle,
   const sn_slow_trace::Stamp enqueue_trace = sn_slow_trace::start();
   sn_diag::point("storage_send_begin", req_number);
   ctx->rpc_->enqueue_response(req_handle, &req_handle->pre_resp_msgbuf_);
+  sn_profile::flow_point("post_storage", req_number, "response_enqueue");
   sn_diag::finish(diagnostic_read);
   sn_slow_trace::record("storage_read_response_enqueue", req_number,
                         enqueue_trace);
