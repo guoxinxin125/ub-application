@@ -11,7 +11,7 @@ void baseline_ready_handler(erpc::ReqHandle *h, void *c) {
 void connect_sessions(ClientContext *c)
 {
     const bool baseline = sn_measure::rpc_baseline();
-    const bool home_read = baseline && sn_domain::read_service() == sn_domain::ReadService::Home;
+    const bool home_read = baseline && config_json_all.at("client").at("home_num").get<int>() == 1;
     c->servers_num_ = baseline ? 1 : 3;
 
     if (!baseline) {
