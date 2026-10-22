@@ -1,0 +1,4 @@
+UB_PROVIDER host=master source=gethostname socket=4294967295 numa=1 port=4294967295 auto_id=4294967295
+UB_DOMAIN_OWNER_READY multi=1 capacity=8 generation=13773706177357625756 page_tables=B heap=B profile=social-user-read
+UB_DOMAIN_POOL_PUBLISHED count=1 b_service_executions=0
+UB_DOMAIN_POOL_PUBLISHED count=1 b_service_executions=0

@@ -1,0 +1,6 @@
+post_storage mongodb init finished. loaded 9424 posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_lab_1020_b.sock
+Rpc 9: Created Server session_num = 0 for client [H: 76.53.137.82:31856, R: 26, S: 0] from 76.53.137.82 (rpc 26)
+Rpc 9: Created Server session_num = 1 for client [H: 76.53.137.82:31851, R: 21, S: 0] from 76.53.137.82 (rpc 21)
+post_storage released 9424 stored posts
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_lab_1020_b.sock
