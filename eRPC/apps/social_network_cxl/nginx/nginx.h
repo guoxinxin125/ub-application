@@ -15,7 +15,8 @@ std::atomic<size_t> send_ping_resp_num[10000];
 class ClientContext : public BasicContext
 {
 public:
-    ClientContext(size_t cid, size_t sid, size_t rid) : client_id_(cid), server_sender_id_(sid), server_receiver_id_(rid), backward_session_num_(-1)
+    ClientContext(size_t cid, size_t sid, size_t rid) : client_id_(cid), server_sender_id_(sid), server_receiver_id_(rid),
+        backward_session_num_(-1), compose_post_session_num_(-1), user_timeline_session_num_(-1), home_timeline_session_num_(-1)
     {
         forward_spsc_queue = new SPSC_QUEUE(kAppMaxBuffer);
         backward_spsc_queue = new SPSC_QUEUE(kAppMaxBuffer);

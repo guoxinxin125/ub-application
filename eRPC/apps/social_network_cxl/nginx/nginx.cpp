@@ -10,29 +10,33 @@ void baseline_ready_handler(erpc::ReqHandle *h, void *c) {
 
 void connect_sessions(ClientContext *c)
 {
-    c->servers_num_ = 3;
+    const bool baseline = sn_measure::rpc_baseline();
+    const bool home_read = baseline && sn_domain::read_service() == sn_domain::ReadService::Home;
+    c->servers_num_ = baseline ? 1 : 3;
 
-    if (!sn_measure::rpc_baseline()) {
-    c->compose_post_session_num_ = c->rpc_->create_session(compose_post_addr, get_remote_rpc_id(compose_post_addr));
-    my_assert(c->compose_post_session_num_ >=0);
-    c->session_num_vec_.push_back(c->compose_post_session_num_);
+    if (!baseline) {
+        c->compose_post_session_num_ = c->rpc_->create_session(compose_post_addr, get_remote_rpc_id(compose_post_addr));
+        my_assert(c->compose_post_session_num_ >= 0);
+        c->session_num_vec_.push_back(c->compose_post_session_num_);
     }
 
-    c->user_timeline_session_num_ = c->rpc_->create_session(user_timeline_addr, get_remote_rpc_id(user_timeline_addr));
-    my_assert(c->user_timeline_session_num_ >=0);
-    c->session_num_vec_.push_back(c->user_timeline_session_num_);
+    if (!baseline || !home_read) {
+        c->user_timeline_session_num_ = c->rpc_->create_session(user_timeline_addr, get_remote_rpc_id(user_timeline_addr));
+        my_assert(c->user_timeline_session_num_ >= 0);
+        c->session_num_vec_.push_back(c->user_timeline_session_num_);
+    }
 
-    if (!sn_measure::rpc_baseline()) {
-    c->home_timeline_session_num_ = c->rpc_->create_session(home_timeline_addr, get_remote_rpc_id(home_timeline_addr));
-    my_assert(c->home_timeline_session_num_ >=0);
-    c->session_num_vec_.push_back(c->home_timeline_session_num_);
+    if (!baseline || home_read) {
+        c->home_timeline_session_num_ = c->rpc_->create_session(home_timeline_addr, get_remote_rpc_id(home_timeline_addr));
+        my_assert(c->home_timeline_session_num_ >= 0);
+        c->session_num_vec_.push_back(c->home_timeline_session_num_);
     }
 
     c->backward_session_num_ = c->rpc_->create_session(load_balance_addr, get_remote_rpc_id(load_balance_addr));
     my_assert(c->backward_session_num_ >= 0);
     c->session_num_vec_.push_back(c->backward_session_num_);
 
-    while (c->num_sm_resps_ != (sn_measure::rpc_baseline() ? 2U : 4U))
+    while (c->num_sm_resps_ != (baseline ? 2U : 4U))
     {
         c->rpc_->run_event_loop(kAppEvLoopMs);
         if (unlikely(ctrl_c_pressed == 1))
@@ -90,6 +94,9 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context)
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
+    if (req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_REQ ||
+        req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ)
+        sn_profile::flow_point("nginx", req_msgbuf->get_hdr_req_num(), "forward_receive");
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ:
             ctx->stat_req_compose_post_tot++;
@@ -135,6 +142,9 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context)
     auto *req_msgbuf = req_handle->get_req_msgbuf();
 
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
+    if (req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_RESP ||
+        req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP)
+        sn_profile::flow_point("nginx", req_msgbuf->get_hdr_req_num(), "reverse_receive");
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_RESP:
             ctx->stat_req_compose_post_resp_tot++;
@@ -256,8 +266,9 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
 {
     const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
                                                     : inline_msg->req_type;
-    const size_t slot = (inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
-                                               : inline_msg->req_num) % kAppMaxBuffer;
+    const uint32_t request = inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
+                                                   : inline_msg->req_num;
+    const size_t slot = request % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
                               "nginx.req_forward_msgbuf", slot);
@@ -286,11 +297,17 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
             fprintf(stderr, "illegal req type %ud\n", static_cast<unsigned >(req_type));
             exit(1);
     }
+    if (sn_measure::rpc_baseline() && session_num < 0)
+        sn_domain::fail("nginx", static_cast<uint32_t>(ctx->client_id_),
+                        "baseline-read-route", request, EPROTO);
 
     const uint64_t enqueue_start = sn_profile::start();
     ctx->rpc_->enqueue_request(session_num, req_type,
                                &ctx->req_forward_msgbuf[slot], &resp_msgbuf,
                                callback_common_req, reinterpret_cast<void *>(slot));
+    if (req_type == static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_REQ) ||
+        req_type == static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ))
+        sn_profile::flow_point("nginx", request, "forward_enqueue");
     sn_profile::record(sn_profile::Stage::kProxyForwardTxEnqueue,
                        enqueue_start);
 }
@@ -316,8 +333,9 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
 {
     const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
                                                     : inline_msg->req_type;
-    const size_t slot = (inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
-                                               : inline_msg->req_num) % kAppMaxBuffer;
+    const uint32_t request = inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
+                                                   : inline_msg->req_num;
+    const size_t slot = request % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
                               "nginx.req_backward_msgbuf", slot);
@@ -334,6 +352,9 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
     ctx->rpc_->enqueue_request(ctx->backward_session_num_, req_type,
                                &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
                                callback_common_resp, reinterpret_cast<void *>(slot));
+    if (req_type == static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP) ||
+        req_type == static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP))
+        sn_profile::flow_point("nginx", request, "reverse_enqueue");
     sn_profile::record(sn_profile::Stage::kProxyReverseTxEnqueue,
                        enqueue_start);
 }
