@@ -39,6 +39,54 @@ static inline uint64_t ra_bench_tsc(void)
 #endif
 }
 
+/* Raise the caller CPU's execution state without entering the remote domain or
+ * touching BAR2.  Keep the dependency chain identical across batches so the
+ * compiler cannot turn the work into independent/vectorized operations. */
+static inline uint64_t ra_bench_local_chain(unsigned int iterations,
+					     uint64_t seed)
+{
+	uint64_t value = seed;
+	for (unsigned int i = 0; i < iterations; i++) {
+		value = value * UINT64_C(6364136223846793005) +
+			UINT64_C(1442695040888963407);
+		__asm__ volatile("" : "+r" (value));
+	}
+	return value;
+}
+
+static inline unsigned long ra_bench_warmup_ms(void)
+{
+	const char *value = getenv("LRPC_REMOTE_WARMUP_MS");
+	char *end = NULL;
+	unsigned long ms = value ? strtoul(value, &end, 10) : 1000;
+	if ((value && (!*value || *end || *value == '-')) || ms > 60000) {
+		fprintf(stderr, "Invalid LRPC_REMOTE_WARMUP_MS (0..60000)\n");
+		exit(1);
+	}
+	return ms;
+}
+
+static inline void ra_bench_local_precondition(const char *test)
+{
+	enum { iterations = 4096 };
+	static volatile uint64_t sink;
+	unsigned long ms = ra_bench_warmup_ms();
+	uint64_t start = ra_bench_clock(CLOCK_MONOTONIC_RAW);
+	uint64_t duration = RA_BENCH_U64(ms) * UINT64_C(1000000);
+	uint64_t batches = 0, value = sink + 1;
+
+	while (ra_bench_clock(CLOCK_MONOTONIC_RAW) - start < duration) {
+		value = ra_bench_local_chain(iterations, value + batches + 1);
+		batches++;
+	}
+	sink = value;
+	printf("REMOTE_APP_LOCAL_PRECONDITION test=%s requested_ms=%lu "
+	       "elapsed_ns=%" PRIu64 " batches=%" PRIu64
+	       " iterations_per_batch=%u remote_accesses=0 outside_timing=1\n",
+	       test, ms, ra_bench_clock(CLOCK_MONOTONIC_RAW) - start,
+	       batches, iterations);
+}
+
 /* One sample per fresh guest run.  Setup and mandatory cache-policy probes
  * have completed, but no workload warmup call has run yet. */
 static inline void ra_bench_first_call(const char *test, uint64_t elapsed_ns)
@@ -61,12 +109,7 @@ static inline void ra_bench_warm_begin(struct ra_bench_warm *w, const char *test
 	const char *backend = getenv("LRPC_EXECUTION_BACKEND");
 	w->enabled = backend && !strcmp(backend, "remote-domain");
 	if (!w->enabled) return;  /* Do not alter old scheduler/UB benchmarks. */
-	const char *value = getenv("LRPC_REMOTE_WARMUP_MS");
-	char *end = NULL;
-	w->ms = value ? strtoul(value, &end, 10) : 1000;
-	if ((value && (!*value || *end || *value == '-')) || w->ms > 60000) {
-		fprintf(stderr, "Invalid LRPC_REMOTE_WARMUP_MS (0..60000)\n"); exit(1);
-	}
+	w->ms = ra_bench_warmup_ms();
 	w->test = test;
 	w->duration = w->ms * 1000000ULL;
 	w->start = ra_bench_clock(CLOCK_MONOTONIC_RAW);

@@ -11,6 +11,7 @@
 #define UD_TABLE(d,l) (0x10000 + (d)*0x4000 + (l)*0x1000)
 #define UD_HEAP 0x30000
 #define UD_WRITE_HEAP(c) (0x300000UL + (c) * UD_PAGE)
+#define UD_SHARED_HEAP 0x308000UL
 #define UD_IMAGE(d) (0x40000 + (d)*0x1000)
 #define UD_CONTEXT(d) (0x50000 + (d)*0x1000)
 #define UD_VA 0x100000000ULL
@@ -30,7 +31,7 @@ struct ud_contract {
     __u64 table_pa[UD_DOMAINS][4];
     __u64 heap_pa;
     __u64 code_pa[UD_DOMAINS], stack_pa[UD_DOMAINS], args_pa[UD_DOMAINS];
-    /* Zero for read-only profiles; one B-owned, connection-private page otherwise. */
+    /* Zero for read-only profiles; B-owned private or shared page for opt-in profiles. */
     __u64 write_pa;
 };
 struct ud_publication {
@@ -119,6 +120,7 @@ struct ud_connection_info {
 #define UD_PROFILE_MICRO 0U
 #define UD_PROFILE_SOCIAL 1U
 #define UD_PROFILE_SOCIAL_WRITE 2U
+#define UD_PROFILE_SOCIAL_SHARED 3U /* opt-in correctness probe, not app state */
 #define UD_PROFILE_OFFSET 64U
 #define UD_PROFILE_MAGIC 0x554250524f463031ULL
 struct ud_profile_header { __u64 magic; __u32 abi, profile; };

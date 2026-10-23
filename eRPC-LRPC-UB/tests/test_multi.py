@@ -563,5 +563,40 @@ int main(void) {
 }
 ''', 'lib/ub_domain_pool.c')
 
+    def test_shared_profile_reuses_one_page_without_clearing_on_join(self):
+        self.compile_run(r'''
+#include <assert.h>
+#include <stdlib.h>
+#include <lrpc/ub_social.h>
+#include <lrpc/ub_domain_pool.h>
+int main(void) {
+ void *base=malloc(UD_BYTES); assert(base);
+ assert(!ud_pool_initialize_profile(base,88,UD_PROFILE_SOCIAL_SHARED));
+ assert(UD_SHARED_HEAP>=UD_WRITE_HEAP(UD_CLIENTS-1)+UD_PAGE);
+ __u64 *shared=(void *)((char *)base+UD_SHARED_HEAP);
+ for(unsigned s=0;s<2;s++) {
+  struct ud_pool_publication *p=(void *)((char *)base+UD_POOL_SLOT(s));
+  struct ud_contract *c=&p->pub.contract;
+  c->magic=UD_MAGIC;c->abi=UD_ABI;c->nonce=s+1;
+  c->wb_index=4;c->nc_index=3;c->heap_pa=0x980000030000ULL;
+  c->write_pa=0x980000308000ULL;
+  for(unsigned d=0;d<UD_DOMAINS;d++) {
+   c->code_pa[d]=0x800000+d*0x10000;
+   c->stack_pa[d]=c->code_pa[d]+UD_PAGE;
+   c->args_pa[d]=c->code_pa[d]+2*UD_PAGE;
+   for(unsigned l=0;l<4;l++) c->table_pa[d][l]=0x980000110000ULL+UD_POOL_TABLE(s,d,l);
+  }
+  __atomic_store_n(&p->pub.request,c->nonce,__ATOMIC_RELEASE);
+  assert(ud_pool_poll(base)==1 && !p->error);
+  __u64 *table=(void *)((char *)base+UD_POOL_TABLE(s,1,3));
+  assert((table[8]&UD_PA_MASK)==c->write_pa);
+  assert(!(table[8]&(1ULL<<7)));
+  if(!s) shared[US_SHARED_VALUE_INDEX]=12345;
+  else assert(shared[US_SHARED_VALUE_INDEX]==12345);
+ }
+ free(base);return 0;
+}
+''', 'lib/ub_domain_pool.c')
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

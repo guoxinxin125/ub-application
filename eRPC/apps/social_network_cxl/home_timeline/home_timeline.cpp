@@ -141,6 +141,7 @@ void home_timeline_read_req_handler(erpc::ReqHandle *req_handle, void *_context)
     invalidate_msgbuf_before_read(ctx->rpc_, *req_msgbuf);
     auto *req = reinterpret_cast<RPCMsgReq<HomeTimeLineReq> *>(req_msgbuf->buf_);
     const uint32_t req_number = req->req_common.req_number;
+    sn_profile::flow_point("home_timeline", req_number, "request_arrival");
 
     my_assert(req_msgbuf->get_data_size() == sizeof(RPCMsgReq<HomeTimeLineReq>));
 
@@ -197,6 +198,7 @@ void domain_home_timeline_read_req_handler(erpc::ReqHandle *handle, void *contex
     RPCMsgReq<DomainHomeRequest> incoming(RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_REQ, 0, {});
     std::memcpy(&incoming, buffer->buf_, sizeof(incoming));
     const uint32_t wire = incoming.req_common.req_number;
+    sn_profile::flow_point("home_timeline", wire, "request_arrival");
     if (incoming.req_common.type != RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_REQ ||
         !sn_domain::origin_valid(incoming.req_control.origin, wire))
         sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->server_id_), "domain-request-origin", wire, EPROTO);
@@ -337,6 +339,7 @@ void callback_home_timeline_read_resp(void *_context, void *_tag)
 
 void handler_home_timeline_read_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf)
 {
+    sn_profile::flow_point("home_timeline", req_msgbuf.get_hdr_req_num(), "storage_dispatch");
     if (sn_domain::enabled()) {
         if (req_msgbuf.get_data_size() != sizeof(RPCMsgReq<PostStorageReadCXLResp>))
             sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->client_id_), "result-size", 0, EPROTO);
@@ -351,8 +354,10 @@ void handler_home_timeline_read_resp(ClientContext *ctx, const erpc::MsgBuffer &
             result.req_control.count > 1 || !sn_domain::origin_valid(origin, wire))
             sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->client_id_), "result-identity", wire, EPROTO);
         const auto &post = result.req_control.post;
+        sn_profile::flow_point("home_timeline", wire, "reverse_begin");
         ctx->domain_runtime.reverse(wire, origin, post.machine_id, post.block_offset,
                                     post.payload_offset, post.payload_length, sn_domain::ReadService::Home);
+        sn_profile::flow_point("home_timeline", wire, "reverse_end");
         const int session = ctx->domain_return_sessions[origin.receiver_rpc];
         if (session < 0 || !ctx->rpc_->is_connected(session))
             sn_domain::fail("home_timeline", static_cast<uint32_t>(ctx->client_id_), "return-session", wire, ENOTCONN);
@@ -369,6 +374,7 @@ void handler_home_timeline_read_resp(ClientContext *ctx, const erpc::MsgBuffer &
         ctx->rpc_->enqueue_request(session, static_cast<uint8_t>(RPC_TYPE::RPC_DOMAIN_HOME_TIMELINE_READ_RESP),
             &ctx->req_backward_msgbuf[slot], &ctx->resp_backward_msgbuf[slot],
             callback_home_timeline_read_resp, reinterpret_cast<void *>(slot));
+        sn_profile::flow_point("home_timeline", wire, "response_enqueue");
         sn_domain::metrics().finish(sn_domain::Stage::kSend, send);
         return;
     }
@@ -391,6 +397,7 @@ void handler_home_timeline_read_resp(ClientContext *ctx, const erpc::MsgBuffer &
     ctx->rpc_->enqueue_request(ctx->nginx_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP),
                                &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
                                callback_home_timeline_read_resp, reinterpret_cast<void *>(slot));
+    sn_profile::flow_point("home_timeline", req_msgbuf.get_hdr_req_num(), "response_enqueue");
 
 }
 
@@ -404,6 +411,7 @@ void callback_post_storage_read_req(void *_context, void *_tag)
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[req_id];
     const auto *storage_req =
         reinterpret_cast<const CommonReq *>(req_msgbuf.buf_);
+    sn_profile::flow_point("home_timeline", storage_req->req_number, "storage_callback");
     sn_handoff::record(sn_profile::Stage::kTimelineStorageRtt,
                        "timeline_storage_rtt", storage_req->req_number,
                        ctx->post_storage_start_ns[req_id]);
@@ -459,6 +467,7 @@ void handler_post_storage_read_req(ClientContext *ctx, const erpc::MsgBuffer &re
     ctx->rpc_->enqueue_request(ctx->post_storage_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_POST_STORAGE_READ_REQ),
                                &ctx->req_forward_msgbuf[slot], &resp_msgbuf,
                                callback_post_storage_read_req, reinterpret_cast<void *>(slot));
+    sn_profile::flow_point("home_timeline", req_msgbuf.get_hdr_req_num(), "storage_enqueue");
     sn_profile::record(sn_profile::Stage::kTimelineTxEnqueue, enqueue_start);
 
 }
@@ -599,6 +608,7 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
                             req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ || req_type == RPC_TYPE::RPC_POST_STORAGE_READ_RESP);
 
             if(req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ){
+                sn_profile::flow_point("home_timeline", req_msg.get_hdr_req_num(), "worker_begin");
                 if (sn_profile::enabled() || sn_slow_trace::enabled()) {
                     const auto *read_req =
                         reinterpret_cast<const RPCMsgReq<HomeTimeLineReq> *>(
@@ -617,6 +627,7 @@ void worker_thread_func(size_t thread_id, MPMC_QUEUE *producer, MPMC_QUEUE *cons
                 const uint64_t lookup_start = sn_profile::start();
                 const sn_slow_trace::Stamp lookup_trace = sn_slow_trace::start();
                 read_home_time_line_post_details(req_data,rpc_,consumer_fwd,consumer_back,forward_queue_start_ns);
+                sn_profile::flow_point("home_timeline", req_msg.get_hdr_req_num(), "worker_done");
                 const auto *read_req =
                     reinterpret_cast<const RPCMsgReq<HomeTimeLineReq> *>(
                         req_data);

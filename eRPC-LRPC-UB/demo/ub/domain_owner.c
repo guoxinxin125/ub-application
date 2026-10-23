@@ -20,7 +20,8 @@ int main(int argc, char **argv)
     unsigned int d, l, slot, index;
     unsigned long size;
     static __u64 observed[UD_CLIENTS][UD_PAGE / sizeof(__u64)];
-    int rc, failed = 0, count, multi = 0, social = 0, write = 0, i, j;
+    static __u64 observed_identity[UD_CLIENTS];
+    int rc, failed = 0, count, multi = 0, social = 0, write = 0, shared = 0, i, j;
     for (i = j = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--social")) {
             if (social) return 2;
@@ -28,6 +29,9 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--social-write")) {
             if (social || write) return 2;
             social = write = 1;
+        } else if (!strcmp(argv[i], "--social-shared")) {
+            if (social || shared) return 2;
+            social = shared = 1;
         } else if (!strcmp(argv[i], "--multi")) {
             if (multi) return 2;
             multi = 1;
@@ -38,7 +42,8 @@ int main(int argc, char **argv)
     count = ub_provider_parse(&options, argc, argv, 1, pos, 2);
     if (count < 0) {
         fprintf(stderr, "usage: %s [SHM_NAME] [--provider-host HOST] "
-                "[--provider-numa N] [--provider-socket N] [--provider-port N] [--multi|--social|--social-write]\n"
+                "[--provider-numa N] [--provider-socket N] [--provider-port N] "
+                "[--multi|--social|--social-write|--social-shared]\n"
                 "legacy: %s B_PROVIDER_HOST SHM_NAME\n", argv[0], argv[0]);
         return 2;
     }
@@ -51,14 +56,21 @@ int main(int argc, char **argv)
         __u64 generation;
         if (getrandom(&generation, sizeof(generation), 0) != sizeof(generation) || !generation ||
             ud_pool_initialize_profile(region.base, generation,
+                                       shared ? UD_PROFILE_SOCIAL_SHARED :
                                        write ? UD_PROFILE_SOCIAL_WRITE :
                                        social ? UD_PROFILE_SOCIAL : UD_PROFILE_MICRO)) {
             fprintf(stderr, "UB_DOMAIN_OWNER_FAIL pool-init\n"); failed = 1; goto out;
         }
         printf("UB_DOMAIN_OWNER_READY multi=1 capacity=%u generation=%llu page_tables=B heap=B profile=%s\n",
                UD_CLIENTS, (unsigned long long)generation,
+               shared ? "social-shared-probe" :
                write ? "social-write-probe" : social ? "social-user-read" : "micro");
         fflush(stdout);
+        if (shared) {
+            printf("UB_DOMAIN_SHARED_READY generation=%llu cell=0 counter=0\n",
+                   (unsigned long long)generation);
+            fflush(stdout);
+        }
         while (!stopped) {
             rc = ud_pool_poll(region.base);
             if (rc < 0) { failed = 1; break; }
@@ -69,18 +81,47 @@ int main(int argc, char **argv)
             if (write) {
                 /* Observer only. No B service dispatch; changed values prove B visibility. */
                 for (slot = 0; slot < UD_CLIENTS; ++slot) {
+                    struct ud_pool_publication *publication =
+                        (void *)((char *)region.base + UD_POOL_SLOT(slot));
+                    __u64 identity = __atomic_load_n(&publication->pub.complete,
+                                                      __ATOMIC_ACQUIRE);
                     volatile __u64 *slots = (volatile __u64 *)((char *)region.base + UD_WRITE_HEAP(slot));
+                    if (!identity) continue;
+                    if (identity != observed_identity[slot]) {
+                        /* Reused slots may receive exactly the same test values. */
+                        memset(observed[slot], 0, sizeof(observed[slot]));
+                        observed_identity[slot] = identity;
+                        printf("UB_DOMAIN_WRITE_SLOT_READY slot=%u identity=%llu\n",
+                               slot, (unsigned long long)identity);
+                        fflush(stdout);
+                    }
                     for (index = 0; index < UD_PAGE / sizeof(__u64); ++index) {
                         __u64 value = __atomic_load_n(&slots[index], __ATOMIC_ACQUIRE);
                         if (value != observed[slot][index]) {
                             observed[slot][index] = value;
                             if (value) {
-                                printf("UB_DOMAIN_WRITE_OBSERVED slot=%u index=%u value=%llu\n",
-                                       slot, index, (unsigned long long)value);
+                                printf("UB_DOMAIN_WRITE_OBSERVED slot=%u identity=%llu "
+                                       "index=%u value=%llu\n",
+                                       slot, (unsigned long long)identity, index,
+                                       (unsigned long long)value);
                                 fflush(stdout);
                             }
                         }
                     }
+                }
+            }
+            if (shared) {
+                volatile __u64 *cells = (volatile __u64 *)((char *)region.base + UD_SHARED_HEAP);
+                static __u64 previous[2];
+                __u64 values[2];
+                values[0] = __atomic_load_n(&cells[US_SHARED_VALUE_INDEX], __ATOMIC_ACQUIRE);
+                values[1] = __atomic_load_n(&cells[US_SHARED_COUNTER_INDEX], __ATOMIC_ACQUIRE);
+                for (index = 0; index < 2; ++index) if (values[index] != previous[index]) {
+                    previous[index] = values[index];
+                    printf("UB_DOMAIN_SHARED_OBSERVED generation=%llu index=%u value=%llu\n",
+                           (unsigned long long)generation, index + 1,
+                           (unsigned long long)values[index]);
+                    fflush(stdout);
                 }
             }
             usleep(1000);

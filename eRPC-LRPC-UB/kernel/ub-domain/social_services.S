@@ -58,6 +58,59 @@ us_nginx_forward_write_start:
     str w2, [x0, #68]
     brk #0x4c0
 us_nginx_forward_write_end:
+.global us_nginx_forward_shared_start, us_nginx_forward_shared_end
+us_nginx_forward_shared_start:
+    ldr w2, [x0, #64]
+    cmp w2, #14                 /* shared cell store */
+    b.eq 6f
+    cmp w2, #15                 /* shared cell/counter read */
+    b.eq 7f
+    cmp w2, #16                 /* bounded fetch-add on shared counter */
+    b.eq 8f
+    cmp w2, #11
+    b.eq 11f
+    ldr w2, [x1, #36]
+    b 12f
+11: ldr w2, [x1, #40]
+    b 12f
+6:  mov x3, #0x8000
+    movk x3, #1, lsl #32        /* UD_WRITE, same B PA for every connection */
+    add x3, x3, #8             /* shared cell */
+    ldr x4, [x0, #48]
+    stlr x4, [x3]
+    dsb sy
+    ldar x4, [x3]
+    str x4, [x0, #56]
+    b 10f
+7:  mov x3, #0x8000
+    movk x3, #1, lsl #32
+    ldr x4, [x0, #8]           /* validated index 1 or 2 */
+    add x3, x3, x4, lsl #3
+    ldar x4, [x3]
+    dsb sy
+    str x4, [x0, #56]
+    b 10f
+8:  mov x3, #0x8000
+    movk x3, #1, lsl #32
+    add x3, x3, #16            /* shared counter */
+    mov w5, #256               /* bound IRQ-masked retries on unsupported mappings */
+9:  ldaxr x4, [x3]
+    add x6, x4, #1
+    stlxr w7, x6, [x3]
+    cbz w7, 13f
+    subs w5, w5, #1
+    b.ne 9b
+    mov w2, #11                /* EAGAIN: no committed increment */
+    str w2, [x0, #76]
+    b 10f
+13: dsb sy
+    str x4, [x0, #56]          /* previous counter value */
+10: mov w2, #105
+12: str w2, [x0, #72]
+    mov w2, #1
+    str w2, [x0, #68]
+    brk #0x4c0
+us_nginx_forward_shared_end:
 .global us_nginx_return_start, us_nginx_return_end
 us_nginx_return_start:
     ldr w2, [x1, #44]           /* return_domain=LB */

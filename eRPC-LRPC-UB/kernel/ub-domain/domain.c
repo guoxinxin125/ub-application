@@ -200,8 +200,10 @@ static int ud_import_pa(struct ud_session *s, unsigned long offset, u64 *pa,
         pr_warn_ratelimited("ub_domain: import PTE must be valid EL0 Normal-NC (offset=%lx)\n", offset);
         return rc;
     }
-    if (s->profile == UD_PROFILE_SOCIAL_WRITE &&
-        offset == UD_WRITE_HEAP(s->pool_slot) &&
+    if ((s->profile == UD_PROFILE_SOCIAL_WRITE ||
+         s->profile == UD_PROFILE_SOCIAL_SHARED) &&
+        offset == (s->profile == UD_PROFILE_SOCIAL_SHARED ?
+                   UD_SHARED_HEAP : UD_WRITE_HEAP(s->pool_slot)) &&
         (!(vma->vm_flags & VM_WRITE) || !pte_write(pte))) return -EACCES;
     if (!ud_pa_valid(*pa)) return -ERANGE;
     if (initialize) s->import_file[slot] = get_file(vma->vm_file);
@@ -224,8 +226,10 @@ static int ud_mapping(struct ud_session *s, bool initialize)
     if (rc) return rc;
     if (initialize) s->p.contract.heap_pa = pa;
     else if (s->p.contract.heap_pa != pa) return -ESTALE;
-    if (s->profile == UD_PROFILE_SOCIAL_WRITE) {
-        rc = ud_import_pa(s, UD_WRITE_HEAP(s->pool_slot), &pa,
+    if (s->profile == UD_PROFILE_SOCIAL_WRITE ||
+        s->profile == UD_PROFILE_SOCIAL_SHARED) {
+        rc = ud_import_pa(s, s->profile == UD_PROFILE_SOCIAL_SHARED ?
+                          UD_SHARED_HEAP : UD_WRITE_HEAP(s->pool_slot), &pa,
                           UD_DOMAINS*4+1, initialize);
         if (rc) return rc;
         if (initialize) s->p.contract.write_pa = pa;
@@ -675,7 +679,7 @@ static int ud_tlb_probe(struct ud_session *s, void __user *arg)
 /* Routing chain: legacy A->LB->A->nginx->A, or fused A->LB->nginx->A.
  * The reverse chain visits nginx before LB. Each call enters two domains.
  * B config is RO, code is A-local RX, arguments are A-local shared WB.
- * The opt-in write profile alone maps a per-connection B data page RW/NC.
+ * The opt-in write profiles map a private or shared B data page RW/NC.
  * No eRPC, allocator, syscall or data-plane B thread in a domain. */
 static int ud_run_social(struct ud_session *s)
 {
@@ -692,8 +696,21 @@ static int ud_run_social(struct ud_session *s)
         !call->message.value || call->message.value > U32_MAX || call->message.request > U32_MAX ||
         (call->message.type != (call->direction ? US_USER_RESP : US_USER_REQ) &&
          call->message.type != (call->direction ? US_HOME_RESP : US_HOME_REQ) &&
-         (s->profile != UD_PROFILE_SOCIAL_WRITE || call->direction != US_FORWARD ||
-          call->message.type != US_WRITE_REQ)) ||
+         !(s->profile == UD_PROFILE_SOCIAL_WRITE &&
+           call->direction == US_FORWARD && call->message.type == US_WRITE_REQ) &&
+         !(s->profile == UD_PROFILE_SOCIAL_SHARED && call->direction == US_FORWARD &&
+           (call->message.type == US_SHARED_WRITE_REQ ||
+            call->message.type == US_SHARED_READ_REQ ||
+            call->message.type == US_SHARED_FETCH_ADD_REQ))) ||
+        (s->profile == UD_PROFILE_SOCIAL_SHARED &&
+         ((call->message.type == US_SHARED_WRITE_REQ &&
+           call->message.request != US_SHARED_VALUE_INDEX) ||
+          (call->message.type == US_SHARED_READ_REQ &&
+           call->message.request != US_SHARED_VALUE_INDEX &&
+           call->message.request != US_SHARED_COUNTER_INDEX) ||
+          (call->message.type == US_SHARED_FETCH_ADD_REQ &&
+           (call->message.request != US_SHARED_COUNTER_INDEX ||
+            call->message.value != 1)))) ||
         call->message.status || call->message.action || call->message.target || call->message.ticket)
         return -EINVAL;
     input = call->message;
@@ -745,6 +762,9 @@ static int ud_run_social(struct ud_session *s)
         if (call->message.action != (first ? US_ACTION_CLIENT : US_ACTION_RPC) ||
             call->message.target != (first ? 0 :
                 (input.type == US_WRITE_REQ ? 104 :
+                 (input.type == US_SHARED_WRITE_REQ ||
+                  input.type == US_SHARED_READ_REQ ||
+                  input.type == US_SHARED_FETCH_ADD_REQ) ? 105 :
                  input.type == US_HOME_REQ ? 103 : 102))) {
             rc = -EPROTO; goto bad;
         }
@@ -762,6 +782,9 @@ static int ud_run_social(struct ud_session *s)
         if (call->message.action != (i ? (first ? US_ACTION_CLIENT : US_ACTION_RPC) : US_ACTION_DOMAIN) ||
             call->message.target != (i ? (first ? 0 :
                 (input.type == US_WRITE_REQ ? 104 :
+                 (input.type == US_SHARED_WRITE_REQ ||
+                  input.type == US_SHARED_READ_REQ ||
+                  input.type == US_SHARED_FETCH_ADD_REQ) ? 105 :
                  input.type == US_HOME_REQ ? 103 : 102)) : (first ? 1 : 2))) {
             rc = -EPROTO; goto bad;
         }
@@ -771,9 +794,18 @@ static int ud_run_social(struct ud_session *s)
         result.action = input.action; result.target = input.target;
         if (input.type == US_WRITE_REQ && result.ticket == input.value)
             result.ticket = input.ticket;
+        if (input.type == US_SHARED_WRITE_REQ && result.ticket != input.value) {
+            rc = -EPROTO; goto bad;
+        }
+        if (input.type == US_SHARED_WRITE_REQ ||
+            input.type == US_SHARED_READ_REQ ||
+            input.type == US_SHARED_FETCH_ADD_REQ)
+            result.ticket = input.ticket;
+        if (input.type == US_SHARED_FETCH_ADD_REQ && result.status == EAGAIN)
+            result.status = input.status;
         if (memcmp(&result, &input, sizeof(input))) { rc = -EPROTO; goto bad; }
     }
-    rc = 0; goto timed;
+    rc = call->message.status == EAGAIN ? -EAGAIN : 0; goto timed;
 bad:
     m->esr = r.esr; m->far = r.far; call->fault_vector = r.vector;
     s->committed = false;
@@ -798,7 +830,7 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         u32 profile;
         if (s->prepared) { rc = -EBUSY; break; }
         if (copy_from_user(&profile, p, sizeof(profile))) { rc = -EFAULT; break; }
-        if (profile > UD_PROFILE_SOCIAL_WRITE) { rc = -EINVAL; break; }
+        if (profile > UD_PROFILE_SOCIAL_SHARED) { rc = -EINVAL; break; }
         s->profile = profile; rc = 0; break;
     }
     case UD_SOCIAL_CALL: {
@@ -971,7 +1003,7 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MODE ")");
 MODULE_INFO(ud_nested, "legacy,fused");
 MODULE_INFO(ud_multi, "pool-v2-8-slots-single-importer-kernel");
-MODULE_INFO(ud_social, "user-home-read-and-opt-in-write-probe-abi2-legacy,fused");
+MODULE_INFO(ud_social, "user-home-read-opt-in-private-write-and-shared-atomic-probe-abi2-legacy,fused");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

@@ -4,6 +4,7 @@
 extern const unsigned char us_lb_forward_start[], us_lb_forward_end[];
 extern const unsigned char us_nginx_forward_start[], us_nginx_forward_end[];
 extern const unsigned char us_nginx_forward_write_start[], us_nginx_forward_write_end[];
+extern const unsigned char us_nginx_forward_shared_start[], us_nginx_forward_shared_end[];
 extern const unsigned char us_nginx_return_start[], us_nginx_return_end[];
 extern const unsigned char us_lb_return_start[], us_lb_return_end[];
 extern const unsigned char ud_direct_start[], ud_direct_end[];
@@ -30,6 +31,10 @@ static inline const unsigned char *ud_profile_service(unsigned int profile,
     if (profile == UD_PROFILE_SOCIAL_WRITE && d == 1) {
         *size = (unsigned long)(us_nginx_forward_write_end - us_nginx_forward_write_start);
         return us_nginx_forward_write_start;
+    }
+    if (profile == UD_PROFILE_SOCIAL_SHARED && d == 1) {
+        *size = (unsigned long)(us_nginx_forward_shared_end - us_nginx_forward_shared_start);
+        return us_nginx_forward_shared_start;
     }
     switch (d) {
     case 0: start=us_lb_forward_start; end=us_lb_forward_end; break;

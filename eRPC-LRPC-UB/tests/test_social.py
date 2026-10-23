@@ -404,6 +404,8 @@ struct ud_session {
 static struct ud_session *active;
 static struct us_heap heap;
 static unsigned locks,irqs,preempt,entries,fail_mapping,fail_supported,fault,corrupt;
+static u64 shared_cell,shared_counter;
+static unsigned atomic_retry;
 static int fake_current;
 #define current (&fake_current)
 #define mm fake_mm
@@ -424,7 +426,7 @@ static u64 ktime_get_ns(void) {static u64 n;return ++n;}
 static int ud_mapping(struct ud_session *s,bool init) {(void)s;(void)init;return fail_mapping ? -ESTALE : 0;}
 static int ud_supported(void) {return fail_supported ? -EOPNOTSUPP : 0;}
 static const unsigned char *ud_profile_service(unsigned p,unsigned d,unsigned long *size) {
- static unsigned char code[8]; assert((p==UD_PROFILE_SOCIAL || p==UD_PROFILE_SOCIAL_WRITE) && d<4);*size=8;return code;
+ static unsigned char code[8]; assert((p==UD_PROFILE_SOCIAL || p==UD_PROFILE_SOCIAL_WRITE || p==UD_PROFILE_SOCIAL_SHARED) && d<4);*size=8;return code;
 }
 static void ud_initial_regs(struct ud_session *s,unsigned d,struct ud_regs *r) {
  (void)s;memset(r,0,sizeof(*r));r->x[0]=UD_ARGS;r->x[1]=UD_DATA+us_config_offset(d);
@@ -438,8 +440,18 @@ static void ud_enter_selected(struct ud_regs *r,u64 root,u64 tcr,u64 empty,unsig
  unsigned expected=c->direction*2+entries;
  assert(d==expected); ++entries;
  if(d==0) {c->message.action=US_ACTION_DOMAIN;c->message.target=config->nginx[0];}
- if(d==1) {c->message.action=US_ACTION_RPC;c->message.target=c->message.type==US_WRITE_REQ ? 104 : c->message.type==US_HOME_REQ ? config->home_endpoint : config->user_endpoint;
-            if(c->message.type==US_WRITE_REQ) c->message.ticket=c->message.value;}
+ if(d==1) {c->message.action=US_ACTION_RPC;
+            c->message.target=c->message.type==US_WRITE_REQ ? 104 :
+              c->message.type>=US_SHARED_WRITE_REQ && c->message.type<=US_SHARED_FETCH_ADD_REQ ? 105 :
+              c->message.type==US_HOME_REQ ? config->home_endpoint : config->user_endpoint;
+            if(c->message.type==US_WRITE_REQ) c->message.ticket=c->message.value;
+            if(c->message.type==US_SHARED_WRITE_REQ) c->message.ticket=shared_cell=c->message.value;
+            if(c->message.type==US_SHARED_READ_REQ) c->message.ticket=
+              c->message.request==US_SHARED_VALUE_INDEX ? shared_cell : shared_counter;
+            if(c->message.type==US_SHARED_FETCH_ADD_REQ) {
+              if(atomic_retry) c->message.status=EAGAIN;
+              else c->message.ticket=shared_counter++;
+            }}
  if(d==2) {c->message.action=US_ACTION_DOMAIN;c->message.target=config->return_domain;}
  if(d==3) {c->message.action=US_ACTION_CLIENT;c->message.target=0;}
  r->vector=8;r->esr=(0x3cULL<<26)|0x4c0;r->pc=UD_VA+4;
@@ -500,9 +512,36 @@ int main(void) {
   write->message.type=US_WRITE_REQ;
   assert(!ud_run_social(&s) && write->message.ticket==write->message.value);
  }
+ s.profile=UD_PROFILE_SOCIAL_SHARED;
+ for(unsigned path=0;path<=1;path++) {
+  s.nested_path=path;
+  initialize(&s,0,US_SHARED_VALUE_INDEX);
+  struct us_call *shared=(void *)((char *)s.args[0]+US_MAPPED_OFFSET);
+  shared->message.type=US_SHARED_WRITE_REQ;
+  assert(!ud_run_social(&s) && shared->message.ticket==shared_cell);
+  initialize(&s,0,US_SHARED_VALUE_INDEX);
+  shared->message.type=US_SHARED_READ_REQ;
+  assert(!ud_run_social(&s) && shared->message.ticket==shared_cell);
+  initialize(&s,0,US_SHARED_COUNTER_INDEX);
+  shared->message.type=US_SHARED_FETCH_ADD_REQ;shared->message.value=1;
+  assert(!ud_run_social(&s) && shared->message.ticket==path);
+  initialize(&s,0,US_SHARED_COUNTER_INDEX);
+  shared->message.type=US_SHARED_READ_REQ;
+  assert(!ud_run_social(&s) && shared->message.ticket==shared_counter);
+  initialize(&s,0,US_SHARED_COUNTER_INDEX);
+  shared->message.type=US_SHARED_FETCH_ADD_REQ;shared->message.value=1;
+  atomic_retry=1;assert(ud_run_social(&s)==-EAGAIN && s.committed);
+  atomic_retry=0;
+  initialize(&s,0,US_SHARED_VALUE_INDEX);
+  shared->message.type=US_SHARED_FETCH_ADD_REQ;shared->message.value=1;
+  assert(ud_run_social(&s)==-EINVAL);
+ }
  s.profile=UD_PROFILE_SOCIAL;
  initialize(&s,0,1);
  ((struct us_call *)((char *)s.args[0]+US_MAPPED_OFFSET))->message.type=US_WRITE_REQ;
+ assert(ud_run_social(&s)==-EINVAL && !locks && !irqs && !preempt);
+ initialize(&s,0,US_SHARED_VALUE_INDEX);
+ ((struct us_call *)((char *)s.args[0]+US_MAPPED_OFFSET))->message.type=US_SHARED_READ_REQ;
  assert(ud_run_social(&s)==-EINVAL && !locks && !irqs && !preempt);
  initialize(&s,0,1);fail_mapping=1;assert(ud_run_social(&s)==-ESTALE && !locks && !irqs && !preempt);
  fail_mapping=0;fail_supported=1;assert(ud_run_social(&s)==-EOPNOTSUPP && !locks && !irqs && !preempt);

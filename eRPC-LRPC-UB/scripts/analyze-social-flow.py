@@ -42,6 +42,13 @@ B_PAIRS = (
 )
 
 
+def timeline_pairs(workload):
+    role = f"{workload}_timeline"
+    return tuple((label, role if first_role == "user_timeline" else first_role, first_stage,
+                  role if last_role == "user_timeline" else last_role, last_stage)
+                 for label, first_role, first_stage, last_role, last_stage in A_PAIRS)
+
+
 def load_logs(directory, names, wire_map=None, require_map=False):
     events = {}
     contracts = 0
@@ -122,13 +129,15 @@ def summarize(mode, host, events, pairs, warmup):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workload", choices=("user", "home"), default="user")
     parser.add_argument("--mode", choices=("domain", "rpc"), required=True)
     parser.add_argument("--a-logs", type=Path, required=True)
     parser.add_argument("--b-logs", type=Path, required=True)
     args = parser.parse_args()
     domain = args.mode == "domain"
+    timeline = f"{args.workload}_timeline"
     a, a_contracts, warmup, mapping = load_logs(
-        args.a_logs, ("client", "user_timeline"), require_map=domain)
+        args.a_logs, ("client", timeline), require_map=domain)
     b, b_contracts, _, _ = load_logs(
         args.b_logs, ("load_balance", "nginx", "post_storage"),
         wire_map=mapping, require_map=domain)
@@ -136,10 +145,10 @@ def main():
         parser.error("missing SN_FLOW_CONTRACT; enable both profile flags on A and B, then stop the sessions cleanly")
     if warmup is None:
         parser.error("missing client SN_DOMAIN_MEASUREMENT warmup")
-    print(f"SN_FLOW_ANALYSIS mode={args.mode} warmup={warmup} "
+    print(f"SN_FLOW_ANALYSIS workload={args.workload} mode={args.mode} warmup={warmup} "
           f"a_events={sum(map(len, a.values()))} b_events={sum(map(len, b.values()))} "
           "cross_host_subtraction=0")
-    summarize(args.mode, "A", a, A_PAIRS, warmup)
+    summarize(args.mode, "A", a, timeline_pairs(args.workload), warmup)
     summarize(args.mode, "B", b, B_PAIRS, warmup)
 
 

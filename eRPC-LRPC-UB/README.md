@@ -6,6 +6,8 @@
 更新清单，传到 A、B 后运行 `python3 scripts/manifest.py --check` 核对。
 这里包含 Direct/Nested、只读多连接、PA 探针，以及可选的 UserTimeline/HomeTimeline read 路由接入；
 另外提供隔离的[服务域远端写入探针](SOCIAL_WRITE_PROBE.md)，它尚未接入发帖业务。
+多连接访问同一 B 侧页的读写/原子更新实验见
+[共享页正确性探针](SOCIAL_SHARED_PROBE.md)；它同样不是业务写入。
 没有 QEMU、Go、currency、旧 shadow 程序或第三方源码。应用接入需另外同步 `eRPC/`
 中的应用与构建依赖，详见 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)及
 [HomeTimeline UB 接入说明](SOCIAL_HOME_READ.md)。

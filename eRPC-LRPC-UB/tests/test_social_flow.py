@@ -91,6 +91,14 @@ class SocialFlow(unittest.TestCase):
         self.assertIn("stage=client_to_timeline_local count=1 ambiguous=0 p50_ns=25", output.getvalue())
         self.assertIn("stage=lb_to_nginx_local count=1 ambiguous=0 p50_ns=35", output.getvalue())
 
+    def test_home_timeline_uses_same_segment_definitions(self):
+        events = {(1, "home_timeline", "storage_enqueue"): [100],
+                  (1, "home_timeline", "storage_callback"): [180]}
+        output = io.StringIO()
+        with redirect_stdout(output):
+            flow.summarize("rpc", "A", events, flow.timeline_pairs("home"), 0)
+        self.assertIn("stage=storage_roundtrip count=1 ambiguous=0 p50_ns=80", output.getvalue())
+
     def test_domain_wire_request_is_mapped_back_to_original(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

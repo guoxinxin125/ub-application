@@ -5,6 +5,36 @@ legacy 和 fused 应用链都已由用户在双机完成端到端验证。修改
 仍须重新构建 A 侧应用并在目标机器复测；先跑少量请求，再跑性能轮次。
 不需要修改启动参数、重启机器、重启 UB 服务或使用 Docker。
 
+### 每台机器一次设置环境（推荐）
+
+在 A、B 上各复制一次模板，分别把 `SOCIAL_HOST_SIDE`、机器 ID、NUMA、SDK/OBMM
+路径改成该机器的实际值；两端 `LRPC_UB_DOMAIN_NAME` 和 `ERPC_UB_REGION_PREFIX`
+使用同一组、与其他用户不冲突的名字。`config/social-env.local.sh` 被忽略，不随源码包
+传输，也不要在里面写密码。首次构建时配置 JSON 可以尚未生成。
+
+```sh
+cd /absolute/path/ub-application/eRPC-LRPC-UB
+test -f config/social-env.local.sh || cp config/social-env.example.sh config/social-env.local.sh
+# 编辑 config/social-env.local.sh；A、B 各编辑自己的副本
+source scripts/social-env.sh --mode domain --workload user
+```
+
+之后每次登录，只需在**将要运行构建/实验命令的 Bash shell** 中执行最后一条
+`source` 命令，不必逐项 `export`。RPC 基线把 `--mode domain` 改为 `--mode rpc`；
+HomeTimeline 把 `--workload user` 改为 `--workload home`。诊断轮加 `--profile`，
+正式延迟轮不加；可用 `--run-id NAME` 给同一轮 A/B 日志命名。脚本只设置当前 shell
+变量，不启动程序或更改机器配置。若先进入 root shell，须在该 shell 内再 `source`。
+需要预热时再加 `--warmup 100`。配置 JSON 存在时会检查
+`client.generate_num > warmup`；预热 100 次时，生成配置的请求数必须至少 101。
+`SN_CONFIG`、`SN_BUILD_DIR`、`SN_LOG_DIR` 会一起设好，然后可运行：
+
+```sh
+bash scripts/run-social-session.sh --side "$SOCIAL_HOST_SIDE" --mode domain --config "$SN_CONFIG"
+# A 若需 MongoDB 隧道，在上面命令后加 --ssh-b USER@B
+```
+
+后文逐项 `export` 是手动配置的等价参考；使用本脚本时无需再执行那些重复命令。
+
 ## 1. 第一版范围与摆放
 
 只支持一个 Client、一个发送 lane、并发 1、一个 nginx 域、UserTimeline read。
@@ -495,8 +525,8 @@ grep -E '^SN_DOMAIN_(E2E|CLASS|BREAKDOWN|BREAKDOWN_CONTRACT) ' \
 ### 细粒度请求路径诊断（两个 profile 开关同时开启）
 
 新版应用还在两个开关**同时为 1** 时记录 `SN_FLOW_EVENT`。事件按请求号保存在
-各线程的有界缓冲区，线程退出后才写日志；`SN_FLOW_CONTRACT dropped=0` 才能用于
-汇总。正常性能轮次保持两个开关为 0，不产生这些额外时间戳。诊断轮次在 A、B
+各线程的有界缓冲区，线程退出后才写入对应服务的主日志；`SN_FLOW_CONTRACT dropped=0`
+才可用于汇总。正常性能轮次保持两个开关为 0，不产生这些额外时间戳。诊断轮次在 A、B
 各自启动前设置：
 
 ```sh

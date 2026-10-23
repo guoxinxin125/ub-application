@@ -111,8 +111,10 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     rc = lrpc_ubsm_query_pa(&client->region, &info, UD_HEAP, &address);
     if (rc) { ud_error(rc); goto fail; }
     if (address.pa != p.contract.heap_pa) { errno = ESTALE; goto fail; }
-    if (profile == UD_PROFILE_SOCIAL_WRITE) {
-        rc = lrpc_ubsm_query_pa(&client->region, &info, UD_WRITE_HEAP(pool.slot), &address);
+    if (profile == UD_PROFILE_SOCIAL_WRITE || profile == UD_PROFILE_SOCIAL_SHARED) {
+        rc = lrpc_ubsm_query_pa(&client->region, &info,
+                profile == UD_PROFILE_SOCIAL_SHARED ? UD_SHARED_HEAP : UD_WRITE_HEAP(pool.slot),
+                &address);
         if (rc) { ud_error(rc); goto fail; }
         if (address.pa != p.contract.write_pa) { errno = ESTALE; goto fail; }
     } else if (p.contract.write_pa) { errno = EPROTO; goto fail; }
@@ -158,6 +160,7 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
            h->shadow_cpu, profile ? "none" : "middle-suspend-only", ud_nested_path_name(nested_path),
            client->info.multi, client->info.slot, (unsigned long long)client->info.identity,
            (unsigned long long)client->info.generation,
+           profile == UD_PROFILE_SOCIAL_SHARED ? "social-shared-probe" :
            profile == UD_PROFILE_SOCIAL_WRITE ? "social-write-probe" :
            profile ? "social-user-read" : "micro");
     return 0;
@@ -179,6 +182,10 @@ int us_client_open_write(struct lrpc_handle *h)
 {
     return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL_WRITE);
 }
+int us_client_open_shared(struct lrpc_handle *h)
+{
+    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL_SHARED);
+}
 int us_client_info(const struct lrpc_handle *h, struct ud_connection_info *info)
 {
     return ud_lrpc_connection_info(h, info);
@@ -196,7 +203,8 @@ int us_client_call(struct lrpc_handle *h, struct us_call *call)
         call->abi != US_ABI || call->direction > US_REVERSE) return ud_error(-EINVAL);
     client = h->astack_map;
     if ((client->profile != UD_PROFILE_SOCIAL &&
-         client->profile != UD_PROFILE_SOCIAL_WRITE) || !client->local_args)
+         client->profile != UD_PROFILE_SOCIAL_WRITE &&
+         client->profile != UD_PROFILE_SOCIAL_SHARED) || !client->local_args)
         return ud_error(-ENOTCONN);
     if (!pthread_equal(client->owner, pthread_self())) return ud_error(-EPERM);
     if (sched_getcpu() != h->shadow_cpu) return ud_error(-EXDEV);

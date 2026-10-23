@@ -2,6 +2,15 @@
 
 本实验沿用 [UserTimeline read 的 UB 环境和生命周期说明](SOCIAL_USER_READ.md)，但一次只运行一种 read workload。这里 A 运行 `client + home_timeline`，B 运行 `post_storage`。RPC 基线还在 B 运行 `load_balance + nginx` 进程；域模式改由 B 的 owner 发布这两个只读服务域，由 A 的 CPU 执行。两种模式都由 A 上的 HomeTimeline 查询相同的 MongoDB 数据、向 B 的 PostStorage 读帖子，并由 Client 消费共享帖子句柄。不要把这项对照解释为 HomeTimeline 本身也被替换成域调用。
 
+环境变量可按 [UserTimeline 的一键设置](SOCIAL_USER_READ.md#每台机器一次设置环境推荐) 配置本机的 `config/social-env.local.sh`，每个新 Bash 会话只需：
+
+```sh
+source scripts/social-env.sh --mode domain --workload home
+# RPC 基线改为 --mode rpc；详细打点轮另加 --profile
+```
+
+随后下文启动命令可把 `--config` 后的固定路径换成 `"$SN_CONFIG"`；不需要重复逐项 `export`。首次生成配置前也能用它设置编译环境；正式运行前请检查脚本打印的配置、NUMA、样本数与日志目录。
+
 运行前仍按原 [README_UB](../eRPC/apps/social_network_cxl/README_UB.md) 准备已有数据库和 UB SDK；不由这里的脚本启动、重置或导入 MongoDB。HomeTimeline 目前从 `user_timeline_mongodb` 指向的 `user-timeline.user-timeline` 集合加载帖子 ID；`social_graph_mongodb.connections` 仅作为旧代码的连接池数量配置。生成器会在私有配置中补足这个字段，不改源模板。如果数据库在 B 且 A 使用默认 `127.0.0.1:22012`，可使用下面的 `--ssh-b` 会话隧道。
 
 先在 A 或 B 任一端生成一组私有配置，复制 `config-a.json`/`config-b.json` 到对应机器；IP、NUMA 和 DB 端点替换为实际值。原 UserTimeline 配置不受影响。
@@ -73,6 +82,15 @@ python3 scripts/check-social.py --workload home --mode domain --chain fused --sa
   --logs "$A_LOG_DIR" --peer-logs "$B_LOG_DIR"
 ```
 
-正常测延迟时保持 `ERPC_SN_DOMAIN_PROFILE=0 ERPC_SN_PROFILE=0`；需要详细打点时，在 A/B 启动命令前分别 `export ERPC_SN_DOMAIN_PROFILE=1 ERPC_SN_PROFILE=1`。Client 日志中的 `SN_DOMAIN_MEASUREMENT`、`SN_DOMAIN_CLASS`、`SN_DOMAIN_BREAKDOWN` 是同一 `call-to-consume` 口径；A 的 `SN_DOMAIN_PROFILE` 把前向/回程域调用单列，A/B 的 `SN_UB_PROFILE` 给出 RPC、队列、PostStorage 等阶段。打点本身有开销，应与不打点的正式延迟轮次分开，不把单机时间戳跨机器直接相减。
+正常测延迟时保持 `ERPC_SN_DOMAIN_PROFILE=0 ERPC_SN_PROFILE=0`；需要详细打点时，在 A/B 启动命令前分别 `export ERPC_SN_DOMAIN_PROFILE=1 ERPC_SN_PROFILE=1`。Client 日志中的 `SN_DOMAIN_MEASUREMENT`、`SN_DOMAIN_CLASS`、`SN_DOMAIN_BREAKDOWN` 是同一 `call-to-consume` 口径；A 的 `SN_DOMAIN_PROFILE` 把前向/回程域调用单列，A/B 的 `SN_UB_PROFILE` 给出 RPC、队列、PostStorage 等阶段。逐请求 `SN_FLOW_EVENT` 在各线程退出后写入对应服务的主日志。同步本次 `home_timeline.cpp`、`ub_breakdown.h` 和汇总脚本后，诊断轮需重新构建 A 的 `client home_timeline`；B 的 RPC 轮重建 `post_storage nginx load_balance`，domain 轮只需 `post_storage`。这些都是用户态程序，不需要重新加载内核模块。将 B 的服务日志复制到 A 后，可用以下命令查看各段汇总：
+
+```sh
+python3 scripts/analyze-social-flow.py --workload home --mode rpc \
+  --a-logs "$A_LOG_DIR" --b-logs "$B_LOG_DIR"
+python3 scripts/analyze-social-flow.py --workload home --mode domain \
+  --a-logs "$A_LOG_DIR" --b-logs "$B_LOG_DIR"
+```
+
+HomeTimeline 可能对同一请求发出多个 PostStorage 子请求；对应分段若有多条时间戳会标为 `ambiguous`，不会挑一条冒充请求耗时。打点本身有开销，应与不打点的正式延迟轮次分开，不把单机时间戳跨机器直接相减。
 
 当前只是代码与本地夹具验证；HomeTimeline 的 UB 真机编译、数据库内容/返回句柄正确性、两种模式端到端性能都需要按上面的顺序复测。
