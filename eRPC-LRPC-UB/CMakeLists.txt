@@ -19,6 +19,8 @@ if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
 endif()
 
 if(UBLRPC_ROLE STREQUAL "owner")
+    add_executable(lrpc-ub-remote-code-gen demo/ub/remote_code_gen.c)
+    target_include_directories(lrpc-ub-remote-code-gen PRIVATE include include/uapi)
     add_executable(lrpc-ub-domain-owner
         demo/ub/domain_owner.c kernel/ub-domain/services.S kernel/ub-domain/social_services.S
         lib/backend_ubsm.c lib/ub_domain_pool.c)

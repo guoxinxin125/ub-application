@@ -25,6 +25,7 @@
 #include <lrpc/ub_domain_layout.h>
 #include <lrpc/ub_domain_services.h>
 #include <lrpc/ub_domain_pool.h>
+#include <lrpc/ub_remote_code.h>
 #include "pool_slots.h"
 
 static DEFINE_MUTEX(ud_pool_lock);
@@ -59,6 +60,9 @@ extern void ud_enter_nested_vhe(struct ud_nested_gate *gate, u64 tcr, u64 empty_
 static bool experimental;
 module_param(experimental, bool, 0400);
 MODULE_PARM_DESC(experimental, "Opt into bounded IRQ-masked EL0 gate on a test machine");
+static bool allow_remote_code;
+module_param(allow_remote_code, bool, 0400);
+MODULE_PARM_DESC(allow_remote_code, "Opt into verified, branch-free B-published direct/nested code");
 #ifdef UD_VHE_GATE
 static bool vhe_gate;
 module_param(vhe_gate, bool, 0400);
@@ -75,7 +79,8 @@ struct ud_session {
     unsigned long asid[UD_DOMAINS];
     void *empty_root;
     u64 completion;
-    u32 nested_path, profile;
+    u32 nested_path, profile, code_mode;
+    u32 remote_words[UD_DOMAINS];
     u64 pool_generation;
     unsigned int pool_bank, pool_slot;
     bool multi, pool_reserved, pool_exposed, pool_reusable;
@@ -350,6 +355,7 @@ fail:
 static int ud_prepare_session(struct ud_session *s, void __user *arg)
 {
     struct ud_prepare input;
+    struct ud_remote_manifest remote = {0};
     u64 magic;
     int rc;
     if (s->prepared) return -EALREADY;
@@ -358,6 +364,15 @@ static int ud_prepare_session(struct ud_session *s, void __user *arg)
     if (!input.import_va || input.import_va > TASK_SIZE - UD_BYTES) return -EINVAL;
     if (copy_from_user(&magic, (void __user *)input.import_va, sizeof(magic))) return -EFAULT;
     if (magic == UD_POOL_MAGIC) return -EPROTONOSUPPORT;
+    if (copy_from_user(&remote, (void __user *)(input.import_va + UD_REMOTE_META_OFFSET),
+                       sizeof(remote))) return -EFAULT;
+    if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
+        if (!allow_remote_code || remote.magic != UD_REMOTE_MAGIC ||
+            remote.abi != UD_REMOTE_ABI || remote.mode != UD_CODE_REMOTE_VERIFIED ||
+            remote.reserved) return -EPROTONOSUPPORT;
+    } else if (remote.magic || remote.abi || remote.mode || remote.reserved) {
+        return -EPROTONOSUPPORT;
+    }
     s->multi = false;
     rc = ud_prepare_pages(s, &input);
     if (rc) return rc;
@@ -398,6 +413,7 @@ static int ud_copy(struct ud_session *s, unsigned long off, void *to, size_t n)
 static int ud_commit(struct ud_session *s)
 {
     struct ud_publication pub;
+    struct ud_remote_manifest remote = {0};
     u64 *expected, *actual;
     unsigned int d, l;
     unsigned long size;
@@ -424,9 +440,23 @@ static int ud_commit(struct ud_session *s)
         pub.request != s->p.contract.nonce || pub.complete != pub.request) {
         rc = -ESTALE; goto out;
     }
+    if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
+        rc = ud_copy(s, UD_REMOTE_META_OFFSET, &remote, sizeof(remote));
+        if (rc) goto out;
+        if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
+            remote.mode != UD_CODE_REMOTE_VERIFIED || remote.reserved) {
+            rc = -EBADMSG; goto out;
+        }
+    }
     for (d = 0; d < UD_DOMAINS; ++d) {
         struct ud_initial initial = {UD_ARGS, UD_DATA, UD_STACK + UD_PAGE, UD_VA};
-        const unsigned char *code = ud_profile_service(s->profile, d, &size);
+        const unsigned char *code = NULL;
+        if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
+            if (!remote.words[d] || remote.words[d] > UD_REMOTE_MAX_WORDS) {
+                rc = -EINVAL; goto out;
+            }
+            size = remote.words[d] * sizeof(u32);
+        } else code = ud_profile_service(s->profile, d, &size);
         if (s->profile != UD_PROFILE_MICRO) initial.heap += us_config_offset(d);
         for (l = 0; l < 4; ++l) {
             ud_build_table(&s->p.contract, d, l, expected);
@@ -440,7 +470,12 @@ static int ud_commit(struct ud_session *s)
         if (!size || size > UD_PAGE) { rc = -EINVAL; goto out; }
         rc = ud_copy(s, UD_IMAGE(d), s->code[d], size);
         if (rc) goto out;
-        if (memcmp(code, s->code[d], size)) { rc = -EBADMSG; goto out; }
+        if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
+            if (!ud_remote_image_valid(d, s->code[d], remote.words[d])) {
+                rc = -EBADMSG; goto out;
+            }
+            s->remote_words[d] = remote.words[d];
+        } else if (memcmp(code, s->code[d], size)) { rc = -EBADMSG; goto out; }
         flush_icache_range((unsigned long)s->code[d], (unsigned long)s->code[d] + size);
     }
     rc = ud_copy(s, UD_HEAP, actual, UD_PAGE);
@@ -467,10 +502,13 @@ static void ud_initial_regs(struct ud_session *s, unsigned int d, struct ud_regs
     r->x[0] = s->initial[d].args; r->x[1] = s->initial[d].heap;
     r->sp = s->initial[d].sp; r->pc = s->initial[d].pc;
 }
-static bool ud_returned(struct ud_regs *r, unsigned int d, bool nested)
+static bool ud_returned(struct ud_session *s, struct ud_regs *r,
+                        unsigned int d, bool nested)
 {
     unsigned long size;
-    ud_service(d, &size);
+    if (s->code_mode == UD_CODE_REMOTE_VERIFIED)
+        size = s->remote_words[d] * sizeof(u32);
+    else ud_service(d, &size);
     return r->vector == 8 && (r->esr >> 26) == 0x3c &&
         (r->esr & 0xffff) == (nested ? 0x4c1 : 0x4c0) &&
         r->pc == UD_VA + (nested ? UD_NESTED_TRAP_OFFSET : size-4);
@@ -484,8 +522,13 @@ static noinline int ud_run_fused(struct ud_session *s, struct ud_regs *result,
     unsigned long middle_size, leaf_size;
     ud_initial_regs(s, UD_MIDDLE, &gate.middle);
     ud_initial_regs(s, UD_LEAF, &gate.leaf);
-    ud_service(UD_MIDDLE, &middle_size);
-    ud_service(UD_LEAF, &leaf_size);
+    if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
+        middle_size = s->remote_words[UD_MIDDLE] * sizeof(u32);
+        leaf_size = s->remote_words[UD_LEAF] * sizeof(u32);
+    } else {
+        ud_service(UD_MIDDLE, &middle_size);
+        ud_service(UD_LEAF, &leaf_size);
+    }
     gate.middle_root = s->p.contract.table_pa[UD_MIDDLE][0] |
                        ((u64)s->asid[UD_MIDDLE] << 48);
     gate.leaf_root = s->p.contract.table_pa[UD_LEAF][0] |
@@ -502,7 +545,7 @@ static noinline int ud_run_fused(struct ud_session *s, struct ud_regs *result,
     call->transitions = gate.transitions;
     *result = gate.domain == UD_LEAF ? gate.leaf : gate.middle;
     return gate.complete == 1 && gate.transitions == 4 &&
-           gate.domain == UD_MIDDLE && ud_returned(result, UD_MIDDLE, false) ? 0 : -EIO;
+           gate.domain == UD_MIDDLE && ud_returned(s, result, UD_MIDDLE, false) ? 0 : -EIO;
 }
 static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
                   struct ud_trace_call *trace)
@@ -520,6 +563,7 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
     int rc;
     if (s->profile != UD_PROFILE_MICRO) return -EOPNOTSUPP;
     if (!s->committed || c->procedure < 1 || c->procedure > 3 || c->reserved ||
+        (s->code_mode == UD_CODE_REMOTE_VERIFIED && c->procedure == 3) ||
         (c->procedure == 3 && (!c->a || c->a > 32))) return -EINVAL;
     /* Read lock spans entry/return; munmap/mremap cannot replace the VMA.
      * External UB teardown is forbidden by the trusted session contract. */
@@ -570,7 +614,7 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
     }
 #endif
     c->transitions = 2;
-    if (d == UD_MIDDLE && ud_returned(&r, d, true)) {
+    if (d == UD_MIDDLE && ud_returned(s, &r, d, true)) {
         memset(s->args[UD_LEAF], 0, 3 * sizeof(u64));
         ((u64 *)s->args[UD_LEAF])[0] = r.x[2];
         ud_initial_regs(s, UD_LEAF, &leaf);
@@ -593,7 +637,7 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
         }
 #endif
         c->transitions += 2;
-        if (!ud_returned(&leaf, UD_LEAF, false)) { r = leaf; goto bad; }
+        if (!ud_returned(s, &leaf, UD_LEAF, false)) { r = leaf; goto bad; }
         r.pc += 4;
         r.x[2] = ((u64 *)s->args[UD_LEAF])[2];
 #ifdef UD_TRACE_ENABLE
@@ -614,7 +658,7 @@ static int ud_run(struct ud_session *s, struct ud_call *c, bool mapped,
         c->transitions += 2;
     }
 returned:
-    if (!ud_returned(&r, d, false)) goto bad;
+    if (!ud_returned(s, &r, d, false)) goto bad;
     c->result = ((u64 *)s->args[d])[2];
     c->esr = c->far = 0;
     rc = 0;
@@ -826,11 +870,26 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     if (!capable(CAP_SYS_RAWIO) || current != s->owner || current->mm != s->mm) return -EPERM;
     if (mutex_lock_interruptible(&s->lock)) return -ERESTARTSYS;
     switch (cmd) {
+    case UD_SET_CODE_MODE: {
+        u32 mode;
+        if (s->prepared) { rc = -EBUSY; break; }
+        if (copy_from_user(&mode, p, sizeof(mode))) { rc = -EFAULT; break; }
+        if (mode != UD_CODE_LEGACY && mode != UD_CODE_REMOTE_VERIFIED) {
+            rc = -EINVAL; break;
+        }
+        if (mode == UD_CODE_REMOTE_VERIFIED &&
+            (!allow_remote_code || s->profile != UD_PROFILE_MICRO)) {
+            rc = -EOPNOTSUPP; break;
+        }
+        s->code_mode = mode; rc = 0; break;
+    }
     case UD_SET_PROFILE: {
         u32 profile;
         if (s->prepared) { rc = -EBUSY; break; }
         if (copy_from_user(&profile, p, sizeof(profile))) { rc = -EFAULT; break; }
         if (profile > UD_PROFILE_SOCIAL_SHARED) { rc = -EINVAL; break; }
+        if (profile != UD_PROFILE_MICRO &&
+            s->code_mode == UD_CODE_REMOTE_VERIFIED) { rc = -EINVAL; break; }
         s->profile = profile; rc = 0; break;
     }
     case UD_SOCIAL_CALL: {
@@ -1004,6 +1063,7 @@ MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MOD
 MODULE_INFO(ud_nested, "legacy,fused");
 MODULE_INFO(ud_multi, "pool-v2-8-slots-single-importer-kernel");
 MODULE_INFO(ud_social, "user-home-read-opt-in-private-write-and-shared-lse-atomic-probe-abi2-legacy,fused");
+MODULE_INFO(ud_remote_code, "opt-in-branch-free-direct-nested-abi1");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

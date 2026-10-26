@@ -7,6 +7,7 @@
 #include <lrpc/ub_domain_layout.h>
 #include <lrpc/ub_domain_services.h>
 #include <lrpc/ub_domain_pool.h>
+#include <lrpc/ub_remote_code.h>
 #include "provider_options.h"
 static volatile sig_atomic_t stopped;
 static void stop(int signo) { (void)signo; stopped = 1; }
@@ -14,7 +15,9 @@ int main(int argc, char **argv)
 {
     struct lrpc_ubsm_region region;
     struct ub_provider_options options;
-    const char *pos[2] = {NULL, NULL}, *name;
+    const char *pos[2] = {NULL, NULL}, *name, *remote_file = NULL;
+    struct ud_remote_bundle remote_bundle = {0};
+    FILE *remote_input;
     struct ud_publication *pub;
     struct ud_contract c;
     unsigned int d, l, slot, index;
@@ -35,20 +38,39 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--multi")) {
             if (multi) return 2;
             multi = 1;
+        } else if (!strcmp(argv[i], "--remote-code")) {
+            if (remote_file || i + 1 == argc) return 2;
+            remote_file = argv[++i];
         } else argv[j++] = argv[i];
     }
     argc = j; argv[j] = NULL;
     if (social) multi = 1;
+    if (remote_file && (social || multi)) {
+        fputs("--remote-code supports single-connection micro direct/nested only\n", stderr);
+        return 2;
+    }
     count = ub_provider_parse(&options, argc, argv, 1, pos, 2);
     if (count < 0) {
         fprintf(stderr, "usage: %s [SHM_NAME] [--provider-host HOST] "
                 "[--provider-numa N] [--provider-socket N] [--provider-port N] "
-                "[--multi|--social|--social-write|--social-shared]\n"
+                "[--multi|--social|--social-write|--social-shared|--remote-code BUNDLE]\n"
                 "legacy: %s B_PROVIDER_HOST SHM_NAME\n", argv[0], argv[0]);
         return 2;
     }
     name = count == 2 ? pos[1] : count == 1 ? pos[0] : "lrpc_ub_domain";
     if (ub_provider_resolve(&options, count == 2 ? pos[0] : NULL)) return 2;
+    if (remote_file) {
+        remote_input = fopen(remote_file, "rb");
+        if (!remote_input) { perror("remote-code open"); return 1; }
+        if (fread(&remote_bundle, 1, sizeof(remote_bundle), remote_input) !=
+                sizeof(remote_bundle) || fgetc(remote_input) != EOF ||
+            ferror(remote_input) || !ud_remote_bundle_valid(&remote_bundle)) {
+            fputs("UB_DOMAIN_OWNER_FAIL remote-code format or verifier\n", stderr);
+            fclose(remote_input);
+            return 1;
+        }
+        if (fclose(remote_input)) { perror("remote-code close"); return 1; }
+    }
     if (signal(SIGINT, stop) == SIG_ERR || signal(SIGTERM, stop) == SIG_ERR) return 1;
     rc = lrpc_ubsm_owner_open(&region, name, UD_BYTES, &options.provider);
     if (rc) { fprintf(stderr, "UB_DOMAIN_OWNER_FAIL open=%d\n", rc); return 1; }
@@ -130,7 +152,11 @@ int main(int argc, char **argv)
     }
     memset(region.base, 0, UD_BYTES);
     pub = region.base;
-    puts("UB_DOMAIN_OWNER_READY single_connection=1 page_tables=B heap=B");
+    if (remote_file)
+        memcpy((char *)region.base + UD_REMOTE_META_OFFSET,
+               &remote_bundle.manifest, sizeof(remote_bundle.manifest));
+    printf("UB_DOMAIN_OWNER_READY single_connection=1 page_tables=B heap=B "
+           "code_mode=%s\n", remote_file ? "remote-verified" : "legacy");
     fflush(stdout);
     while (!stopped && !__atomic_load_n(&pub->request, __ATOMIC_ACQUIRE)) usleep(1000);
     if (stopped) goto out;
@@ -140,7 +166,9 @@ int main(int argc, char **argv)
     }
     for (d = 0; d < UD_DOMAINS; ++d) {
         struct ud_initial initial = {UD_ARGS, UD_DATA, UD_STACK + UD_PAGE, UD_VA};
-        const unsigned char *code = ud_service(d, &size);
+        const unsigned char *code = remote_file ?
+            (const unsigned char *)remote_bundle.image[d] : ud_service(d, &size);
+        if (remote_file) size = remote_bundle.manifest.words[d] * sizeof(__u32);
         for (l = 0; l < 4; ++l)
             ud_build_table(&c, d, l, (__u64 *)((char *)region.base + UD_TABLE(d,l)));
         memcpy((char *)region.base + UD_IMAGE(d), code, size);
@@ -157,7 +185,8 @@ int main(int argc, char **argv)
     }
     pub->b_initializations = 1;
     __atomic_store_n(&pub->complete, c.nonce, __ATOMIC_RELEASE);
-    puts("UB_DOMAIN_PUBLISHED domains=4 shadow_pid=0 b_service_executions=0");
+    printf("UB_DOMAIN_PUBLISHED domains=4 shadow_pid=0 b_service_executions=0 "
+           "code_mode=%s\n", remote_file ? "remote-verified" : "legacy");
     puts("Keep B alive and immutable. Stop A before Ctrl-C here. Restart owner for a new connection.");
     fflush(stdout);
     while (!stopped) sleep(1);

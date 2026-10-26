@@ -125,4 +125,24 @@ struct ud_connection_info {
 #define UD_PROFILE_MAGIC 0x554250524f463031ULL
 struct ud_profile_header { __u64 magic; __u32 abi, profile; };
 #define UD_SET_PROFILE _IOW('U', 0x89, __u32)
+/* Separate, opt-in microbenchmark mode. Legacy direct/nested remains default.
+ * B publishes a loop-free verified AArch64 program; A does not embed its bytes. */
+#define UD_CODE_LEGACY 0U
+#define UD_CODE_REMOTE_VERIFIED 1U
+#define UD_SET_CODE_MODE _IOW('U', 0x8b, __u32)
+#define UD_REMOTE_META_OFFSET 0x1000UL
+#define UD_REMOTE_MAGIC 0x554452454d4f5445ULL
+#define UD_REMOTE_ABI 1U
+#define UD_REMOTE_MAX_WORDS 32U
+struct ud_remote_manifest {
+    __u64 magic;
+    __u32 abi, mode;
+    __u32 words[UD_DOMAINS];
+    __u32 reserved;
+};
+/* File consumed only by B owner; images are copied to UD_IMAGE(d). */
+struct ud_remote_bundle {
+    struct ud_remote_manifest manifest;
+    __u32 image[UD_DOMAINS][UD_REMOTE_MAX_WORDS];
+};
 #endif

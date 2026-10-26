@@ -11,14 +11,17 @@
 struct bench_options {
     const char *test;
     unsigned int samples, warmup;
+    unsigned int expected_direct, expected_nested;
     int prepare_only;
     int emit_samples;
     const char *nested_path;
+    const char *code_mode;
 };
 static void usage(const char *program)
 {
     printf("usage: %s [--test all|direct|nested|query-1|query-8|query-32] "
            "[--samples N] [--warmup N] [--nested-path legacy|fused] [--emit-samples]\n"
+           "       [--code-mode legacy|remote] [--expected-direct N] [--expected-nested N]\n"
            "       %s --prepare-only\n"
            "defaults: --test all --samples 1000 --warmup 100 --nested-path fused\n"
            "first execution: --test direct --samples 1 --warmup 0\n",
@@ -40,8 +43,13 @@ static int parse_options(int argc, char **argv, struct bench_options *options)
 {
     int i, execution_options = 0;
     unsigned int path;
-    *options = (struct bench_options){"all", 1000, 100, 0, 0, getenv("LRPC_UB_NESTED_PATH")};
+    *options = (struct bench_options){
+        .test = "all", .samples = 1000, .warmup = 100,
+        .expected_direct = 142, .expected_nested = 43,
+        .nested_path = getenv("LRPC_UB_NESTED_PATH"),
+        .code_mode = getenv("LRPC_UB_CODE_MODE")};
     if (!options->nested_path) options->nested_path = UD_NESTED_DEFAULT_NAME;
+    if (!options->code_mode) options->code_mode = "legacy";
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--help")) { usage(argv[0]); return 1; }
         if (!strcmp(argv[i], "--prepare-only")) { options->prepare_only = 1; continue; }
@@ -51,9 +59,19 @@ static int parse_options(int argc, char **argv, struct bench_options *options)
             options->nested_path = argv[i];
             continue;
         }
+        if (!strcmp(argv[i], "--code-mode")) {
+            if (++i == argc) goto bad;
+            options->code_mode = argv[i];
+            continue;
+        }
         if (!strcmp(argv[i], "--test")) {
             if (++i == argc) goto bad;
             options->test = argv[i];
+        } else if (!strcmp(argv[i], "--expected-direct") ||
+                   !strcmp(argv[i], "--expected-nested")) {
+            int direct = !strcmp(argv[i], "--expected-direct");
+            if (++i == argc || parse_count(argv[i], 0, direct ?
+                    &options->expected_direct : &options->expected_nested)) goto bad;
         } else if (!strcmp(argv[i], "--samples") || !strcmp(argv[i], "--warmup")) {
             int samples = !strcmp(argv[i], "--samples");
             if (++i == argc || parse_count(argv[i], samples ? 1 : 0,
@@ -63,9 +81,14 @@ static int parse_options(int argc, char **argv, struct bench_options *options)
     }
     if (options->prepare_only && execution_options) goto bad;
     if (ud_nested_path_parse(options->nested_path, &path)) goto bad;
+    if (strcmp(options->code_mode, "legacy") && strcmp(options->code_mode, "remote")) goto bad;
+    if (options->prepare_only && !strcmp(options->code_mode, "remote") &&
+        !strcmp(options->test, "all")) options->test = "direct";
     if (strcmp(options->test, "all") && strcmp(options->test, "direct") &&
         strcmp(options->test, "nested") && strcmp(options->test, "query-1") &&
         strcmp(options->test, "query-8") && strcmp(options->test, "query-32")) goto bad;
+    if (!strcmp(options->code_mode, "remote") && strcmp(options->test, "direct") &&
+        strcmp(options->test, "nested")) goto bad;
     return 0;
 bad:
     fprintf(stderr, "Invalid benchmark options (samples: 1..1000000; warmup: 0..1000000)\n");
@@ -151,10 +174,13 @@ int main(int argc, char **argv)
     int failed = 0, parsed = parse_options(argc, argv, &options);
     if (parsed) return parsed < 0 ? 2 : 0;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    printf("UB_DOMAIN_RUN test=%s warmup=%u samples=%u prepare_only=%d\n",
-           options.test, options.warmup, options.samples, options.prepare_only);
+    printf("UB_DOMAIN_RUN test=%s warmup=%u samples=%u prepare_only=%d code_mode=%s\n",
+           options.test, options.warmup, options.samples, options.prepare_only,
+           options.code_mode);
     if (setenv("LRPC_EXECUTION_BACKEND", "ub-remote-domain", 1) ||
-        setenv("LRPC_UB_NESTED_PATH", options.nested_path, 1)) return 1;
+        setenv("LRPC_UB_NESTED_PATH", options.nested_path, 1) ||
+        ((strcmp(options.code_mode, "legacy") || getenv("LRPC_UB_CODE_MODE")) &&
+         setenv("LRPC_UB_CODE_MODE", options.code_mode, 1))) return 1;
     if (lrpc_bind(&h, "/dev/ub_lrpc_domain", 1, 1)) {
         perror("UB_DOMAIN_BIND_FAIL"); return 1;
     }
@@ -168,6 +194,8 @@ int main(int argc, char **argv)
     for (i = 0; i < sizeof(cases)/sizeof(cases[0]); ++i) {
         if (strcmp(options.test, "all") && strcmp(options.test, cases[i].name)) continue;
         failed = run(&h, cases[i].name, cases[i].procedure, cases[i].a, cases[i].b,
+                     !strcmp(options.code_mode, "remote") ?
+                     (cases[i].procedure == 1 ? options.expected_direct : options.expected_nested) :
                      cases[i].expected, &options);
         if (failed) break;
         completed++;

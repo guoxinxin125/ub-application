@@ -14,6 +14,7 @@
 #include <lrpc/ub_domain_layout.h>
 #include <lrpc/ub_nested_path.h>
 #include <lrpc/ub_domain_pool.h>
+#include <lrpc/ub_remote_code.h>
 #include <lrpc/ub_social_client.h>
 #include "ub_domain_client.h"
 
@@ -37,6 +38,7 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     struct ud_publication *pub;
     struct ud_pool_publication *pool_pub = NULL;
     struct ud_pool_header header = {0};
+    struct ud_remote_manifest remote = {0};
     struct ud_pool_prepare pool = {0};
     ubsmem_shmem_info_t info;
     struct lrpc_ubsm_pa address;
@@ -45,7 +47,14 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     int rc, saved;
     unsigned int d, l;
     unsigned int nested_path;
+    unsigned int code_mode = UD_CODE_LEGACY;
+    const char *code_mode_name = getenv("LRPC_UB_CODE_MODE");
     if (!h || procedure < 1 || procedure > 3 || epoch != 1) return ud_error(-EINVAL);
+    if (code_mode_name && code_mode_name[0] && strcmp(code_mode_name, "legacy")) {
+        if (strcmp(code_mode_name, "remote") || profile != UD_PROFILE_MICRO)
+            return ud_error(-EINVAL);
+        code_mode = UD_CODE_REMOTE_VERIFIED;
+    }
     if (ud_nested_path_parse_profile(getenv("LRPC_UB_NESTED_PATH"), profile, &nested_path)) return -1;
     memset(h, 0, sizeof(*h)); h->fd = -1; h->astack_offset = UD_HANDLE_MARKER;
     client = calloc(1, sizeof(*client));
@@ -67,6 +76,13 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
      * Connection-time only; B has announced OWNER_READY and owns the bytes. */
     for (size_t off = 0; off < UD_BYTES; off += UD_PAGE)
         (void)*((volatile unsigned char *)client->region.base + off);
+    if (code_mode == UD_CODE_REMOTE_VERIFIED) {
+        memcpy(&remote, (char *)client->region.base + UD_REMOTE_META_OFFSET, sizeof(remote));
+        if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
+            remote.mode != UD_CODE_REMOTE_VERIFIED || remote.reserved) {
+            errno = EPROTONOSUPPORT; goto fail;
+        }
+    }
     if (__atomic_load_n((uint64_t *)client->region.base, __ATOMIC_ACQUIRE) == UD_POOL_MAGIC) {
         memcpy(&header, client->region.base, sizeof(header));
         if (!ud_pool_header_valid(&header)) { errno = EPROTO; goto fail; }
@@ -79,8 +95,13 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
         if ((tag.magic == UD_PROFILE_MAGIC && (tag.abi != UD_POOL_ABI || tag.profile != profile)) ||
             (tag.magic != UD_PROFILE_MAGIC && profile)) { errno = EPROTONOSUPPORT; goto fail; }
     }
+    if (code_mode == UD_CODE_REMOTE_VERIFIED && client->info.multi) {
+        errno = EPROTONOSUPPORT; goto fail;
+    }
     h->fd = open("/dev/ub_lrpc_domain", O_RDWR | O_CLOEXEC);
     if (h->fd < 0) goto fail;
+    if (code_mode == UD_CODE_REMOTE_VERIFIED &&
+        ioctl(h->fd, UD_SET_CODE_MODE, &code_mode)) goto fail;
     if (profile && ioctl(h->fd, UD_SET_PROFILE, &profile)) goto fail;
     if (nested_path == UD_NESTED_FUSED &&
         ioctl(h->fd, UD_SET_NESTED_PATH, &nested_path)) {
@@ -154,10 +175,13 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     }
     h->epoch = 1;
     printf("UB_DOMAIN_BOUND cpu=%d page_tables=B heap=B code=A astack=A estack=A "
+           "code_mode=%s code_source=%s "
            "shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 "
            "payload_user_kernel_copies=0 context_save=%s "
            "call_object=connection-reuse nested_path=%s multi=%u slot=%u identity=%llu generation=%llu service_profile=%s\n",
-           h->shadow_cpu, profile ? "none" : "middle-suspend-only", ud_nested_path_name(nested_path),
+           h->shadow_cpu, code_mode == UD_CODE_REMOTE_VERIFIED ? "remote-verified" : "legacy",
+           code_mode == UD_CODE_REMOTE_VERIFIED ? "B-published" : "A-B-matched",
+           profile ? "none" : "middle-suspend-only", ud_nested_path_name(nested_path),
            client->info.multi, client->info.slot, (unsigned long long)client->info.identity,
            (unsigned long long)client->info.generation,
            profile == UD_PROFILE_SOCIAL_SHARED ? "social-shared-probe" :
