@@ -1,0 +1,11 @@
+UB_DOMAIN_BOUND cpu=2 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=none call_object=connection-reuse nested_path=legacy multi=1 slot=1 identity=9145445636347146271 generation=8577177127649780868 service_profile=social-shared-probe
+UB_DOMAIN_BOUND cpu=1 page_tables=B heap=B code=A astack=A estack=A shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=none call_object=connection-reuse nested_path=legacy multi=1 slot=0 identity=2512727748501428001 generation=8577177127649780868 service_profile=social-shared-probe
+UB_DOMAIN_SHARED_READ_PASS workers=2 rounds=4 generation=8577177127649780868 final_cell=1045
+UB_DOMAIN_SHARED_ATOMIC_START workers=2 increments_per_worker=1 expected_total=2 generation=8577177127649780868
+UB_SOCIAL_CALL_FAIL errno=11 esr=0x0 far=0x0
+UB_DOMAIN_SHARED_WORKER_FAIL worker=1 cpu=2 errno=11
+UB_DOMAIN_SHARED_WORKER_FAIL worker=0 cpu=1 errno=125
+UB_DOMAIN_SHARED_WORKER_DIAG worker=0 cpu=1 returned_successes=0 last_old=0 atomic_call_failed=0 failed_request=0 atomic_errno=0 status=0 failed_ticket=0 entries=0 transitions=0 fault_vector=0 counter_snapshot_valid=0 counter_snapshot=0 counter_snapshot_errno=0
+UB_DOMAIN_SHARED_WORKER_DIAG worker=1 cpu=2 returned_successes=0 last_old=0 atomic_call_failed=1 failed_request=1 atomic_errno=11 status=11 failed_ticket=0 entries=2 transitions=4 fault_vector=0 counter_snapshot_valid=1 counter_snapshot=256 counter_snapshot_errno=0
+UB_DOMAIN_SHARED_ATOMIC_DIAG expected_total=2 returned_successes=0 unique_old=0 duplicate_old=0 out_of_range_old=0
+UB_DOMAIN_SHARED_CAMPAIGN_FAIL workers_created=2
