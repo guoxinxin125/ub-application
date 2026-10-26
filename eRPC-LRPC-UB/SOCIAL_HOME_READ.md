@@ -21,7 +21,8 @@ source scripts/social-env.sh --mode domain --workload home
 cd "$REPO/eRPC-LRPC-UB"
 python3 scripts/prepare-social.py --workload home \
   --output "$REPO/eRPC-LRPC-UB/campaign-home-read" \
-  --host-a A_IP --host-b B_IP --numa-a 0 --numa-b 1 --samples 10
+  --host-a A_IP --host-b B_IP --numa-a 0 --numa-b 1 --samples 10 \
+  --b-core-base 13
 ```
 
 在 A 构建应用的两种版本，并构建/加载与当前内核完全匹配的域模块；在 B 构建 owner 和 RPC 应用。若机器已运行旧的 `ud_social=user-read-...` 模块，须先结束本项目所有连接，再按 UserTimeline 文档的安全顺序更换模块；不要在其他用户连接仍在时强制卸载。B owner 和 A 模块必须同样使用本次更新后的 `social_services.S` 服务镜像。

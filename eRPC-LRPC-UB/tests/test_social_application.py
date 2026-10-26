@@ -38,6 +38,31 @@ class Application(unittest.TestCase):
         env.update(overrides)
         return subprocess.run([str(exe), *args], env=env, capture_output=True, text=True, timeout=10)
 
+    def test_multi_client_proxy_wire_identity_is_not_session_header_number(self):
+        source = r'''
+#include "social_network_rpc_type.h"
+#include <cassert>
+#include <stdexcept>
+int main() {
+  // Independent eRPC sessions can both present transport req_num=16.
+  // The two Clients' application wire numbers for request 16 are distinct.
+  const CommonReq first{RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, 31};
+  const CommonReq second{RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, 32};
+  const auto a = social_read_wire_number(&first, sizeof(first), first.type);
+  const auto b = social_read_wire_number(&second, sizeof(second), second.type);
+  assert(a == 31 && b == 32 && a != b);
+  const CommonReq response{RPC_TYPE::RPC_USER_TIMELINE_READ_RESP, 32};
+  assert(social_read_wire_number(&response, sizeof(response), response.type) == b);
+  try { social_read_wire_number(&response, sizeof(response)-1, response.type); return 1; }
+  catch (const std::invalid_argument &) {}
+  try { social_read_wire_number(&response, sizeof(response), first.type); return 2; }
+  catch (const std::invalid_argument &) {}
+  return 0;
+}
+'''
+        result = self.run_case(self.compile('multi_client_proxy_wire', source))
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+
     def test_actual_measurement_validation_accepts_real_data_and_rejects_bad_workloads(self):
         source = (APP/'client/client.h').read_text(encoding='utf-8')
         start = source.index('  try {\n    if ((sn_domain::enabled()')

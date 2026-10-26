@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
+#include <stdexcept>
 
 #include "post_data.h"
 
@@ -62,6 +64,21 @@ public:
     // for debug
     uint32_t req_number;
 } __attribute__((packed));
+
+// eRPC's packet-header request number is only unique within a session. The
+// read RPC baseline has several independent Client sessions sharing one proxy
+// MsgBuffer array, so its slot and return route must use this application wire
+// identity instead. Read responses are also RPCMsgReq and start with CommonReq.
+inline uint32_t social_read_wire_number(const void *payload, size_t size,
+                                        RPC_TYPE expected_type) {
+    if (size < sizeof(CommonReq))
+        throw std::invalid_argument("social read wire identity: short payload");
+    CommonReq common{};
+    std::memcpy(&common, payload, sizeof(common));
+    if (common.type != expected_type || common.req_number == 0)
+        throw std::invalid_argument("social read wire identity: invalid payload");
+    return common.req_number;
+}
 
 class CommonResp
 {

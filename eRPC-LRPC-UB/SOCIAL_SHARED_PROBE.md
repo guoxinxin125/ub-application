@@ -37,7 +37,8 @@ A 内核会校验 B 发布的代码与本地镜像逐字节一致；只更新一
    ```sh
    python3 scripts/manifest.py --check
    sh scripts/build.sh owner
-   objdump -d build-owner/lrpc-ub-domain-owner | grep -w ldaddal
+   objdump -D build-owner/lrpc-ub-domain-owner |
+     sed -n '/<us_nginx_forward_shared_start>:/,+75p' | grep -w ldaddal
    ```
 
    A 机器（也先进入该目录）：
@@ -50,10 +51,15 @@ A 内核会校验 B 发布的代码与本地镜像逐字节一致；只更新一
    uname -r
    modinfo -F vermagic kernel/ub-domain/ub_lrpc_domain_vhe.ko
    modinfo -F ud_social kernel/ub-domain/ub_lrpc_domain_vhe.ko
-   objdump -d kernel/ub-domain/ub_lrpc_domain_vhe.ko | grep -w ldaddal
+   objdump -D kernel/ub-domain/ub_lrpc_domain_vhe.ko |
+     sed -n '/<us_nginx_forward_shared_start>:/,+75p' | grep -w ldaddal
    ```
 
-   `atomics`、两端 `ldaddal` 的检查都必须有输出；若缺失，先停止部署并检查
+   服务代码存放在只读数据段，等待发布/复制后执行；`objdump -d` 只看可执行段，
+   **不能用它判断 B owner 有没有编进服务代码**。这里用 `-D` 反汇编所有段，
+   并限定到 `us_nginx_forward_shared_start` 附近，避免误把其他位置的 `ldaddal`
+   当成本服务的指令。`atomics`、两端服务代码的 `ldaddal` 检查都必须有输出；
+   若缺失，先停止部署并检查
    CPU 能力、汇编器和实际构建产物，不要试跑旧的 `LDAXR/STLXR` 重试路径。
    `vermagic` 开头须与 A 的 `uname -r` 一致，`ud_social` 须包含
    `shared-lse-atomic-probe-abi2`。`--vhe` 会同时构建 EL1 和 VHE 两个 `.ko`，

@@ -2,7 +2,7 @@
 
 比较两条完整路径，不独立混搭 LB 和 nginx：RPC 路径在 B 运行同一组 LB/nginx 进程；域路径由 A 上各 Client 执行 B 发布的 LB/nginx 服务域（默认 fused）。两种模式都在 A 运行同一个 Timeline 进程，在 B 运行 PostStorage，使用相同的配置、数据库、共同服务绑核、请求数和预热数；B 的 LB/nginx CPU 只在 RPC 模式被占用。此对照是**整体部署路径**的比较，不能将差值单独归因于 LB 或 nginx。每个独立 Client 进程固定一条 lane、`concurrency=1`；支持 2～3 个进程。
 
-同步本次修改的 `eRPC/apps/social_network_cxl/{client,load_balance,domain_proxy.h,domain_proxy_runtime.h,run_ub.sh}` 以及 `eRPC-LRPC-UB/scripts/{prepare-social.py,check-social-cpus.py,run-social.sh,check-social.py,compare-social.py}` 到机器。两端配置必须由同一次生成得到。此次只改用户态，不更改内核模块 ABI；A 若已有匹配模块，无需重新 `insmod`。不要在共享机器上强制卸载忙碌模块。环境准备沿用 [UserTimeline](SOCIAL_USER_READ.md) 或 [HomeTimeline](SOCIAL_HOME_READ.md) 文档。
+同步本次修改的 `eRPC/apps/social_network_cxl/{client,load_balance,nginx,domain_proxy.h,domain_proxy_runtime.h,social_network_commons.h,social_network_rpc_type.h,run_ub.sh}` 以及 `eRPC-LRPC-UB/scripts/{prepare-social.py,check-social-cpus.py,run-social.sh,check-social.py,compare-social.py}` 到机器。两端配置必须由同一次生成得到。此次只改用户态，不更改内核模块 ABI；A 若已有匹配模块，无需重新 `insmod`。不要在共享机器上强制卸载忙碌模块。环境准备沿用 [UserTimeline](SOCIAL_USER_READ.md) 或 [HomeTimeline](SOCIAL_HOME_READ.md) 文档。
 
 ## 1. 生成配置与编译
 
@@ -14,12 +14,12 @@
 cd "$REPO/eRPC-LRPC-UB"
 python3 scripts/prepare-social.py --workload user --clients 2 --samples 1100 \
   --output "$REPO/eRPC-LRPC-UB/campaign-user-2clients" \
-  --host-a A_IPV4 --host-b B_IPV4 --numa-a 0 --numa-b 1
+  --host-a A_IPV4 --host-b B_IPV4 --numa-a 0 --numa-b 1 --b-core-base 13
 ```
 
-生成后 A 用 `config-a.json`，B 用 `config-b.json`。如需 MongoDB 地址覆盖，仍使用 `--timeline-db-host/--timeline-db-port`；若 A 走原有 SSH 隧道，则保留默认数据库地址。生成器给各 Client 分配不同端口/RPC ID/三 CPU 预留块，Timeline 在它们之后。检查 A/B 实际允许的 NUMA CPU；若需调整 A 的 CPU，修改两份私有配置里的 `domain_proxy.clients[*].bind_core_offset` 和 Timeline 的 `bind_core_offset`（首个 Client 的 `client.bind_core_offset` 也同步改，避免配置含义不一致），两种模式须用同一组调整。三个 Client 时 A 要有至少 12 个互不重叠的可用 CPU 索引。
+生成后 A 用 `config-a.json`，B 用 `config-b.json`。示例的 `--b-core-base 13` 使 B 侧 nginx/LB/PostStorage 使用 NUMA 内索引 `13/16/19`；换机器时须按 B 的实际 affinity 调整。如需 MongoDB 地址覆盖，仍使用 `--timeline-db-host/--timeline-db-port`；若 A 走原有 SSH 隧道，则保留默认数据库地址。生成器给各 Client 分配不同端口/RPC ID/三 CPU 预留块，Timeline 在它们之后。检查 A/B 实际允许的 NUMA CPU；若需调整 A 的 CPU，修改两份私有配置里的 `domain_proxy.clients[*].bind_core_offset` 和 Timeline 的 `bind_core_offset`（首个 Client 的 `client.bind_core_offset` 也同步改，避免配置含义不一致），两种模式须用同一组调整。三个 Client 时 A 要有至少 12 个互不重叠的可用 CPU 索引。
 
-已配置好原文档的 CMake build 目录与 SDK/OBMM 后，在 A/B 重编译；无需为这次改动重建或更换内核模块，也不必重建 B 的 owner：
+已配置好原文档的 CMake build 目录与 SDK/OBMM 后，在 A/B 重编译；LB/nginx 的多 Client RPC 转发槽位和返回路由现在使用消息体中的全局 wire request，而非每条 eRPC 连接可重复的传输请求号，因此 **B 的 LB/nginx 必须重编译**。无需为这次改动重建或更换内核模块，也不必重建 B 的 owner：
 
 ```sh
 # A

@@ -88,6 +88,14 @@ struct ProxyInlineMessage {
     uint8_t req_type{};
     std::array<uint8_t, kProxyInlineBytes> data{};
 };
+inline uint32_t proxy_read_wire_number(const erpc::MsgBuffer &msg) {
+    return social_read_wire_number(msg.buf_, msg.get_data_size(),
+                                   static_cast<RPC_TYPE>(msg.get_hdr_req_type()));
+}
+inline uint32_t proxy_read_wire_number(const ProxyInlineMessage &msg) {
+    return social_read_wire_number(msg.data.data(), msg.data_size,
+                                   static_cast<RPC_TYPE>(msg.req_type));
+}
 static_assert(sizeof(ProxyInlineMessage) == 64,
               "proxy inline queue element must fit in 64 bytes");
 using PROXY_INLINE_QUEUE = atomic_queue::AtomicQueueB2<ProxyInlineMessage, std::allocator<ProxyInlineMessage>, true, false, false>;
@@ -141,6 +149,17 @@ inline erpc::MsgBuffer proxy_inline_materialize(AppRpc *rpc,
     dst.set_hdr_req_type(msg.req_type);
     dst.set_hdr_req_num(msg.req_num);
     return dst;
+}
+
+inline uint32_t proxy_request_number(const erpc::MsgBuffer &msg,
+                                     bool application_identity) {
+    return application_identity ? proxy_read_wire_number(msg)
+                                : static_cast<uint32_t>(msg.get_hdr_req_num());
+}
+inline uint32_t proxy_request_number(const ProxyInlineMessage &msg,
+                                     bool application_identity) {
+    return application_identity ? proxy_read_wire_number(msg)
+                                : static_cast<uint32_t>(msg.req_num);
 }
 
 static constexpr size_t kAppMaxConcurrency = 128;

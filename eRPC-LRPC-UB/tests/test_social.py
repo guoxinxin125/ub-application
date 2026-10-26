@@ -106,6 +106,24 @@ class Config(unittest.TestCase):
                 self.assertNotIn('B_IP', json.dumps(actual))
         self.assertEqual(before, [path.read_bytes() for path in templates])
 
+    def test_b_core_base_applies_to_b_services_in_both_configs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)/'campaign'
+            command = [os.sys.executable, str(ROOT/'scripts/prepare-social.py'),
+                       '--output', str(output), '--host-a', '192.0.2.10',
+                       '--host-b', '192.0.2.20', '--b-core-base', '13']
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for side in ('a', 'b'):
+                config = json.loads((output/('config-'+side+'.json')).read_text())
+                self.assertEqual([config[name]['bind_core_offset'] for name in
+                                  ('nginx', 'load_balance', 'post_storage')], [13, 16, 19])
+                self.assertEqual(config['client']['bind_core_offset'], 0)
+                self.assertEqual(config['user_timeline']['bind_core_offset'], 3)
+        template = json.loads((ROOT/'config/social-user-read-a.json').read_text())
+        with self.assertRaises(ValueError):
+            prepare.prepare(template, '192.0.2.10', '192.0.2.20', b_core_base=-1)
+
     def test_home_read_private_config_and_roles(self):
         module_spec = importlib.util.spec_from_file_location('home_roles', ROOT/'scripts/check-social-cpus.py')
         module = importlib.util.module_from_spec(module_spec); module_spec.loader.exec_module(module)

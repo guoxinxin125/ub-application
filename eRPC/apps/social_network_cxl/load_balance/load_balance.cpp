@@ -5,6 +5,11 @@
 #include "../rpc_measure_ready.h"
 #include "../domain_proxy.h"
 
+static bool use_multi_client_wire(RPC_TYPE type) {
+    return sn_measure::rpc_baseline() && sn_domain::source_count() > 1 &&
+           proxy_inline_timeline_type(type);
+}
+
 void baseline_ready_handler(erpc::ReqHandle *h, void *c) {
     sn_measure::proxy_ready_request<ServerContext>(h, c, "load_balance");
 }
@@ -85,7 +90,8 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context) {
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
     if (req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_REQ ||
         req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ)
-        sn_profile::flow_point("load_balance", req_msgbuf->get_hdr_req_num(), "forward_receive");
+        sn_profile::flow_point("load_balance",
+            proxy_request_number(*req_msgbuf, use_multi_client_wire(req_type)), "forward_receive");
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_REQ:
             ctx->stat_req_compose_post_tot++;
@@ -112,7 +118,8 @@ void common_req_handler(erpc::ReqHandle *req_handle, void *_context) {
     sn_profile::record(sn_profile::Stage::kProxyForwardRxPin, pin_start);
     const uint64_t queue_start = sn_handoff::start();
     if (queue_start != 0) {
-        const size_t slot = req_msgbuf->get_hdr_req_num() % kAppMaxBuffer;
+        const size_t slot = proxy_request_number(*req_msgbuf,
+            use_multi_client_wire(req_type)) % kAppMaxBuffer;
         ctx->forward_queue_start_ns[slot].store(queue_start,
                                                  std::memory_order_relaxed);
     }
@@ -131,7 +138,8 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
     const auto req_type = static_cast<RPC_TYPE>(req_msgbuf->get_hdr_req_type());
     if (req_type == RPC_TYPE::RPC_USER_TIMELINE_READ_RESP ||
         req_type == RPC_TYPE::RPC_HOME_TIMELINE_READ_RESP)
-        sn_profile::flow_point("load_balance", req_msgbuf->get_hdr_req_num(), "reverse_receive");
+        sn_profile::flow_point("load_balance",
+            proxy_request_number(*req_msgbuf, use_multi_client_wire(req_type)), "reverse_receive");
     switch (req_type) {
         case RPC_TYPE::RPC_COMPOSE_POST_WRITE_RESP:
             ctx->stat_req_compose_post_resp_tot++;
@@ -158,7 +166,8 @@ void common_resp_handler(erpc::ReqHandle *req_handle, void *_context) {
     sn_profile::record(sn_profile::Stage::kProxyReverseRxPin, pin_start);
     const uint64_t queue_start = sn_handoff::start();
     if (queue_start != 0) {
-        const size_t slot = req_msgbuf->get_hdr_req_num() % kAppMaxBuffer;
+        const size_t slot = proxy_request_number(*req_msgbuf,
+            use_multi_client_wire(req_type)) % kAppMaxBuffer;
         ctx->backward_queue_start_ns[slot].store(queue_start,
                                                   std::memory_order_relaxed);
     }
@@ -241,8 +250,11 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
                         const ProxyInlineMessage *inline_msg = nullptr) {
     const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
                                                     : inline_msg->req_type;
-    const uint32_t request = inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
-                                                   : inline_msg->req_num;
+    const bool application_identity =
+        use_multi_client_wire(static_cast<RPC_TYPE>(req_type));
+    const uint32_t request = inline_msg == nullptr
+        ? proxy_request_number(req_msgbuf, application_identity)
+        : proxy_request_number(*inline_msg, application_identity);
     const size_t slot = request % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_forward_msgbuf[slot],
@@ -286,8 +298,11 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
                          const ProxyInlineMessage *inline_msg = nullptr) {
     const uint8_t req_type = inline_msg == nullptr ? req_msgbuf.get_hdr_req_type()
                                                     : inline_msg->req_type;
-    const uint32_t request = inline_msg == nullptr ? req_msgbuf.get_hdr_req_num()
-                                                   : inline_msg->req_num;
+    const bool application_identity =
+        use_multi_client_wire(static_cast<RPC_TYPE>(req_type));
+    const uint32_t request = inline_msg == nullptr
+        ? proxy_request_number(req_msgbuf, application_identity)
+        : proxy_request_number(*inline_msg, application_identity);
     const size_t slot = request % kAppMaxBuffer;
 
     require_empty_msgbuf_slot(ctx->req_backward_msgbuf[slot],
@@ -352,10 +367,12 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                 static_cast<RPC_TYPE>(req_msg.get_hdr_req_type());
             if ((sn_profile::enabled() || sn_slow_trace::enabled()) &&
                 req_type != RPC_TYPE::RPC_PING) {
-                const size_t slot = req_msg.get_hdr_req_num() % kAppMaxBuffer;
+                const uint32_t request = proxy_request_number(req_msg,
+                    use_multi_client_wire(req_type));
+                const size_t slot = request % kAppMaxBuffer;
                 sn_handoff::record(
                     sn_profile::Stage::kProxyForwardQueueHandoff,
-                    "lb_forward_queue_handoff", req_msg.get_hdr_req_num(),
+                    "lb_forward_queue_handoff", request,
                     ctx->forward_queue_start_ns[slot].exchange(
                         0, std::memory_order_relaxed));
             }
@@ -374,10 +391,12 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                 static_cast<RPC_TYPE>(req_msg.get_hdr_req_type());
             if ((sn_profile::enabled() || sn_slow_trace::enabled()) &&
                 req_type != RPC_TYPE::RPC_PING_RESP) {
-                const size_t slot = req_msg.get_hdr_req_num() % kAppMaxBuffer;
+                const uint32_t request = proxy_request_number(req_msg,
+                    use_multi_client_wire(req_type));
+                const size_t slot = request % kAppMaxBuffer;
                 sn_handoff::record(
                     sn_profile::Stage::kProxyReverseQueueHandoff,
-                    "lb_reverse_queue_handoff", req_msg.get_hdr_req_num(),
+                    "lb_reverse_queue_handoff", request,
                     ctx->backward_queue_start_ns[slot].exchange(
                         0, std::memory_order_relaxed));
             }
@@ -394,10 +413,12 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                  i < queue_batch && ctx->forward_inline_queue->try_pop(msg);
                  ++i) {
                 if (sn_profile::enabled() || sn_slow_trace::enabled()) {
-                    const size_t slot = msg.req_num % kAppMaxBuffer;
+                    const uint32_t request = proxy_request_number(msg,
+                        use_multi_client_wire(static_cast<RPC_TYPE>(msg.req_type)));
+                    const size_t slot = request % kAppMaxBuffer;
                     sn_handoff::record(
                         sn_profile::Stage::kProxyForwardQueueHandoff,
-                        "lb_forward_queue_handoff", msg.req_num,
+                        "lb_forward_queue_handoff", request,
                         ctx->forward_queue_start_ns[slot].exchange(
                             0, std::memory_order_relaxed));
                 }
@@ -410,10 +431,12 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
                  i < queue_batch && ctx->backward_inline_queue->try_pop(msg);
                  ++i) {
                 if (sn_profile::enabled() || sn_slow_trace::enabled()) {
-                    const size_t slot = msg.req_num % kAppMaxBuffer;
+                    const uint32_t request = proxy_request_number(msg,
+                        use_multi_client_wire(static_cast<RPC_TYPE>(msg.req_type)));
+                    const size_t slot = request % kAppMaxBuffer;
                     sn_handoff::record(
                         sn_profile::Stage::kProxyReverseQueueHandoff,
-                        "lb_reverse_queue_handoff", msg.req_num,
+                        "lb_reverse_queue_handoff", request,
                         ctx->backward_queue_start_ns[slot].exchange(
                             0, std::memory_order_relaxed));
                 }

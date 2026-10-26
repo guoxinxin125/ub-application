@@ -275,7 +275,8 @@ mongosh --quiet --host 127.0.0.1 --port 22012 --eval 'db.adminCommand({ping:1}).
 cd "$REPO/eRPC-LRPC-UB"
 python3 scripts/prepare-social.py \
   --output "$REPO/eRPC-LRPC-UB/campaign-user-read" \
-  --host-a REAL_A_IPV4 --host-b REAL_B_IPV4 --numa-a 0 --numa-b 1 --samples 10
+  --host-a REAL_A_IPV4 --host-b REAL_B_IPV4 --numa-a 0 --numa-b 1 --samples 10 \
+  --b-core-base 13
 ```
 
 在两端使用同一次生成的文件：A 用 `config-a.json`，B 两种模式都用 `config-b.json`。
@@ -284,14 +285,16 @@ python3 scripts/prepare-social.py \
 再加 `--storage-db-host ACTUAL_DB_HOST --storage-db-port 20014`。这些是应用视角的 DB 地址，
 不是 LB/nginx 域地址。需要继承其他已有私有数据配置时仍可显式指定 `--input /path/to/private.json`。
 默认单 lane 时 A Client/Timeline 的 NUMA 内 CPU 偏移分别为 `0..2`、`3..5`；
-B nginx/LB/PostStorage 偏移分别为 `0..2`、`3..5`、`6..8`。
-PostStorage 在两种模式都保留 `6..8`，不因域模式少跑两个服务而移动 CPU。
+B nginx/LB/PostStorage 默认偏移分别为 `0..2`、`3..5`、`6..8`。
+示例中的 `--b-core-base 13` 会在生成的 A/B 两份配置中将这三个 B 服务偏移设为
+`13..15`、`16..18`、`19..21`；换机器时按 B 实际可用的 NUMA CPU 列表索引调整或省略该参数。
+PostStorage 在两种模式都保留同一组偏移，不因域模式少跑两个服务而移动 CPU。
 检查这些 CPU 都在进程允许的 affinity 内且服务预留块互不重叠。
 启动器会在创建任何应用 region 前，读取实际 NUMA CPU 列表和当前 affinity 做检查；
-若某个偏移对应被排除的 CPU，会拒绝启动，按报错修改私有 JSON 的该服务 `bind_core_offset`；
-例如 B NUMA1 的可用索引从 13 开始时，可在私有 B 配置中给 nginx/LB/PostStorage 设
-`13/16/19`（各占三项），
-保持不同服务的三 CPU 预留块不重叠。两种模式使用同一组调整后的配置。
+若某个偏移对应被排除的 CPU，会拒绝启动；重新生成时调整 `--b-core-base`，
+或按报错修改私有 JSON 的该服务 `bind_core_offset`。保持不同服务的三 CPU 预留块不重叠，
+两种模式使用同一组调整后的配置。生成器运行在 A 上时无法得知 B 的实际 CPU affinity，
+因此 `--b-core-base` 不替代 B 启动前的检查。
 `--numa-a/b` 是计算 NUMA；B owner provider 使用单独的 `LRPC_UB_PROVIDER_NUMA`。
 日志中的源 `rpc_id` 不等于 Linux CPU 号。
 

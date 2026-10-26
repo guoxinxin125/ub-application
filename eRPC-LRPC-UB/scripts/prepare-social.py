@@ -25,18 +25,19 @@ def host(value):
 
 def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
             timeline_db_host=None, timeline_db_port=None,
-            storage_db_host=None, storage_db_port=None, workload='user', clients=1):
+            storage_db_host=None, storage_db_port=None, workload='user', clients=1,
+            b_core_base=0):
     a, b = host(a), host(b)
     if workload not in ('user', 'home'):
         raise ValueError('workload must be user or home')
-    if a == b or not 1 <= samples <= 5000 or min(numa_a, numa_b) < 0 or not 1 <= clients <= 3:
-        raise ValueError('require two different hosts, nonnegative NUMA, 1..5000 samples, 1..3 clients')
+    if a == b or not 1 <= samples <= 5000 or min(numa_a, numa_b, b_core_base) < 0 or not 1 <= clients <= 3:
+        raise ValueError('require two different hosts, nonnegative NUMA/B core base, 1..5000 samples, 1..3 clients')
     configs = [copy.deepcopy(original), copy.deepcopy(original)]
     timeline = workload+'_timeline'
     placements = {'client': a, timeline: a, 'post_storage': b,
                   'nginx': b, 'load_balance': b}
-    offsets = {'client': 0, timeline: 3*clients, 'post_storage': 6,
-               'nginx': 0, 'load_balance': 3}
+    offsets = {'client': 0, timeline: 3*clients, 'post_storage': b_core_base+6,
+               'nginx': b_core_base, 'load_balance': b_core_base+3}
     original_client = original['client']
     client_port = int(original_client['server_addr'].rsplit(':', 1)[1])
     registry = []
@@ -107,6 +108,8 @@ def main():
     parser.add_argument('--host-b', required=True)
     parser.add_argument('--numa-a', type=int, default=0)
     parser.add_argument('--numa-b', type=int, default=1)
+    parser.add_argument('--b-core-base', type=int, default=0,
+                        help='B NUMA CPU-list index for nginx; LB and PostStorage use base+3 and base+6')
     parser.add_argument('--samples', type=int, default=10)
     parser.add_argument('--clients', type=int, default=1, help='independent client processes, 1..3')
     parser.add_argument('--workload', choices=('user', 'home'), default='user')
@@ -121,7 +124,8 @@ def main():
         configs = [prepare(json.loads(source.read_text(encoding='utf-8')), args.host_a,
                            args.host_b, args.samples, args.numa_a, args.numa_b,
                            args.timeline_db_host, args.timeline_db_port,
-                           args.storage_db_host, args.storage_db_port, args.workload, args.clients)[index]
+                           args.storage_db_host, args.storage_db_port, args.workload, args.clients,
+                           args.b_core_base)[index]
                    for index, source in enumerate(sources)]
         if configs[0].get('domain_proxy') != configs[1].get('domain_proxy'):
             raise ValueError('A/B client registries differ; use matching source templates')
