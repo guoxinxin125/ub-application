@@ -54,6 +54,21 @@ else
 fi
 SN_SERVICES=$(python3 "$root/scripts/check-social-cpus.py" --config "$SN_CONFIG" --side "$side" --mode "$mode" --print-services)
 export SN_SERVICES
+if [ "$side" = A ]; then
+    SN_CLIENT_IDS=$(python3 - "$SN_CONFIG" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1], encoding='utf-8'))
+clients = cfg.get('domain_proxy', {}).get('clients', [{'id': 1}])
+if not 1 <= len(clients) <= 3 or [c.get('id') for c in clients] != list(range(1,len(clients)+1)):
+    sys.exit('require 1..3 client IDs ordered 1..N')
+if len(clients)>1 and (clients[0]['server_addr'] != cfg['client']['server_addr'] or
+                       clients[0]['rpc_id'] != cfg['client']['rpc_id']):
+    sys.exit('first registered client must match the client endpoint')
+print(' '.join(str(c['id']) for c in clients))
+PY
+    )
+    export SN_CLIENT_IDS
+fi
 python3 "$root/scripts/check-social-cpus.py" --config "$SN_CONFIG" --side "$side" --mode "$mode"
-echo "UB_SOCIAL_LAUNCH side=$side mode=$mode services=$SN_SERVICES config=$SN_CONFIG"
+echo "UB_SOCIAL_LAUNCH side=$side mode=$mode services=$SN_SERVICES clients=${SN_CLIENT_IDS:-none} config=$SN_CONFIG"
 exec bash "$repo/eRPC/apps/social_network_cxl/run_ub.sh"

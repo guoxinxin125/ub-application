@@ -93,11 +93,12 @@ inline void pin_worker(const char *role, uint32_t lane) {
 }
 inline void validate_config(const char *role) {
   (void)boolean_env("ERPC_SN_DOMAIN_PROFILE");
-  if (!enabled()) {
+  const bool baseline_multi = sn_measure::rpc_baseline() && source_count() > 1;
+  if (!enabled() && !baseline_multi) {
     std::fprintf(stderr, "SN_DOMAIN_CONFIG role=%s enabled=0 path=original-rpc\n", role); return;
   }
 #ifndef ERPC_SN_DOMAIN_PROXY
-  fail(role, 0, "build-option-disabled", 0, ENOTSUP);
+  if (enabled()) fail(role, 0, "build-option-disabled", 0, ENOTSUP);
 #endif
   const auto &client = config_json_all.at("client");
   if (FLAGS_client_num > 4 || FLAGS_server_num != FLAGS_client_num)
@@ -116,8 +117,8 @@ inline void validate_config(const char *role) {
 #endif
   (void)proxy_count();
 #ifdef ERPC_SN_DOMAIN_UB
-  if (lanes != 1 || source_count() != 1 || proxy_count() != 1 || FLAGS_concurrency != 1)
-    throw std::invalid_argument("first UB domain integration requires one Client, one lane, one nginx, concurrency=1");
+  if (enabled() && (lanes != 1 || source_count() > 3 || proxy_count() != 1 || FLAGS_concurrency != 1))
+    throw std::invalid_argument("UB social domain requires 1..3 Client processes, one lane each, one nginx, concurrency=1");
 #endif
   bool used[64]{};
   std::vector<std::string> addresses;
@@ -147,8 +148,9 @@ inline void validate_config(const char *role) {
     FLAGS_server_addr = r.address; FLAGS_rpc_id = r.rpc_id; FLAGS_bind_core_offset = r.bind_core_offset;
     if (source_count() > 1) FLAGS_latency_file += "-client-" + std::to_string(source);
   }
-  std::fprintf(stderr, "SN_DOMAIN_CONFIG role=%s enabled=1 wire_abi=%u scope=%s-timeline-read source=%u clients=%u lanes=%u receivers=%u proxies=%u stride=%u connections=%u routing=per-source-lane-round-robin fallback=none\n",
-      role, kWireAbi, read_service() == ReadService::Home ? "home" : "user",
+  std::fprintf(stderr, "SN_DOMAIN_CONFIG role=%s enabled=%u path=%s wire_abi=%u scope=%s-timeline-read source=%u clients=%u lanes=%u receivers=%u proxies=%u stride=%u connections=%u routing=per-source-lane-round-robin fallback=none\n",
+      role, enabled() ? 1U : 0U, enabled() ? "domain" : "original-rpc", kWireAbi,
+      read_service() == ReadService::Home ? "home" : "user",
       source, source_count(), lanes, lanes, proxy_count(), stride, (source_count() + 1) * lanes);
   for (const auto &r : clients())
     std::fprintf(stderr, "SN_DOMAIN_PEER role=%s source=%u receiver_base=%u lanes=%u\n", role, r.id, r.rpc_id, lanes);

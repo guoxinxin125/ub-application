@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a private single-lane UB read-only config from an existing UB JSON.
+"""Generate private UB read-only configs with 1..3 independent client processes.
 
 Defaults to the independent A/B experiment template, not a machine-numbered config.
 No DB restore, service restart, region creation or modification of input JSON.
@@ -25,18 +25,26 @@ def host(value):
 
 def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
             timeline_db_host=None, timeline_db_port=None,
-            storage_db_host=None, storage_db_port=None, workload='user'):
+            storage_db_host=None, storage_db_port=None, workload='user', clients=1):
     a, b = host(a), host(b)
     if workload not in ('user', 'home'):
         raise ValueError('workload must be user or home')
-    if a == b or not 1 <= samples <= 5000 or min(numa_a, numa_b) < 0:
-        raise ValueError('require two different hosts, nonnegative NUMA, 1..5000 samples')
+    if a == b or not 1 <= samples <= 5000 or min(numa_a, numa_b) < 0 or not 1 <= clients <= 3:
+        raise ValueError('require two different hosts, nonnegative NUMA, 1..5000 samples, 1..3 clients')
     configs = [copy.deepcopy(original), copy.deepcopy(original)]
     timeline = workload+'_timeline'
     placements = {'client': a, timeline: a, 'post_storage': b,
                   'nginx': b, 'load_balance': b}
-    offsets = {'client': 0, timeline: 3, 'post_storage': 6,
+    offsets = {'client': 0, timeline: 3*clients, 'post_storage': 6,
                'nginx': 0, 'load_balance': 3}
+    original_client = original['client']
+    client_port = int(original_client['server_addr'].rsplit(':', 1)[1])
+    registry = []
+    for index in range(clients):
+        port = client_port if index == 0 else client_port + 10 + index - 1
+        if port > 65535: raise ValueError('client port range exceeds 65535')
+        registry.append({'id': index + 1, 'rpc_id': original_client['rpc_id'] if index == 0 else 10 + index,
+                         'server_addr': a + ':' + str(port), 'bind_core_offset': 3*index})
     for c, numa in zip(configs, (numa_a, numa_b)):
         # Unused services remain in the endpoint audit, so assign explicit B
         # addresses too; their database settings and business logic are untouched.
@@ -58,7 +66,9 @@ def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
                            home_num=int(workload == 'home'), write_num=0)
         if workload == 'home':
             c.setdefault('social_graph_mongodb', {})['connections'] = c['user_timeline_mongodb']['connections']
-        c.pop('domain_proxy', None)  # Explicitly one client and one nginx.
+        c.pop('domain_proxy', None)
+        if clients > 1:
+            c['domain_proxy'] = {'clients': copy.deepcopy(registry)}
         for key, db_host, db_port in (
                 ('user_timeline_mongodb', timeline_db_host, timeline_db_port),
                 ('post_storage_mongodb', storage_db_host, storage_db_port)):
@@ -80,6 +90,11 @@ def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
         used.update((base, base+20))
         if item['server_addr'] in addresses: raise ValueError('duplicate service address')
         addresses.add(item['server_addr'])
+    for client in registry[1:]:
+        base = client['rpc_id']
+        if base in used or base+20 in used or client['server_addr'] in addresses:
+            raise ValueError('client registration collides with an existing service')
+        used.update((base, base+20)); addresses.add(client['server_addr'])
     return configs
 
 
@@ -93,6 +108,7 @@ def main():
     parser.add_argument('--numa-a', type=int, default=0)
     parser.add_argument('--numa-b', type=int, default=1)
     parser.add_argument('--samples', type=int, default=10)
+    parser.add_argument('--clients', type=int, default=1, help='independent client processes, 1..3')
     parser.add_argument('--workload', choices=('user', 'home'), default='user')
     parser.add_argument('--timeline-db-host')
     parser.add_argument('--timeline-db-port', type=int)
@@ -105,14 +121,16 @@ def main():
         configs = [prepare(json.loads(source.read_text(encoding='utf-8')), args.host_a,
                            args.host_b, args.samples, args.numa_a, args.numa_b,
                            args.timeline_db_host, args.timeline_db_port,
-                           args.storage_db_host, args.storage_db_port, args.workload)[index]
+                           args.storage_db_host, args.storage_db_port, args.workload, args.clients)[index]
                    for index, source in enumerate(sources)]
+        if configs[0].get('domain_proxy') != configs[1].get('domain_proxy'):
+            raise ValueError('A/B client registries differ; use matching source templates')
         args.output.mkdir(parents=True, exist_ok=False)
         for side, config in zip(('a', 'b'), configs):
             (args.output/('config-'+side+'.json')).write_text(json.dumps(config, indent=2)+'\n', encoding='utf-8')
     except (ValueError, KeyError, OSError) as exc:
         parser.error(str(exc))
-    print(f'UB_SOCIAL_CONFIG_READY scope={args.workload}-read client=1 lane=1 concurrency=1 nginx=1 '
+    print(f'UB_SOCIAL_CONFIG_READY scope={args.workload}-read clients={args.clients} lane_per_client=1 concurrency=1 nginx=1 '
           f'A=client,{args.workload}_timeline B=post_storage,lb,nginx,domain-owner database=explicit-overrides-only')
 
 

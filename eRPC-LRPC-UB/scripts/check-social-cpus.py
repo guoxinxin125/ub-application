@@ -21,6 +21,14 @@ def services_for(config, side, mode):
         raise ValueError('invalid side/mode')
     address = lambda name: config[name]['server_addr'].rsplit(':', 1)[0]
     a, b = address('client'), address('nginx')
+    registered = config.get('domain_proxy', {}).get('clients', [])
+    if registered:
+        if not 1 <= len(registered) <= 3 or [c['id'] for c in registered] != list(range(1,len(registered)+1)):
+            raise ValueError('require 1..3 registered Client IDs ordered 1..N')
+        if registered[0]['server_addr'] != config['client']['server_addr'] or registered[0]['rpc_id'] != config['client']['rpc_id']:
+            raise ValueError('first registered Client must match client endpoint')
+        if any(c['server_addr'].rsplit(':',1)[0] != a for c in registered):
+            raise ValueError('all registered Clients must run on A')
     user, home = config['client']['user_num'], config['client']['home_num']
     if (user, home) not in ((1, 0), (0, 1)) or config['client']['write_num'] != 0:
         raise ValueError('require exactly one read workload')
@@ -34,9 +42,18 @@ def services_for(config, side, mode):
 def check(config, services, nodes, allowed):
     common, used = config['common'], set()
     if common['client_num']!=1 or common['server_num']!=1:
-        raise ValueError('CPU preflight currently requires one lane')
-    for name in services:
-        base = config[name]['bind_core_offset']
+        raise ValueError('multi-process experiment requires one lane per process')
+    placements = [(name, config[name]['bind_core_offset']) for name in services]
+    if 'client' in services:
+        clients = config.get('domain_proxy', {}).get('clients', [])
+        if clients:
+            if not 1 <= len(clients) <= 3:
+                raise ValueError('require 1..3 registered clients')
+            if [c['id'] for c in clients] != list(range(1,len(clients)+1)):
+                raise ValueError('client IDs must be ordered 1..N')
+            placements = [(name, base) for name, base in placements if name != 'client']
+            placements.extend((f'client-{c["id"]}', c['bind_core_offset']) for c in clients)
+    for name, base in placements:
         if type(base) is not int or base<0: raise ValueError('invalid CPU offset: '+name)
         for role, offset in (('client',0),('server',1),('worker',2)):
             node = common['numa_client_node' if role=='client' else 'numa_server_node']

@@ -148,6 +148,16 @@ inline uint32_t wire_request(uint32_t request, uint32_t lane, uint32_t lanes,
     throw std::invalid_argument("invalid/overflowed domain request identity");
   return static_cast<uint32_t>(wire);
 }
+inline uint32_t wire_source_index(uint32_t wire, uint32_t lanes, uint32_t sources) {
+  if (!wire) throw std::invalid_argument("zero wire request");
+  const uint32_t index = ((wire - 1) % request_stride(lanes, sources)) / lanes;
+  if (index >= sources) throw std::invalid_argument("invalid wire source");
+  return index;
+}
+inline uint32_t wire_original_request(uint32_t wire, uint32_t lanes, uint32_t sources) {
+  if (!wire) throw std::invalid_argument("zero wire request");
+  return (wire - 1) / request_stride(lanes, sources) + 1;
+}
 inline bool valid_origin(const Origin &o, uint32_t wire, uint32_t lanes, uint32_t receivers,
                          uint32_t receiver_base, uint32_t proxies, uint32_t source = 1,
                          uint32_t source_index = 0, uint32_t sources = 1) {
@@ -230,7 +240,7 @@ class Runtime {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 #ifdef ERPC_SN_DOMAIN_UB
-    if (proxies != 1 || lane != 0) fail(role, lane, "ub-first-version-single-lane-proxy", 0, ENOTSUP);
+    if (proxies != 1 || lane != 0) fail(role, lane, "ub-social-one-lane-per-process", 0, ENOTSUP);
     const char *sdk = std::getenv("LRPC_UBSM_SDK_MODE");
     const char *sampling = std::getenv("ERPC_SN_DOMAIN_KERNEL_EVERY");
     if (!sdk || std::strcmp(sdk, "external")) fail(role, lane, "ub-sdk-mode-must-be-external", 0, EINVAL);
