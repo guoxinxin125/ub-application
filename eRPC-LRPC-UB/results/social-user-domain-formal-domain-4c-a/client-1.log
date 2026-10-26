@@ -1,0 +1,8 @@
+SN_DOMAIN_CONFIG role=client enabled=1 path=domain wire_abi=2 scope=user-timeline-read source=1 clients=4 lanes=1 receivers=1 proxies=1 stride=4 connections=5 routing=per-source-lane-round-robin fallback=none
+SN_DOMAIN_PEER role=client source=1 receiver_base=1 lanes=1
+SN_DOMAIN_PEER role=client source=2 receiver_base=11 lanes=1
+SN_DOMAIN_PEER role=client source=3 receiver_base=12 lanes=1
+SN_DOMAIN_PEER role=client source=4 receiver_base=13 lanes=1
+SN_DOMAIN_INSTANCE role=client domain=2 receiver_base=2
+SN_DOMAIN_ERROR role=client lane=0 source=1 request_source=0 op=ub-prepare request=0 service=0 function=0 errno=93 reason=Protocol not supported vector=0 fallback=none
+Rpc 1: Created Server session_num = 0 for client [H: 76.53.137.82:31856, R: 26, S: 1] from 76.53.137.82 (rpc 26)
