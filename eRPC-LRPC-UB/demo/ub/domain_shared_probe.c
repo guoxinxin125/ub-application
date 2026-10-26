@@ -15,8 +15,12 @@ struct campaign {
     unsigned int phase, written, reads, atomic_start, final_start, release, abort;
     struct worker {
         unsigned int ready, atomic_done, final_done, closed, error;
+        unsigned int returned_successes, failed_request, atomic_call_failed;
+        unsigned int counter_snapshot_valid;
+        int atomic_errno, counter_snapshot_errno;
         struct ud_connection_info info;
-        uint64_t *tickets, final_counter;
+        struct us_call failed_call;
+        uint64_t *tickets, last_old, final_counter, counter_snapshot;
     } worker[UD_CLIENTS];
 };
 struct worker_arg { struct campaign *campaign; unsigned int id; };
@@ -90,13 +94,16 @@ static uint64_t token(unsigned int writer, unsigned int round)
 }
 static int invoke(struct lrpc_handle *h, unsigned int id, unsigned int cpu,
                   unsigned int type, unsigned int index, uint64_t value,
-                  uint64_t *ticket)
+                  uint64_t *ticket, struct us_call *observed)
 {
     struct us_call call = {0};
+    int rc, saved;
     call.abi = US_ABI; call.direction = US_FORWARD;
     call.message.source = id + 1; call.message.type = type;
     call.message.request = index; call.message.value = value;
-    if (us_client_call(h, &call)) return -1;
+    rc = us_client_call(h, &call); saved = errno;
+    if (observed) *observed = call;
+    if (rc) { errno = saved; return -1; }
     if (call.message.source != id + 1 || call.message.type != type ||
         call.message.request != index || call.message.value != value ||
         call.message.action != US_ACTION_RPC || call.message.target != 105 ||
@@ -127,10 +134,10 @@ static void *run_worker(void *pointer)
         w->info.capacity != UD_CLIENTS) { errno = EPROTO; goto fail; }
     if (a->id == 0) {
         if (invoke(&h, a->id, cpu, US_SHARED_READ_REQ,
-                   US_SHARED_VALUE_INDEX, 1, &ticket)) goto fail;
+                   US_SHARED_VALUE_INDEX, 1, &ticket, NULL)) goto fail;
         if (ticket) { errno = EBUSY; goto fail; }
         if (invoke(&h, a->id, cpu, US_SHARED_READ_REQ,
-                   US_SHARED_COUNTER_INDEX, 1, &ticket)) goto fail;
+                   US_SHARED_COUNTER_INDEX, 1, &ticket, NULL)) goto fail;
         if (ticket) { errno = EBUSY; goto fail; }
     }
     set(&w->ready, 1);
@@ -140,27 +147,49 @@ static void *run_worker(void *pointer)
         if (await(c, &c->phase, round)) goto fail;
         if (writer == a->id) {
             if (invoke(&h, a->id, cpu, US_SHARED_WRITE_REQ,
-                       US_SHARED_VALUE_INDEX, expected, &ticket)) goto fail;
+                       US_SHARED_VALUE_INDEX, expected, &ticket, NULL)) goto fail;
             if (ticket != expected) { errno = EPROTO; goto fail; }
             set(&c->written, round);
         }
         if (await(c, &c->written, round) ||
             invoke(&h, a->id, cpu, US_SHARED_READ_REQ,
-                   US_SHARED_VALUE_INDEX, 1, &ticket)) goto fail;
+                   US_SHARED_VALUE_INDEX, 1, &ticket, NULL)) goto fail;
         if (ticket != expected) { errno = EPROTO; goto fail; }
         __atomic_fetch_add(&c->reads, 1, __ATOMIC_RELEASE);
     }
     if (await(c, &c->atomic_start, 1)) goto fail;
     for (i = 0; i < c->increments; ++i) {
-        if (get(&c->abort) || invoke(&h, a->id, cpu, US_SHARED_FETCH_ADD_REQ,
-                                     US_SHARED_COUNTER_INDEX, 1, &ticket)) goto fail;
+        struct us_call observed;
+        if (get(&c->abort)) { errno = ECANCELED; goto fail; }
+        if (invoke(&h, a->id, cpu, US_SHARED_FETCH_ADD_REQ,
+                   US_SHARED_COUNTER_INDEX, 1, &ticket, &observed)) {
+            int saved = errno;
+            w->atomic_call_failed = 1;
+            w->failed_request = i + 1;
+            w->atomic_errno = saved;
+            w->failed_call = observed;
+            set(&c->abort, 1);
+            /* EAGAIN leaves the session usable. This is a racing snapshot,
+             * not the final counter: the peer may have a call in flight. */
+            if (saved == EAGAIN && !observed.fault_vector) {
+                if (invoke(&h, a->id, cpu, US_SHARED_READ_REQ,
+                           US_SHARED_COUNTER_INDEX, 1, &w->counter_snapshot, NULL))
+                    w->counter_snapshot_errno = errno;
+                else
+                    w->counter_snapshot_valid = 1;
+            }
+            errno = saved;
+            goto fail;
+        }
         w->tickets[i] = ticket;
+        w->last_old = ticket;
+        w->returned_successes = i + 1;
     }
     set(&w->atomic_done, 1);
     if (a->id == 0) {
         if (await(c, &c->final_start, 1) ||
             invoke(&h, a->id, cpu, US_SHARED_READ_REQ,
-                   US_SHARED_COUNTER_INDEX, 1, &w->final_counter)) goto fail;
+                   US_SHARED_COUNTER_INDEX, 1, &w->final_counter, NULL)) goto fail;
         set(&w->final_done, 1);
     }
     if (await(c, &c->release, 1)) goto fail;
@@ -222,6 +251,10 @@ int main(int argc, char **argv)
         printf("UB_DOMAIN_SHARED_READ_PASS workers=%u rounds=%u generation=%llu final_cell=%llu\n",
                c.workers, c.rounds, (unsigned long long)c.worker[0].info.generation,
                (unsigned long long)token((c.rounds - 1) % c.workers, c.rounds));
+        printf("UB_DOMAIN_SHARED_ATOMIC_START workers=%u increments_per_worker=%u "
+               "expected_total=%u generation=%llu\n",
+               c.workers, c.increments, total,
+               (unsigned long long)c.worker[0].info.generation);
         set(&c.atomic_start, 1);
     }
     for (i = 0; !failed && i < c.workers; ++i)
@@ -249,6 +282,39 @@ int main(int argc, char **argv)
     for (i = 0; i < created; ++i) {
         pthread_join(threads[i], NULL);
         if (get(&c.worker[i].error) || !get(&c.worker[i].closed)) failed = 1;
+    }
+    if (failed && get(&c.atomic_start)) {
+        unsigned int returned = 0, unique = 0, duplicates = 0, out_of_range = 0;
+        memset(seen, 0, total);
+        for (i = 0; i < created; ++i) {
+            const struct worker *w = &c.worker[i];
+            for (j = 0; j < w->returned_successes; ++j) {
+                uint64_t old = w->tickets[j];
+                ++returned;
+                if (old >= total) ++out_of_range;
+                else if (seen[old]) ++duplicates;
+                else { seen[old] = 1; ++unique; }
+            }
+            fprintf(stderr, "UB_DOMAIN_SHARED_WORKER_DIAG worker=%u cpu=%u "
+                    "returned_successes=%u last_old=%llu atomic_call_failed=%u "
+                    "failed_request=%u "
+                    "atomic_errno=%d status=%u failed_ticket=%llu entries=%u "
+                    "transitions=%u fault_vector=%u counter_snapshot_valid=%u "
+                    "counter_snapshot=%llu counter_snapshot_errno=%d\n",
+                    i, c.cpus[i], w->returned_successes,
+                    (unsigned long long)w->last_old, w->atomic_call_failed,
+                    w->failed_request,
+                    w->atomic_errno, w->failed_call.message.status,
+                    (unsigned long long)w->failed_call.message.ticket,
+                    w->failed_call.entries, w->failed_call.transitions,
+                    w->failed_call.fault_vector, w->counter_snapshot_valid,
+                    (unsigned long long)w->counter_snapshot,
+                    w->counter_snapshot_errno);
+        }
+        fprintf(stderr, "UB_DOMAIN_SHARED_ATOMIC_DIAG expected_total=%u "
+                "returned_successes=%u unique_old=%u duplicate_old=%u "
+                "out_of_range_old=%u\n",
+                total, returned, unique, duplicates, out_of_range);
     }
     if (!failed)
         printf("UB_DOMAIN_SHARED_CAMPAIGN_PASS workers=%u rounds=%u increments_per_worker=%u "

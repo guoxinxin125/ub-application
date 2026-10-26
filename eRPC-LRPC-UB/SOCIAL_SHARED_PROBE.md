@@ -128,3 +128,88 @@ B 观察到每次递增。A/B 日志必须来自同一轮 owner；若 B 最终�
 若原子阶段失败，请保留 A/B 日志、`dmesg` 中的 `ub_domain` 记录、模块版本、
 内核版本、CPU/NUMA 与 UBSM 映射方式。`EAGAIN`、异常向量或计数不一致
 都应先当成平台语义或实现待诊断，不能宣称原子能力已验证。
+
+### 原子阶段失败时的 A 侧诊断
+
+若此前已完成本页的双端部署，本次诊断仅改动 A 的用户态探针；同步
+`demo/ub/domain_shared_probe.c`、本文档和 `SOURCE_MANIFEST.sha256` 到 A。
+以下命令均在各自机器的 `eRPC-LRPC-UB/` 目录执行。**A 先编译一次**：
+
+```sh
+python3 scripts/manifest.py --check
+sh scripts/build.sh caller
+```
+
+不必重新构建 B owner、内核模块或重新 `insmod`。每一轮都要重启**自己启动的**
+B `--social-shared` owner，以清零共享计数器并获得新 generation。
+以下沿用 B provider NUMA 1 和 A CPU 1、2 的示例；实际机器不同时按本页前文调整。
+
+第一轮，B 先启动 owner，保持终端运行：
+
+```sh
+./build-owner/lrpc-ub-domain-owner lrpc_ub_domain \
+  --provider-numa 1 --social-shared \
+  2>&1 | tee shared-owner-1.log
+```
+
+随后 A 运行每 worker 递增 1 次的探针：
+
+```sh
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1,2 ./build-caller/lrpc-ub-domain-shared-probe \
+  --cpus 1,2 --rounds 4 --increments 1 --observe-ms 5000 \
+  2>&1 | tee shared-a-1.log
+```
+
+A 结束后让 B 再观察几秒，再用 Ctrl+C 结束这轮自己启动的 owner。
+第二轮**重新启动** B owner：
+
+```sh
+./build-owner/lrpc-ub-domain-owner lrpc_ub_domain \
+  --provider-numa 1 --social-shared \
+  2>&1 | tee shared-owner-10.log
+```
+
+随后 A 运行：
+
+```sh
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1,2 ./build-caller/lrpc-ub-domain-shared-probe \
+  --cpus 1,2 --rounds 4 --increments 10 --observe-ms 5000 \
+  2>&1 | tee shared-a-10.log
+```
+
+同样结束这轮 B owner 后，第三轮用新 owner 测每 worker 100 次：
+
+B：
+
+```sh
+./build-owner/lrpc-ub-domain-owner lrpc_ub_domain \
+  --provider-numa 1 --social-shared \
+  2>&1 | tee shared-owner-100.log
+```
+
+A：
+
+```sh
+sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
+  taskset -c 1,2 ./build-caller/lrpc-ub-domain-shared-probe \
+  --cpus 1,2 --rounds 4 --increments 100 --observe-ms 5000 \
+  2>&1 | tee shared-a-100.log
+```
+
+这三轮的理论递增总数分别为 2、20、200。不要混用不同轮次或不同
+generation 的 A/B 日志。保留 A 的 `UB_SOCIAL_CALL_FAIL`、
+`UB_DOMAIN_SHARED_ATOMIC_START`、`UB_DOMAIN_SHARED_WORKER_DIAG`、
+`UB_DOMAIN_SHARED_ATOMIC_DIAG`，以及 B 的 `UB_DOMAIN_SHARED_READY` 和最后几条
+`UB_DOMAIN_SHARED_OBSERVED index=2`。
+
+`UB_DOMAIN_SHARED_ATOMIC_START` 记录本轮实际解析的每 worker 次数和理论总数。
+发生失败时，`UB_DOMAIN_SHARED_WORKER_DIAG` 记录每个 worker 已**返回成功**的
+调用数、最后一个返回的旧值、失败请求序号及返回状态。
+`UB_DOMAIN_SHARED_ATOMIC_DIAG` 汇总所有成功返回的旧值是否重复或越过理论上限。
+`counter_snapshot_valid=1` 表示该 worker 在 `EAGAIN` 后额外做了一次只读查询；
+这可能与另一 worker 的在途调用并发，**不是最终计数**。若为 `0`，
+不得使用 `counter_snapshot` 的数值。B 的 `UB_DOMAIN_SHARED_OBSERVED index=2`
+仍须与同一 generation 对照；它是周期采样，也可能漏掉中间状态。
+新增诊断不会将失败轮次判为 PASS，也不会自动重试原子写入。
