@@ -8,9 +8,14 @@
 另外提供隔离的[服务域远端写入探针](SOCIAL_WRITE_PROBE.md)，它尚未接入发帖业务。
 多连接访问同一 B 侧页的读写/原子更新实验见
 [共享页正确性探针](SOCIAL_SHARED_PROBE.md)；它同样不是业务写入。
+如果这次同步的是新增的共享读写/原子探针，**从该文档的“第一次部署或代码更新”
+开始执行**：A/B 都要重编译，A 还要在设备空闲时重新加载新模块；只运行
+`sh scripts/build.sh caller` 不会更新已加载模块。
 没有 QEMU、Go、currency、旧 shadow 程序或第三方源码。应用接入需另外同步 `eRPC/`
 中的应用与构建依赖，详见 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)及
 [HomeTimeline UB 接入说明](SOCIAL_HOME_READ.md)。
+多独立 Client 进程的 UserTimeline/HomeTimeline 并发延迟对照见
+[SocialNetwork 并发实验步骤](SOCIAL_CONCURRENT_READ.md)。
 下一轮 Direct/Nested 20 轮性能测量及应用验证清单见 [UB 真机实验待办](TODO_UB.md)。
 Nested 微测试默认使用 **fused**，备选路径用 `--nested-path legacy` 或
 `LRPC_UB_NESTED_PATH=legacy` 显式选择；命令行优先于环境变量。

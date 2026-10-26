@@ -1,5 +1,7 @@
 # HomeTimeline read：UB 双机端到端对照
 
+多个**独立 Client 进程**的 RPC / fused-domain 对照见 [并发实验步骤](SOCIAL_CONCURRENT_READ.md)。原文以下步骤仍是单 Client 路径。
+
 本实验沿用 [UserTimeline read 的 UB 环境和生命周期说明](SOCIAL_USER_READ.md)，但一次只运行一种 read workload。这里 A 运行 `client + home_timeline`，B 运行 `post_storage`。RPC 基线还在 B 运行 `load_balance + nginx` 进程；域模式改由 B 的 owner 发布这两个只读服务域，由 A 的 CPU 执行。两种模式都由 A 上的 HomeTimeline 查询相同的 MongoDB 数据、向 B 的 PostStorage 读帖子，并由 Client 消费共享帖子句柄。不要把这项对照解释为 HomeTimeline 本身也被替换成域调用。
 
 环境变量可按 [UserTimeline 的一键设置](SOCIAL_USER_READ.md#每台机器一次设置环境推荐) 配置本机的 `config/social-env.local.sh`，每个新 Bash 会话只需：

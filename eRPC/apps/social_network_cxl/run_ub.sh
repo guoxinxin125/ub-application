@@ -33,6 +33,10 @@ read -r -a services <<< "${SN_SERVICES:-$default_services}"
 mkdir -p "$LOG_DIR"
 manager_pid=""
 worker_pids=()
+client_pids=()
+client_logs=()
+start_file=""
+start_dir=""
 cleanup_started=0
 
 cleanup() {
@@ -41,6 +45,8 @@ cleanup() {
   fi
   cleanup_started=1
   trap - EXIT INT TERM
+  if [[ -n "$start_file" ]]; then rm -f -- "$start_file"; fi
+  if [[ -n "$start_dir" ]]; then rmdir -- "$start_dir" 2>/dev/null || true; fi
 
   # Workers own the endpoint registrations and remote mappings. Give them an
   # opportunity to run their SIGINT handlers and unregister while the manager
@@ -106,8 +112,53 @@ for name in "${services[@]}"; do
     exit 1
   fi
   echo "Starting $name on UB machine $ERPC_UB_MACHINE_ID"
-  "$bin" --config_file="$CONFIG" >"$LOG_DIR/$name.log" 2>&1 &
-  worker_pids+=("$!")
+  if [[ "$name" == client && -n "${SN_CLIENT_IDS:-}" ]]; then
+    read -r -a ids <<< "$SN_CLIENT_IDS"
+    if (( ${#ids[@]} > 1 )); then
+      start_dir=$(mktemp -d "$LOG_DIR/.client-start.XXXXXXXX")
+      start_file="$start_dir/go"
+      for id in "${ids[@]}"; do
+        [[ "$id" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid client ID: $id" >&2; exit 2; }
+        log="$LOG_DIR/client-$id.log"
+        ERPC_SN_DOMAIN_CLIENT_ID="$id" ERPC_SN_CLIENT_START_FILE="$start_file" \
+          "$bin" --config_file="$CONFIG" >"$log" 2>&1 &
+        client_pids+=("$!"); worker_pids+=("$!"); client_logs+=("$log")
+      done
+    else
+      ERPC_SN_DOMAIN_CLIENT_ID="${ids[0]}" "$bin" --config_file="$CONFIG" >"$LOG_DIR/client.log" 2>&1 &
+      worker_pids+=("$!")
+    fi
+  else
+    "$bin" --config_file="$CONFIG" >"$LOG_DIR/$name.log" 2>&1 &
+    worker_pids+=("$!")
+  fi
 done
 
+if [[ -n "$start_file" ]]; then
+  armed=0
+  for _ in $(seq 1 1200); do
+    armed=0
+    for log in "${client_logs[@]}"; do
+      if grep -Eq 'SN_DOMAIN_(CONFIG_)?ERROR|terminate called|Assertion.*failed' "$log"; then
+        echo "Client failed before start barrier: $log" >&2
+        exit 1
+      fi
+      if grep -q '^SN_CLIENT_ARMED ' "$log"; then ((armed+=1)); fi
+    done
+    ((armed == ${#client_logs[@]})) && break
+    for pid in "${client_pids[@]}"; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        echo "Client exited before start barrier; inspect $LOG_DIR/client-*.log" >&2
+        exit 1
+      fi
+    done
+    sleep 0.1
+  done
+  ((armed == ${#client_logs[@]})) || { echo "Client readiness timed out; inspect $LOG_DIR/client-*.log" >&2; exit 1; }
+  touch "$start_file"
+  echo "UB_SOCIAL_CLIENTS_STARTED count=${#client_pids[@]}"
+  status=0
+  for pid in "${client_pids[@]}"; do wait "$pid" || status=1; done
+  exit "$status"
+fi
 wait

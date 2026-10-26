@@ -18,6 +18,65 @@ spec.loader.exec_module(prepare)
 
 
 class Config(unittest.TestCase):
+    def test_multi_process_config_and_cpu_plan(self):
+        module_spec = importlib.util.spec_from_file_location('multi_cpu', ROOT/'scripts/check-social-cpus.py')
+        module = importlib.util.module_from_spec(module_spec); module_spec.loader.exec_module(module)
+        template = json.loads((ROOT/'config/social-user-read-a.json').read_text(encoding='utf-8'))
+        a, b = prepare.prepare(template, '192.0.2.10', '192.0.2.20', samples=20, clients=3)
+        for config in (a, b):
+            registered = config['domain_proxy']['clients']
+            self.assertEqual([r['id'] for r in registered], [1,2,3])
+            self.assertEqual([r['rpc_id'] for r in registered], [1,11,12])
+            self.assertEqual([r['bind_core_offset'] for r in registered], [0,3,6])
+            self.assertEqual(config['user_timeline']['bind_core_offset'], 9)
+        cpus = module.check(a, ['user_timeline','client'], {0:list(range(36))}, set(range(36)))
+        self.assertEqual(cpus,list(range(12)))
+        a['domain_proxy']['clients'][1]['bind_core_offset'] = 0
+        with self.assertRaises(ValueError):
+            module.check(a, ['user_timeline','client'], {0:list(range(36))}, set(range(36)))
+
+    def test_multi_process_log_checker(self):
+        module_spec = importlib.util.spec_from_file_location('multi_log', ROOT/'scripts/check-social.py')
+        module = importlib.util.module_from_spec(module_spec); module_spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            a,b = Path(directory)/'a',Path(directory)/'b'; a.mkdir(); b.mkdir()
+            (b/'post_storage.log').write_text('ready\n')
+            (a/'user_timeline.log').write_text('SN_DOMAIN_READY backend=ub chain=fused transitions=3 slot=2 identity=200\nSN_DOMAIN_DONE backend=ub calls=20\n')
+            for i in (1,2):
+                (a/f'client-{i}.log').write_text(
+                    f'SN_DOMAIN_READY source={i} backend=ub chain=fused transitions=3 slot={i-1} identity={100+i}\n'
+                    'SN_DOMAIN_DONE backend=ub calls=10\n'
+                    f'SN_DOMAIN_E2E source={i} completed=10 expected=10 measured=10 warmup=0 clock=steady_ns scope=call-to-consume fixture=0 campaign_begin_ns={i} campaign_end_ns={20+i} p50_ns=100 p99_ns=200 avg_ns=120\n'
+                    f'SN_DOMAIN_MEASUREMENT source={i} total=10 measured=10\n'
+                    'SN_DOMAIN_CLASS phase=measured class=all count=10\n'
+                    'SN_DOMAIN_CLASS phase=measured class=empty count=1\n'
+                    'SN_DOMAIN_CLASS phase=measured class=nonempty count=9\n')
+            result = module.check(a,'domain',10,b,'fused','user',2)
+            self.assertEqual((result['all'],result['nonempty'],result['_wall_ns']), (20,18,21))
+            rpc_a,rpc_b = Path(directory)/'rpc_a',Path(directory)/'rpc_b'
+            rpc_a.mkdir(); rpc_b.mkdir()
+            (rpc_a/'user_timeline.log').write_text('SN_DOMAIN_CONFIG enabled=0\n')
+            (rpc_b/'post_storage.log').write_text('started\n')
+            for name in ('nginx','load_balance'):
+                (rpc_b/(name+'.log')).write_text(
+                    f'SN_CXL_PROXY_DONE role={name} forward=20 reverse=20\n')
+            for i in (1,2):
+                lines = (a/f'client-{i}.log').read_text().splitlines()
+                clean = ['SN_DOMAIN_CONFIG enabled=0'] + [line.replace('p50_ns=100 p99_ns=200 avg_ns=120',
+                    'p50_ns=150 p99_ns=250 avg_ns=180') for line in lines
+                    if not line.startswith(('SN_DOMAIN_READY ','SN_DOMAIN_DONE '))]
+                (rpc_a/f'client-{i}.log').write_text('\n'.join(clean)+'\n')
+            command = [os.sys.executable, '-B', str(ROOT/'scripts/compare-social.py'),
+                       '--workload','user','--clients','2','--samples','10',
+                       '--rpc-a',str(rpc_a),'--rpc-b',str(rpc_b),
+                       '--domain-a',str(a),'--domain-b',str(b)]
+            comparison = subprocess.run(command,capture_output=True,text=True)
+            self.assertEqual(comparison.returncode,0,comparison.stderr)
+            self.assertIn('UB_SOCIAL_COMPARE_PASS',comparison.stdout)
+            self.assertIn('avg_reduction_pct=33.33',comparison.stdout)
+            (a/'client-2.log').write_text((a/'client-2.log').read_text().replace('slot=1','slot=0'))
+            with self.assertRaises(ValueError): module.check(a,'domain',10,b,'fused','user',2)
+
     def test_independent_ab_templates_and_default_cli(self):
         templates = [ROOT/'config'/('social-user-read-'+side+'.json') for side in ('a','b')]
         before = [path.read_bytes() for path in templates]
@@ -246,6 +305,11 @@ extern "C" int us_client_call(struct lrpc_handle *h,struct us_call *c) {
  ++calls; return 0;
 }
 int main() {
+ for(uint32_t source=0;source<3;source++) for(uint32_t request=1;request<=100;request++) {
+  const uint32_t wire=sn_domain::wire_request(request,0,1,source,3);
+  assert(sn_domain::wire_source_index(wire,1,3)==source);
+  assert(sn_domain::wire_original_request(wire,1,3)==request);
+ }
  struct us_heap heap{}; us_heap_init(&heap); assert(us_heap_valid(&heap));
  ++heap.config[1].allowed_grants; assert(!us_heap_valid(&heap));
  sn_domain::Runtime client,timeline;

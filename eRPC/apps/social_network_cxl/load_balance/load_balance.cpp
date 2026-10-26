@@ -3,6 +3,7 @@
 #include "load_balance.h"
 #include "../ub_breakdown.h"
 #include "../rpc_measure_ready.h"
+#include "../domain_proxy.h"
 
 void baseline_ready_handler(erpc::ReqHandle *h, void *c) {
     sn_measure::proxy_ready_request<ServerContext>(h, c, "load_balance");
@@ -21,8 +22,19 @@ void connect_sessions(ClientContext *c) {
     c->backward_session_num_ = c->rpc_->create_session(client_addr, get_remote_rpc_id(client_addr));
     my_assert(c->backward_session_num_ >= 0, "Failed to create session");
     c->session_num_vec_.push_back(c->backward_session_num_);
+    c->backward_sessions_.push_back(c->backward_session_num_);
+    if (sn_measure::rpc_baseline() && sn_domain::source_count() > 1) {
+        const auto &clients = sn_domain::clients();
+        for (size_t i = 1; i < clients.size(); ++i) {
+            const int session = c->rpc_->create_session(clients[i].address,
+                                                         static_cast<uint8_t>(clients[i].rpc_id));
+            if (session < 0) sn_domain::fail("load_balance", static_cast<uint32_t>(c->client_id_),
+                                             "create-client-session", 0, EHOSTUNREACH);
+            c->backward_sessions_.push_back(session);
+        }
+    }
 
-    while (c->num_sm_resps_ != forward_server_addr.size() + 1) {
+    while (c->num_sm_resps_ != forward_server_addr.size() + c->backward_sessions_.size()) {
         c->rpc_->run_event_loop(kAppEvLoopMs);
         if (unlikely(ctrl_c_pressed == 1)) {
             // // printf("Ctrl-C pressed. Exiting\n");
@@ -289,7 +301,17 @@ void handler_common_resp(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_backward_msgbuf[slot];
 
     const uint64_t enqueue_start = sn_profile::start();
-    ctx->rpc_->enqueue_request(ctx->backward_session_num_, req_type,
+    size_t source = 0;
+    if (sn_measure::rpc_baseline() && sn_domain::source_count() > 1) {
+        try {
+            source = sn_domain::wire_source_index(request, static_cast<uint32_t>(FLAGS_client_num),
+                                                   sn_domain::source_count());
+        } catch (const std::exception &) {
+            sn_domain::fail("load_balance", static_cast<uint32_t>(ctx->client_id_),
+                            "reverse-source", request, EPROTO);
+        }
+    }
+    ctx->rpc_->enqueue_request(ctx->backward_sessions_.at(source), req_type,
                                &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
                                callback_common_resp, reinterpret_cast<void *>(slot));
     if (req_type == static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP) ||

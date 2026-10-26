@@ -1,5 +1,7 @@
 #include <cstdint>
+#include <algorithm>
 #include <thread>
+#include <unistd.h>
 
 #include "client.h"
 #include "../post_consume.h"
@@ -167,7 +169,8 @@ void domain_timeline_read_resp_handler(erpc::ReqHandle *handle, void *context,
         if (begin) sn_domain::metrics().add(sn_domain::Stage::kE2e, elapsed_ns);
     }
     if (imported.buffer.buf_ != nullptr) release_imported_post(ctx->rpc_, imported);
-    origin->domain_completed.fetch_add(1, std::memory_order_relaxed);
+    origin->domain_last_done_ns.store(done, std::memory_order_release);
+    origin->domain_completed.fetch_add(1, std::memory_order_release);
     if (service == sn_domain::ReadService::Home) ++ctx->stat_req_home_timeline_tot;
     else ++ctx->stat_req_user_timeline_tot;
     ctx->rpc_->resize_msg_buffer(&handle->pre_resp_msgbuf_, 0);
@@ -241,7 +244,19 @@ void timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_context, bo
 
     auto *req = reinterpret_cast<RPCMsgReq<PostStorageReadCXLResp> *>(req_msgbuf->buf_);
     const PostStorageReadCXLResp &reference_resp = req->req_control;
-    const uint32_t req_number = req_common->req_number;
+    const uint32_t wire = req_common->req_number;
+    uint32_t req_number = wire;
+    if (sn_measure::rpc_baseline() && sn_domain::source_count() > 1) {
+        try {
+            if (sn_domain::wire_source_index(wire, static_cast<uint32_t>(FLAGS_client_num),
+                                             sn_domain::source_count()) != sn_domain::source_index())
+                sn_domain::fail("client", static_cast<uint32_t>(ctx->server_id_), "baseline-source", wire, EPROTO);
+            req_number = sn_domain::wire_original_request(wire, static_cast<uint32_t>(FLAGS_client_num),
+                                                          sn_domain::source_count());
+        } catch (const std::exception &) {
+            sn_domain::fail("client", static_cast<uint32_t>(ctx->server_id_), "baseline-wire", wire, EPROTO);
+        }
+    }
     if (sn_measure::rpc_baseline())
         sn_profile::flow_point_at("client", req_number, "response_arrival", response_arrival);
     if ((sn_domain::enabled() || sn_measure::rpc_baseline()) &&
@@ -254,7 +269,7 @@ void timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_context, bo
             sn_domain::fail("client", 0, "baseline-response", req_number, EPROTO);
         ClientContext *origin = domain_origins[ctx->server_id_];
         const size_t slot = req_number % kAppMaxBuffer;
-        uint32_t expected = req_number;
+        uint32_t expected = wire;
         if (!origin->domain_inflight[slot].compare_exchange_strong(expected, 0, std::memory_order_acq_rel))
             sn_domain::fail("client", 0, "baseline-inflight", req_number, EPROTO);
         ImportedSharedPost post = consume_timeline_post(ctx->rpc_, reference_resp);
@@ -272,14 +287,15 @@ void timeline_read_resp_handler(erpc::ReqHandle *req_handler, void *_context, bo
         const uint64_t elapsed = begin ? done - begin : 0;
         sn_diag::point("client_complete", req_number);
         sn_diag::finish(diagnostic_receive);
-        if (!origin->domain_measurement.record(req_number, req_number, reference_resp.count,
+        if (!origin->domain_measurement.record(req_number, wire, reference_resp.count,
                 begin, origin->domain_tx_begin_ns[slot].load(std::memory_order_acquire), response_arrival,
                 done, 0,
                 reference_resp.count ? reference_resp.post.payload_length : 0))
             sn_domain::fail("client", 0, "measurement-record", req_number, EPROTO);
         if (sn_measure::measured(req_number)) sn_domain::metrics().add(sn_domain::Stage::kE2e, elapsed);
         if (post.buffer.buf_) release_imported_post(ctx->rpc_, post);
-        origin->domain_completed.fetch_add(1, std::memory_order_relaxed);
+        origin->domain_last_done_ns.store(done, std::memory_order_release);
+        origin->domain_completed.fetch_add(1, std::memory_order_release);
         ctx->queue_store->PushNextReq();
         ctx->rpc_->enqueue_response(req_handler, &req_handler->pre_resp_msgbuf_);
         if (sn_measure::measured(req_number)) sn_domain::metrics().finish(sn_domain::Stage::kReceive, received);
@@ -526,13 +542,15 @@ void handler_timeline_read_req(ClientContext *ctx, REQ_MSG req_msg, bool home) {
         sn_domain::metrics().finish(sn_domain::Stage::kSend, send);
         return;
     }
+    const uint32_t baseline_wire = sn_measure::rpc_baseline() && sn_domain::source_count() > 1 ?
+        sn_domain::client_wire(req_msg.req_id, static_cast<uint32_t>(ctx->client_id_)) : req_msg.req_id;
     new (req_msgbuf.buf_) CommonReq{ home ? RPC_TYPE::RPC_HOME_TIMELINE_READ_REQ :
-        RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, req_msg.req_id };
+        RPC_TYPE::RPC_USER_TIMELINE_READ_REQ, baseline_wire };
     sn_profile::flow_point("client", req_msg.req_id, "request_ready");
 
     if (sn_measure::rpc_baseline()) {
         const size_t slot = req_msg.req_id % kAppMaxBuffer;
-        if (ctx->domain_inflight[slot].exchange(req_msg.req_id, std::memory_order_acq_rel))
+        if (ctx->domain_inflight[slot].exchange(baseline_wire, std::memory_order_acq_rel))
             sn_domain::fail("client", 0, "baseline-slot-busy", req_msg.req_id, EBUSY);
         ctx->domain_e2e_start[slot].store(call_begin, std::memory_order_release);
         sn_diag::point("client_call_begin", req_msg.req_id);
@@ -836,6 +854,20 @@ void leader_thread_func() {
     // // printf("param ready, sleep 2 and begin to generate workload");
     sleep(2);
     }
+    if (const char *start_file = std::getenv("ERPC_SN_CLIENT_START_FILE")) {
+        if (!*start_file) sn_domain::fail("client", 0, "start-file-empty", 0, EINVAL);
+        std::fprintf(stderr, "SN_CLIENT_ARMED source=%u\n", sn_domain::source_id());
+        const uint64_t deadline = sn_domain::now_ns() + UINT64_C(120000000000);
+        while (access(start_file, F_OK) != 0) {
+            if (ctrl_c_pressed || sn_domain::now_ns() >= deadline)
+                sn_domain::fail("client", 0, "start-barrier-timeout", 0, ETIMEDOUT);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        std::fprintf(stderr, "SN_CLIENT_STARTED source=%u at_ns=%llu\n", sn_domain::source_id(),
+                     static_cast<unsigned long long>(sn_domain::now_ns()));
+    }
+    const uint64_t campaign_begin_ns = sn_domain::now_ns();
+    uint64_t campaign_end_ns = 0;
     for (size_t i = 0; i < FLAGS_client_num; i++) {
         size_t tmp = FLAGS_concurrency;
         while (tmp--) {
@@ -851,7 +883,12 @@ void leader_thread_func() {
             bool finished = true;
             for (auto *client : context->client_contexts_)
                 if (client->domain_completed.load(std::memory_order_acquire) != static_cast<uint64_t>(generate_data_num)) finished = false;
-            if (finished) break;
+            if (finished) {
+                for (auto *client : context->client_contexts_)
+                    campaign_end_ns = std::max(campaign_end_ns,
+                        client->domain_last_done_ns.load(std::memory_order_acquire));
+                break;
+            }
             if (ctrl_c_pressed || sn_domain::now_ns() >= deadline)
                 sn_domain::fail("client", 0, "finish-incomplete", 0, ETIMEDOUT);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -892,7 +929,7 @@ void leader_thread_func() {
         const sn_measure::Statistics stats = context->client_contexts_[0]->domain_measurement.statistics(true);
         const bool single_clock = sn_measure::enabled();
         if (single_clock && stats.values.size() != measured) sn_domain::fail("client", 0, "measurement-count", 0, EPROTO);
-        std::fprintf(stderr, "SN_DOMAIN_E2E source=%u completed=%llu expected=%llu nonempty=%llu empty=%llu fixture=%u p50_ns=%.1f p99_ns=%.1f avg_ns=%.1f scope=call-to-consume fixture_validation_included=%u clock=%s cold_included=%u warmup=%u measured=%llu\n",
+        std::fprintf(stderr, "SN_DOMAIN_E2E source=%u completed=%llu expected=%llu nonempty=%llu empty=%llu fixture=%u p50_ns=%.1f p99_ns=%.1f avg_ns=%.1f scope=call-to-consume fixture_validation_included=%u clock=%s cold_included=%u warmup=%u measured=%llu campaign_begin_ns=%llu campaign_end_ns=%llu\n",
             sn_domain::source_id(), static_cast<unsigned long long>(completed), static_cast<unsigned long long>(expected),
             static_cast<unsigned long long>(nonempty), static_cast<unsigned long long>(empty),
             sn_domain::boolean_env("ERPC_SN_DOMAIN_FIXTURE") ? 1U : 0U,
@@ -901,7 +938,9 @@ void leader_thread_func() {
             single_clock ? static_cast<double>(stats.total)/static_cast<double>(measured) : hdr_mean(latency_user_timeline_hist_) * 100.0,
             sn_domain::boolean_env("ERPC_SN_DOMAIN_FIXTURE") ? 1U : 0U,
             single_clock ? "steady_ns" : "high_resolution_us",
-            sn_measure::warmup() ? 0U : 1U, sn_measure::warmup(), static_cast<unsigned long long>(measured));
+            sn_measure::warmup() ? 0U : 1U, sn_measure::warmup(), static_cast<unsigned long long>(measured),
+            static_cast<unsigned long long>(campaign_begin_ns),
+            static_cast<unsigned long long>(campaign_end_ns));
     }
     if (!sn_measure::enabled()) write_overall_latency();
 

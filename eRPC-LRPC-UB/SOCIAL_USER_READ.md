@@ -1,5 +1,7 @@
 # UserTimeline read：AArch64 UB 路由域接入
 
+多个**独立 Client 进程**并发以及 RPC / fused-domain 两条完整路径的对照，见 [并发实验步骤](SOCIAL_CONCURRENT_READ.md)。原文以下步骤仍是单 Client 路径。
+
 这是可选应用路径，保留普通 UB-eRPC、x86/QEMU 接入和 Direct/Nested 微测试。
 legacy 和 fused 应用链都已由用户在双机完成端到端验证。修改代码或测量口径后，
 仍须重新构建 A 侧应用并在目标机器复测；先跑少量请求，再跑性能轮次。

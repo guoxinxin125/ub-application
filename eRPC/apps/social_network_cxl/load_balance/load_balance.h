@@ -36,6 +36,7 @@ public:
     size_t server_sender_id_;
     size_t server_receiver_id_;
     int backward_session_num_;
+    std::vector<int> backward_sessions_;
     int servers_num_{};
 
     SPSC_QUEUE *forward_spsc_queue;
