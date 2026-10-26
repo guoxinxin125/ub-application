@@ -23,8 +23,8 @@ def services_for(config, side, mode):
     a, b = address('client'), address('nginx')
     registered = config.get('domain_proxy', {}).get('clients', [])
     if registered:
-        if not 1 <= len(registered) <= 3 or [c['id'] for c in registered] != list(range(1,len(registered)+1)):
-            raise ValueError('require 1..3 registered Client IDs ordered 1..N')
+        if not 1 <= len(registered) <= 4 or [c['id'] for c in registered] != list(range(1,len(registered)+1)):
+            raise ValueError('require 1..4 registered Client IDs ordered 1..N')
         if registered[0]['server_addr'] != config['client']['server_addr'] or registered[0]['rpc_id'] != config['client']['rpc_id']:
             raise ValueError('first registered Client must match client endpoint')
         if any(c['server_addr'].rsplit(':',1)[0] != a for c in registered):
@@ -47,8 +47,8 @@ def check(config, services, nodes, allowed):
     if 'client' in services:
         clients = config.get('domain_proxy', {}).get('clients', [])
         if clients:
-            if not 1 <= len(clients) <= 3:
-                raise ValueError('require 1..3 registered clients')
+            if not 1 <= len(clients) <= 4:
+                raise ValueError('require 1..4 registered clients')
             if [c['id'] for c in clients] != list(range(1,len(clients)+1)):
                 raise ValueError('client IDs must be ordered 1..N')
             placements = [(name, base) for name, base in placements if name != 'client']

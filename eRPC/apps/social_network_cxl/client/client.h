@@ -251,7 +251,7 @@ void init_specific_config() {
   try {
     if ((sn_domain::enabled() || sn_measure::rpc_baseline()) && sn_measure::enabled()) {
       if (FLAGS_client_num != 1 || FLAGS_server_num != 1 || FLAGS_concurrency != 1 ||
-          user_num_ + home_num_ != 1 || write_num_ || sn_domain::source_count() > 3 ||
+          user_num_ + home_num_ != 1 || write_num_ || sn_domain::source_count() > 4 ||
           !sn_domain::boolean_env("ERPC_SN_DOMAIN_FINISH"))
         sn_domain::fail("client", 0, "measurement-requires-single-lane-read", 0, EINVAL);
       sn_measure::Campaign validation;

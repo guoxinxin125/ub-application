@@ -77,8 +77,8 @@ if [ "$side" = A ]; then
 import json, sys
 cfg = json.load(open(sys.argv[1], encoding='utf-8'))
 clients = cfg.get('domain_proxy', {}).get('clients', [{'id': 1}])
-if not 1 <= len(clients) <= 3 or [c.get('id') for c in clients] != list(range(1,len(clients)+1)):
-    sys.exit('require 1..3 client IDs ordered 1..N')
+if not 1 <= len(clients) <= 4 or [c.get('id') for c in clients] != list(range(1,len(clients)+1)):
+    sys.exit('require 1..4 client IDs ordered 1..N')
 if len(clients)>1 and (clients[0]['server_addr'] != cfg['client']['server_addr'] or
                        clients[0]['rpc_id'] != cfg['client']['rpc_id']):
     sys.exit('first registered client must match the client endpoint')

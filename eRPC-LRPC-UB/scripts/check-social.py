@@ -14,7 +14,7 @@ def check(logdir, mode, samples, peer_logs=None, chain='legacy', workload='user'
     if peer_logs is None:
         raise ValueError('require B --peer-logs; PostStorage is on B, not A')
     if workload not in ('user', 'home'): raise ValueError('invalid workload')
-    if not 1 <= clients <= 3: raise ValueError('require 1..3 client processes')
+    if not 1 <= clients <= 4: raise ValueError('require 1..4 client processes')
     timeline = workload+'_timeline'
     client_names = ['client'] if clients == 1 else [f'client-{i}' for i in range(1, clients+1)]
     paths = {name:logdir for name in (*client_names,timeline)}
@@ -98,7 +98,7 @@ def main():
     parser.add_argument('--peer-logs',required=True,type=Path,help='local directory containing this run\'s B logs')
     parser.add_argument('--mode',required=True,choices=('domain','rpc'))
     parser.add_argument('--samples',required=True,type=int)
-    parser.add_argument('--clients',type=int,default=1,help='independent client processes, 1..3')
+    parser.add_argument('--clients',type=int,default=1,help='independent client processes, 1..4')
     parser.add_argument('--workload',choices=('user','home'),default='user')
     parser.add_argument('--chain',choices=('legacy','fused'),
                         help='expected application domain chain; default fused for domain, legacy for RPC')

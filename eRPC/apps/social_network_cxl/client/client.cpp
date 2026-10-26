@@ -861,7 +861,7 @@ void leader_thread_func() {
         while (access(start_file, F_OK) != 0) {
             if (ctrl_c_pressed || sn_domain::now_ns() >= deadline)
                 sn_domain::fail("client", 0, "start-barrier-timeout", 0, ETIMEDOUT);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         std::fprintf(stderr, "SN_CLIENT_STARTED source=%u at_ns=%llu\n", sn_domain::source_id(),
                      static_cast<unsigned long long>(sn_domain::now_ns()));

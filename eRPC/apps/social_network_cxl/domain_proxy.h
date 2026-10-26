@@ -117,8 +117,8 @@ inline void validate_config(const char *role) {
 #endif
   (void)proxy_count();
 #ifdef ERPC_SN_DOMAIN_UB
-  if (enabled() && (lanes != 1 || source_count() > 3 || proxy_count() != 1 || FLAGS_concurrency != 1))
-    throw std::invalid_argument("UB social domain requires 1..3 Client processes, one lane each, one nginx, concurrency=1");
+  if (enabled() && (lanes != 1 || source_count() > 4 || proxy_count() != 1 || FLAGS_concurrency != 1))
+    throw std::invalid_argument("UB social domain requires 1..4 Client processes, one lane each, one nginx, concurrency=1");
 #endif
   bool used[64]{};
   std::vector<std::string> addresses;
