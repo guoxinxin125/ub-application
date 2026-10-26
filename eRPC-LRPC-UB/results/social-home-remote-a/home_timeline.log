@@ -1,0 +1,10 @@
+SN_DOMAIN_CONFIG role=home_timeline enabled=1 path=domain wire_abi=2 scope=home-timeline-read source=0 clients=1 lanes=1 receivers=1 proxies=1 stride=1 connections=2 routing=per-source-lane-round-robin fallback=none
+SN_DOMAIN_PEER role=home_timeline source=1 receiver_base=1 lanes=1
+SN_DOMAIN_INSTANCE role=home_timeline domain=2 receiver_base=2
+SN_DOMAIN_READY role=home_timeline lane=0 source=0 wire_abi=2 slot=0 identity=18292237791920239071 services=2 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=fused entries=2 transitions=3
+SN_DOMAIN_DONE role=home_timeline lane=0 source=0 calls=1000 backend=ub
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_my_lab_1.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_my_lab_1.sock
+[home_timeline] mongodb init finished! Total init 9424 posts
+Rpc 7: Created Server session_num = 0 for client [H: 76.53.137.82:31851, R: 21, S: 1] from 76.53.137.82 (rpc 21)
+UB_DOMAIN_BOUND cpu=3 page_tables=B heap=B code=A astack=A estack=A code_mode=remote-social code_source=B-published shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=none call_object=connection-reuse nested_path=fused multi=1 slot=0 identity=18292237791920239071 generation=7583580479867180787 service_profile=social-user-read
