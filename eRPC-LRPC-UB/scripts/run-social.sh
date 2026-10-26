@@ -28,6 +28,10 @@ if [ "$side:$mode" = B:domain ] && [ -z "$config" ]; then
     [ -x "$owner" ] || { echo 'Build owner first: sh scripts/build.sh owner' >&2; exit 1; }
     # Host is resolved by owner exactly as in the microbenchmark provider path.
     set -- "$owner" "$LRPC_UB_DOMAIN_NAME" --social --provider-numa "${LRPC_UB_PROVIDER_NUMA:-1}"
+    if [ -n "${LRPC_UB_SOCIAL_CODE_BUNDLE:-}" ]; then
+        [ -f "$LRPC_UB_SOCIAL_CODE_BUNDLE" ] || { echo 'Missing B social code bundle.' >&2; exit 1; }
+        set -- "$@" --remote-code "$LRPC_UB_SOCIAL_CODE_BUNDLE"
+    fi
     if [ -n "${LRPC_UB_PROVIDER_HOST:-}" ]; then set -- "$@" --provider-host "$LRPC_UB_PROVIDER_HOST"; fi
     exec env LRPC_UBSM_SDK_MODE=owned "$@"
 fi
@@ -48,6 +52,20 @@ if [ "$side:$mode" = A:domain ]; then
     [ "$(id -u)" = 0 ] || { echo 'A domain application requires CAP_SYS_RAWIO; run this command as root.' >&2; exit 1; }
     export ERPC_SN_DOMAIN_PROXY=1 ERPC_SN_RPC_BASELINE=0 LRPC_UBSM_SDK_MODE=external
     export LRPC_UB_NESTED_PATH="${LRPC_UB_NESTED_PATH:-fused}"
+    if [ "${LRPC_UB_CODE_MODE:-legacy}" = remote-social ]; then
+        LRPC_UB_SOCIAL_READ_SERVICE=$(python3 - "$SN_CONFIG" <<'PY'
+import json, sys
+client = json.load(open(sys.argv[1], encoding='utf-8'))['client']
+if client.get('user_num') == 1 and client.get('home_num') == 0:
+    print('user')
+elif client.get('home_num') == 1 and client.get('user_num') == 0:
+    print('home')
+else:
+    sys.exit('remote-social requires exactly one User or Home read workload')
+PY
+        )
+        export LRPC_UB_SOCIAL_READ_SERVICE
+    fi
 else
     # B PostStorage uses the same RPC-only binary/readiness path in both modes.
     export ERPC_SN_DOMAIN_PROXY=0 ERPC_SN_RPC_BASELINE=1

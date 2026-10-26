@@ -45,8 +45,8 @@ int main(int argc, char **argv)
     }
     argc = j; argv[j] = NULL;
     if (social) multi = 1;
-    if (remote_file && (social || multi)) {
-        fputs("--remote-code supports single-connection micro direct/nested only\n", stderr);
+    if (remote_file && (write || shared || (multi && !social))) {
+        fputs("--remote-code supports micro direct/nested or --social read routing only\n", stderr);
         return 2;
     }
     count = ub_provider_parse(&options, argc, argv, 1, pos, 2);
@@ -70,6 +70,11 @@ int main(int argc, char **argv)
             return 1;
         }
         if (fclose(remote_input)) { perror("remote-code close"); return 1; }
+        if (remote_bundle.manifest.mode !=
+            (social ? UD_CODE_REMOTE_SOCIAL : UD_CODE_REMOTE_VERIFIED)) {
+            fputs("UB_DOMAIN_OWNER_FAIL remote-code/profile mismatch\n", stderr);
+            return 2;
+        }
     }
     if (signal(SIGINT, stop) == SIG_ERR || signal(SIGTERM, stop) == SIG_ERR) return 1;
     rc = lrpc_ubsm_owner_open(&region, name, UD_BYTES, &options.provider);
@@ -83,10 +88,18 @@ int main(int argc, char **argv)
                                        social ? UD_PROFILE_SOCIAL : UD_PROFILE_MICRO)) {
             fprintf(stderr, "UB_DOMAIN_OWNER_FAIL pool-init\n"); failed = 1; goto out;
         }
-        printf("UB_DOMAIN_OWNER_READY multi=1 capacity=%u generation=%llu page_tables=B heap=B profile=%s\n",
+        if (remote_file) {
+            memcpy((char *)region.base + UD_REMOTE_META_OFFSET,
+                   &remote_bundle.manifest, sizeof(remote_bundle.manifest));
+            for (d = 0; d < UD_DOMAINS; ++d)
+                memcpy((char *)region.base + UD_IMAGE(d), remote_bundle.image[d],
+                       remote_bundle.manifest.words[d] * sizeof(__u32));
+        }
+        printf("UB_DOMAIN_OWNER_READY multi=1 capacity=%u generation=%llu page_tables=B heap=B profile=%s code_mode=%s\n",
                UD_CLIENTS, (unsigned long long)generation,
                shared ? "social-shared-probe" :
-               write ? "social-write-probe" : social ? "social-user-read" : "micro");
+               write ? "social-write-probe" : social ? "social-user-read" : "micro",
+               remote_file ? "remote-social" : "legacy");
         fflush(stdout);
         if (shared) {
             printf("UB_DOMAIN_SHARED_READY generation=%llu cell=0 counter=0\n",

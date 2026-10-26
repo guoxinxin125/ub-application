@@ -79,7 +79,7 @@ struct ud_session {
     unsigned long asid[UD_DOMAINS];
     void *empty_root;
     u64 completion;
-    u32 nested_path, profile, code_mode;
+    u32 nested_path, profile, code_mode, remote_service;
     u32 remote_words[UD_DOMAINS];
     u64 pool_generation;
     unsigned int pool_bank, pool_slot;
@@ -385,6 +385,7 @@ static int ud_prepare_pool(struct ud_session *s, void __user *arg)
     struct ud_pool_prepare input;
     struct ud_pool_header header;
     struct ud_profile_header tag;
+    struct ud_remote_manifest remote = {0};
     int rc;
     if (s->prepared) return -EALREADY;
     if (copy_from_user(&input, arg, sizeof(input))) return -EFAULT;
@@ -396,6 +397,16 @@ static int ud_prepare_pool(struct ud_session *s, void __user *arg)
     if (tag.magic == UD_PROFILE_MAGIC) {
         if (tag.abi != UD_POOL_ABI || tag.profile != s->profile) return -EPROTONOSUPPORT;
     } else if (s->profile) return -EPROTONOSUPPORT;
+    if (s->code_mode == UD_CODE_REMOTE_SOCIAL) {
+        if (!allow_remote_code || s->profile != UD_PROFILE_SOCIAL ||
+            copy_from_user(&remote, (void __user *)(input.domain.import_va +
+                           UD_REMOTE_META_OFFSET), sizeof(remote))) return -EPROTONOSUPPORT;
+        if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
+            remote.mode != UD_CODE_REMOTE_SOCIAL ||
+            (remote.reserved != UD_SOCIAL_CODE_USER &&
+             remote.reserved != UD_SOCIAL_CODE_HOME))
+            return -EPROTONOSUPPORT;
+    } else if (s->code_mode != UD_CODE_LEGACY) return -EPROTONOSUPPORT;
     s->multi = true; s->pool_generation = input.generation;
     s->pool_exposed = s->pool_reusable = false;
     rc = ud_prepare_pages(s, &input.domain);
@@ -440,18 +451,23 @@ static int ud_commit(struct ud_session *s)
         pub.request != s->p.contract.nonce || pub.complete != pub.request) {
         rc = -ESTALE; goto out;
     }
-    if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
+    if (s->code_mode != UD_CODE_LEGACY) {
         rc = ud_copy(s, UD_REMOTE_META_OFFSET, &remote, sizeof(remote));
         if (rc) goto out;
         if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
-            remote.mode != UD_CODE_REMOTE_VERIFIED || remote.reserved) {
+            remote.mode != s->code_mode ||
+            (s->code_mode == UD_CODE_REMOTE_SOCIAL ?
+             (remote.reserved != UD_SOCIAL_CODE_USER &&
+              remote.reserved != UD_SOCIAL_CODE_HOME) : remote.reserved)) {
             rc = -EBADMSG; goto out;
         }
+        if (s->code_mode == UD_CODE_REMOTE_SOCIAL)
+            s->remote_service = remote.reserved;
     }
     for (d = 0; d < UD_DOMAINS; ++d) {
         struct ud_initial initial = {UD_ARGS, UD_DATA, UD_STACK + UD_PAGE, UD_VA};
         const unsigned char *code = NULL;
-        if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
+        if (s->code_mode != UD_CODE_LEGACY) {
             if (!remote.words[d] || remote.words[d] > UD_REMOTE_MAX_WORDS) {
                 rc = -EINVAL; goto out;
             }
@@ -470,8 +486,16 @@ static int ud_commit(struct ud_session *s)
         if (!size || size > UD_PAGE) { rc = -EINVAL; goto out; }
         rc = ud_copy(s, UD_IMAGE(d), s->code[d], size);
         if (rc) goto out;
-        if (s->code_mode == UD_CODE_REMOTE_VERIFIED) {
-            if (!ud_remote_image_valid(d, s->code[d], remote.words[d])) {
+        if (s->code_mode != UD_CODE_LEGACY) {
+            if (!(s->code_mode == UD_CODE_REMOTE_SOCIAL ?
+                  ud_remote_social_image_valid(d, s->code[d], remote.words[d]) :
+                  ud_remote_image_valid(d, s->code[d], remote.words[d]))) {
+                rc = -EBADMSG; goto out;
+            }
+            if (s->code_mode == UD_CODE_REMOTE_SOCIAL && d == UD_MIDDLE &&
+                ((u32 *)s->code[d])[0] !=
+                (remote.reserved == UD_SOCIAL_CODE_HOME ?
+                 UD_RS_LDR_HOME : UD_RS_LDR_USER)) {
                 rc = -EBADMSG; goto out;
             }
             s->remote_words[d] = remote.words[d];
@@ -757,6 +781,11 @@ static int ud_run_social(struct ud_session *s)
             call->message.value != 1)))) ||
         call->message.status || call->message.action || call->message.target || call->message.ticket)
         return -EINVAL;
+    if (s->code_mode == UD_CODE_REMOTE_SOCIAL &&
+        ((call->message.type == US_USER_REQ || call->message.type == US_USER_RESP) ?
+         s->remote_service != UD_SOCIAL_CODE_USER :
+         s->remote_service != UD_SOCIAL_CODE_HOME))
+        return -EPROTONOSUPPORT;
     input = call->message;
     first = call->direction == US_FORWARD ? 0 : 2;
     call->entries = call->transitions = call->fault_vector = 0;
@@ -781,8 +810,13 @@ static int ud_run_social(struct ud_session *s)
         ud_initial_regs(s, first+1, &gate.leaf);
         gate.middle.x[0] += US_MAPPED_OFFSET;
         gate.leaf.x[0] += US_MAPPED_OFFSET;
-        ud_profile_service(s->profile, first, &size);
-        ud_profile_service(s->profile, first+1, &second_size);
+        if (s->code_mode == UD_CODE_REMOTE_SOCIAL) {
+            size = s->remote_words[first] * sizeof(u32);
+            second_size = s->remote_words[first+1] * sizeof(u32);
+        } else {
+            ud_profile_service(s->profile, first, &size);
+            ud_profile_service(s->profile, first+1, &second_size);
+        }
         gate.middle_root = s->p.contract.table_pa[first][0] |
                            ((u64)s->asid[first] << 48);
         gate.leaf_root = s->p.contract.table_pa[first+1][0] |
@@ -815,7 +849,9 @@ static int ud_run_social(struct ud_session *s)
     } else for (i = 0; i < 2; ++i) {
         unsigned int d = first+i;
         ud_initial_regs(s, d, &r); r.x[0] += US_MAPPED_OFFSET;
-        ud_profile_service(s->profile, d, &size);
+        if (s->code_mode == UD_CODE_REMOTE_SOCIAL)
+            size = s->remote_words[d] * sizeof(u32);
+        else ud_profile_service(s->profile, d, &size);
         ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
                           tcr, virt_to_phys(s->empty_root), 0);
         call->transitions += 2;
@@ -874,11 +910,13 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         u32 mode;
         if (s->prepared) { rc = -EBUSY; break; }
         if (copy_from_user(&mode, p, sizeof(mode))) { rc = -EFAULT; break; }
-        if (mode != UD_CODE_LEGACY && mode != UD_CODE_REMOTE_VERIFIED) {
+        if (mode != UD_CODE_LEGACY && mode != UD_CODE_REMOTE_VERIFIED &&
+            mode != UD_CODE_REMOTE_SOCIAL) {
             rc = -EINVAL; break;
         }
-        if (mode == UD_CODE_REMOTE_VERIFIED &&
-            (!allow_remote_code || s->profile != UD_PROFILE_MICRO)) {
+        if (mode != UD_CODE_LEGACY &&
+            (!allow_remote_code || s->profile != (mode == UD_CODE_REMOTE_SOCIAL ?
+                                                 UD_PROFILE_SOCIAL : UD_PROFILE_MICRO))) {
             rc = -EOPNOTSUPP; break;
         }
         s->code_mode = mode; rc = 0; break;
@@ -888,8 +926,10 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         if (s->prepared) { rc = -EBUSY; break; }
         if (copy_from_user(&profile, p, sizeof(profile))) { rc = -EFAULT; break; }
         if (profile > UD_PROFILE_SOCIAL_SHARED) { rc = -EINVAL; break; }
-        if (profile != UD_PROFILE_MICRO &&
-            s->code_mode == UD_CODE_REMOTE_VERIFIED) { rc = -EINVAL; break; }
+        if ((s->code_mode == UD_CODE_REMOTE_VERIFIED && profile != UD_PROFILE_MICRO) ||
+            (s->code_mode == UD_CODE_REMOTE_SOCIAL && profile != UD_PROFILE_SOCIAL)) {
+            rc = -EINVAL; break;
+        }
         s->profile = profile; rc = 0; break;
     }
     case UD_SOCIAL_CALL: {
@@ -1063,7 +1103,7 @@ MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MOD
 MODULE_INFO(ud_nested, "legacy,fused");
 MODULE_INFO(ud_multi, "pool-v2-8-slots-single-importer-kernel");
 MODULE_INFO(ud_social, "user-home-read-opt-in-private-write-and-shared-lse-atomic-probe-abi2-legacy,fused");
-MODULE_INFO(ud_remote_code, "opt-in-branch-free-direct-nested-abi1");
+MODULE_INFO(ud_remote_code, "opt-in-direct-nested-and-single-nginx-read-abi1");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

@@ -1,5 +1,9 @@
 # UserTimeline read：AArch64 UB 路由域接入
 
+本页默认仍是原来的 A/B 字节匹配域路径；若要试连接时验证 B 发布的受限
+LB/nginx 代码，参见[可选远端代码模式](SOCIAL_REMOTE_CODE.md)，不要直接复用
+direct/nested 微测试代码包。
+
 多个**独立 Client 进程**并发以及 RPC / fused-domain 两条完整路径的对照，见 [并发实验步骤](SOCIAL_CONCURRENT_READ.md)。原文以下步骤仍是单 Client 路径。
 
 这是可选应用路径，保留普通 UB-eRPC、x86/QEMU 接入和 Direct/Nested 微测试。

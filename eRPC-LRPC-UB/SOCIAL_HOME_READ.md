@@ -1,5 +1,8 @@
 # HomeTimeline read：UB 双机端到端对照
 
+本页默认仍是原来的 A/B 字节匹配域路径；只读的可选 B 发布代码接入见
+[SocialNetwork 远端代码模式](SOCIAL_REMOTE_CODE.md)。
+
 多个**独立 Client 进程**的 RPC / fused-domain 对照见 [并发实验步骤](SOCIAL_CONCURRENT_READ.md)。原文以下步骤仍是单 Client 路径。
 
 本实验沿用 [UserTimeline read 的 UB 环境和生命周期说明](SOCIAL_USER_READ.md)，但一次只运行一种 read workload。这里 A 运行 `client + home_timeline`，B 运行 `post_storage`。RPC 基线还在 B 运行 `load_balance + nginx` 进程；域模式改由 B 的 owner 发布这两个只读服务域，由 A 的 CPU 执行。两种模式都由 A 上的 HomeTimeline 查询相同的 MongoDB 数据、向 B 的 PostStorage 读帖子，并由 Client 消费共享帖子句柄。不要把这项对照解释为 HomeTimeline 本身也被替换成域调用。
@@ -25,7 +28,7 @@ python3 scripts/prepare-social.py --workload home \
   --b-core-base 13
 ```
 
-在 A 构建应用的两种版本，并构建/加载与当前内核完全匹配的域模块；在 B 构建 owner 和 RPC 应用。若机器已运行旧的 `ud_social=user-read-...` 模块，须先结束本项目所有连接，再按 UserTimeline 文档的安全顺序更换模块；不要在其他用户连接仍在时强制卸载。B owner 和 A 模块必须同样使用本次更新后的 `social_services.S` 服务镜像。
+在 A 构建应用的两种版本，并构建/加载与当前内核完全匹配的域模块；在 B 构建 owner 和 RPC 应用。若机器已运行旧的 `ud_social=user-read-...` 模块，须先结束本项目所有连接，再按 UserTimeline 文档的安全顺序更换模块；不要在其他用户连接仍在时强制卸载。默认域路径要求 B owner 和 A 模块使用同一版 `social_services.S` 服务镜像；可选远端代码模式则使用独立的受限验证规则。
 
 ```sh
 # A：复用原文档的 UBSM_INCLUDE_DIR/LIBRARY、OBMM_INCLUDE_DIR/LIBRARY 设置

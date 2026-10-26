@@ -125,10 +125,13 @@ struct ud_connection_info {
 #define UD_PROFILE_MAGIC 0x554250524f463031ULL
 struct ud_profile_header { __u64 magic; __u32 abi, profile; };
 #define UD_SET_PROFILE _IOW('U', 0x89, __u32)
-/* Separate, opt-in microbenchmark mode. Legacy direct/nested remains default.
- * B publishes a loop-free verified AArch64 program; A does not embed its bytes. */
+/* Separate, opt-in bounded-code modes. Legacy remains default. B publishes
+ * verified AArch64 code; A does not require a byte-identical local image. */
 #define UD_CODE_LEGACY 0U
 #define UD_CODE_REMOTE_VERIFIED 1U
+#define UD_CODE_REMOTE_SOCIAL 2U /* opt-in single-nginx read routing */
+#define UD_SOCIAL_CODE_USER 1U
+#define UD_SOCIAL_CODE_HOME 2U
 #define UD_SET_CODE_MODE _IOW('U', 0x8b, __u32)
 #define UD_REMOTE_META_OFFSET 0x1000UL
 #define UD_REMOTE_MAGIC 0x554452454d4f5445ULL
@@ -138,7 +141,7 @@ struct ud_remote_manifest {
     __u64 magic;
     __u32 abi, mode;
     __u32 words[UD_DOMAINS];
-    __u32 reserved;
+    __u32 reserved; /* micro: zero; remote-social: USER or HOME read kind */
 };
 /* File consumed only by B owner; images are copied to UD_IMAGE(d). */
 struct ud_remote_bundle {

@@ -2,11 +2,12 @@
 #define LRPC_UB_REMOTE_CODE_H
 
 #include <linux/ub_lrpc_ub_domain.h>
+#include <lrpc/ub_remote_social.h>
 
-/* This is a native-code experiment, not an arbitrary AArch64 loader. The
- * verifier admits only straight-line integer arithmetic between fixed loads,
- * one fixed result store and the gate's terminal BRK. No branch, call, SVC,
- * arbitrary address calculation or additional memory access can pass. */
+/* Microbenchmark verifier; the separate social verifier is also included for
+ * bundle dispatch below. Neither is an arbitrary AArch64 loader. The micro
+ * format permits straight-line integer arithmetic, fixed loads/result store
+ * and terminal BRK. Branch, call, SVC and extra memory access are rejected. */
 #define UD_R_LDR_A 0xf9400002U       /* ldr x2, [x0] */
 #define UD_R_LDR_B 0xf9400403U       /* ldr x3, [x0, #8] */
 #define UD_R_LDR_HEAP 0xf9400024U    /* ldr x4, [x1] */
@@ -76,11 +77,22 @@ static inline int ud_remote_bundle_valid(const struct ud_remote_bundle *bundle)
     unsigned int d, i;
     if (!bundle || bundle->manifest.magic != UD_REMOTE_MAGIC ||
         bundle->manifest.abi != UD_REMOTE_ABI ||
-        bundle->manifest.mode != UD_CODE_REMOTE_VERIFIED ||
-        bundle->manifest.reserved)
+        (bundle->manifest.mode != UD_CODE_REMOTE_VERIFIED &&
+         bundle->manifest.mode != UD_CODE_REMOTE_SOCIAL) ||
+        (bundle->manifest.mode == UD_CODE_REMOTE_SOCIAL ?
+         (bundle->manifest.reserved != UD_SOCIAL_CODE_USER &&
+          bundle->manifest.reserved != UD_SOCIAL_CODE_HOME) :
+         bundle->manifest.reserved))
+        return 0;
+    if (bundle->manifest.mode == UD_CODE_REMOTE_SOCIAL &&
+        bundle->image[UD_MIDDLE][0] !=
+        (bundle->manifest.reserved == UD_SOCIAL_CODE_HOME ?
+         UD_RS_LDR_HOME : UD_RS_LDR_USER))
         return 0;
     for (d = 0; d < UD_DOMAINS; ++d) {
-        if (!ud_remote_image_valid(d, bundle->image[d], bundle->manifest.words[d]))
+        if (!(bundle->manifest.mode == UD_CODE_REMOTE_SOCIAL ?
+              ud_remote_social_image_valid(d, bundle->image[d], bundle->manifest.words[d]) :
+              ud_remote_image_valid(d, bundle->image[d], bundle->manifest.words[d])))
             return 0;
         for (i = bundle->manifest.words[d]; i < UD_REMOTE_MAX_WORDS; ++i)
             if (bundle->image[d][i]) return 0;
