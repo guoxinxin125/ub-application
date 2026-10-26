@@ -58,6 +58,7 @@ us_nginx_forward_write_start:
     str w2, [x0, #68]
     brk #0x4c0
 us_nginx_forward_write_end:
+.arch_extension lse
 .global us_nginx_forward_shared_start, us_nginx_forward_shared_end
 us_nginx_forward_shared_start:
     ldr w2, [x0, #64]
@@ -65,7 +66,7 @@ us_nginx_forward_shared_start:
     b.eq 6f
     cmp w2, #15                 /* shared cell/counter read */
     b.eq 7f
-    cmp w2, #16                 /* bounded fetch-add on shared counter */
+    cmp w2, #16                 /* LSE fetch-add on shared counter */
     b.eq 8f
     cmp w2, #11
     b.eq 11f
@@ -93,18 +94,10 @@ us_nginx_forward_shared_start:
 8:  mov x3, #0x8000
     movk x3, #1, lsl #32
     add x3, x3, #16            /* shared counter */
-    mov w5, #256               /* bound IRQ-masked retries on unsupported mappings */
-9:  ldaxr x4, [x3]
-    add x6, x4, #1
-    stlxr w7, x6, [x3]
-    cbz w7, 13f
-    subs w5, w5, #1
-    b.ne 9b
-    mov w2, #11                /* EAGAIN: no committed increment */
-    str w2, [x0, #76]
-    b 10f
-13: dsb sy
-    str x4, [x0, #56]          /* previous counter value */
+    mov x4, #1
+    ldaddal x4, x5, [x3]       /* one RMW, x5 receives the previous value */
+    dsb sy
+    str x5, [x0, #56]          /* previous counter value */
 10: mov w2, #105
 12: str w2, [x0, #72]
     mov w2, #1

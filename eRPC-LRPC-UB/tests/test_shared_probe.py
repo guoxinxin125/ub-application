@@ -27,6 +27,15 @@ UB_DOMAIN_SHARED_OBSERVED generation=77 index=2 value=6
 
 
 class SharedProbeTests(unittest.TestCase):
+    def test_shared_service_uses_one_lse_rmw_without_retry(self):
+        source = (ROOT / "kernel/ub-domain/social_services.S").read_text(encoding="utf-8")
+        service = source.split("us_nginx_forward_shared_start:", 1)[1].split(
+            "us_nginx_forward_shared_end:", 1)[0]
+        self.assertIn(".arch_extension lse", source)
+        self.assertEqual(service.count("ldaddal"), 1)
+        self.assertRegex(service, r"(?m)^\s*ldaddal x4, x5, \[x3\]")
+        self.assertNotRegex(service, r"\b(?:ldaxr|stlxr|ldxr|stxr)\b")
+
     def verify(self, a_log=A_LOG, b_log=B_LOG):
         with tempfile.TemporaryDirectory() as directory:
             a = Path(directory) / "a.log"

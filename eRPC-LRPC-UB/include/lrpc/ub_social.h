@@ -19,7 +19,7 @@
 #define US_WRITE_REQ 13U /* bounded write probe, not a PostStorage transaction */
 #define US_SHARED_WRITE_REQ 14U
 #define US_SHARED_READ_REQ 15U
-#define US_SHARED_FETCH_ADD_REQ 16U /* bounded exclusive-access probe */
+#define US_SHARED_FETCH_ADD_REQ 16U /* single-instruction LSE fetch-add probe */
 #define US_SHARED_VALUE_INDEX 1U
 #define US_SHARED_COUNTER_INDEX 2U
 #define US_ACTION_RPC 1U

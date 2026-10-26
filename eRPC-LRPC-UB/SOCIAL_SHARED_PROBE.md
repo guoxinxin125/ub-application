@@ -8,18 +8,21 @@ B 配置页仍只读，A 本地代码仍为 RX。此实验只在双方可信的�
 不构成对导入进程或其他服务的访问隔离。
 
 调用顺序：先由不同连接轮流写索引 1，每轮让所有连接读回相同值；
-再让所有连接同时对索引 2 执行 `LDAXR/STLXR` 的有界 fetch-add。
+再让所有连接同时对索引 2 执行单条 LSE `LDADDAL` fetch-add。
 A 校验返回的旧值恰好覆盖 `0..总次数-1`，无重复和缺号，最后从域内读回计数器；
-B owner 独立轮询并记录两个最终值。每次原子操作最多重试 256 次，
-重试耗尽返回 `EAGAIN` 并使本轮失败；异常/不支持的 UB 独占访问同样不能记为通过。
+B owner 独立轮询并记录两个最终值。原来的 `LDAXR/STLXR` 重试路径已经移除；
+这次每个请求只执行一次 `LDADDAL`，不在失败后重发原子写入。A CPU 必须支持
+Arm LSE（`/proc/cpuinfo` 的 `Features` 含 `atomics`）；异常或计数不一致不能记为通过。
 **本地 mock 通过只证明流程和检查器工作；只有真机双端通过才能证明该 UB
 映射上的跨连接原子更新可用。** 即使通过，也不代表跨机多对象事务或故障恢复正确。
 
 ## 第一次部署或代码更新：按顺序执行
 
-此新增 profile 使用现有 ABI 2 **结构**，但旧模块不认识 profile 3。
-**仅在 A 上重新编译 caller 并不够**：B 要重新编译 owner，A 要重新编译 caller
-和内核模块，随后把 A 当前加载的旧模块换成新 `.ko`。编译 `.ko` 只更新磁盘文件，
+此 profile 继续使用 ABI 2 **结构**，但本次修改了 `social_services.S` 的代码镜像。
+即使旧模块已认识 profile 3，也不能只替换 A 的 caller：B 要重新编译 owner，
+A 要重新编译 caller 和内核模块，随后把 A 当前加载的旧模块换成新 `.ko`。
+A 内核会校验 B 发布的代码与本地镜像逐字节一致；只更新一端会使连接提交失败。
+编译 `.ko` 只更新磁盘文件，
 不会自动更新已加载模块。两端必须同步同一份 `eRPC-LRPC-UB/`；以下命令均在
 该目录执行。沿用此前确认过的 `UBSM_INCLUDE_DIR`、`UBSM_LIBRARY`，A 还需
 `OBMM_INCLUDE_DIR`、`OBMM_LIBRARY`（若依赖在默认路径，可不显式设置）。
@@ -34,23 +37,29 @@ B owner 独立轮询并记录两个最终值。每次原子操作最多重试 25
    ```sh
    python3 scripts/manifest.py --check
    sh scripts/build.sh owner
+   objdump -d build-owner/lrpc-ub-domain-owner | grep -w ldaddal
    ```
 
    A 机器（也先进入该目录）：
 
    ```sh
    python3 scripts/manifest.py --check
+   grep -m1 '^Features' /proc/cpuinfo | grep -w atomics
    sh scripts/build.sh caller
    sh scripts/build-module.sh --vhe  # 当前 VHE-EL2 机器
    uname -r
    modinfo -F vermagic kernel/ub-domain/ub_lrpc_domain_vhe.ko
    modinfo -F ud_social kernel/ub-domain/ub_lrpc_domain_vhe.ko
+   objdump -d kernel/ub-domain/ub_lrpc_domain_vhe.ko | grep -w ldaddal
    ```
 
+   `atomics`、两端 `ldaddal` 的检查都必须有输出；若缺失，先停止部署并检查
+   CPU 能力、汇编器和实际构建产物，不要试跑旧的 `LDAXR/STLXR` 重试路径。
    `vermagic` 开头须与 A 的 `uname -r` 一致，`ud_social` 须包含
-   `shared-atomic-probe-abi2`。`--vhe` 会同时构建 EL1 和 VHE 两个 `.ko`，
+   `shared-lse-atomic-probe-abi2`。`--vhe` 会同时构建 EL1 和 VHE 两个 `.ko`，
    当前 VHE 机器只加载 `_vhe.ko`。如果 A 确实运行 EL1，则改为执行
-   `sh scripts/build-module.sh`，并检查 `ub_lrpc_domain.ko`。
+   `sh scripts/build-module.sh`，将上面的两条 `modinfo` 命令及 `objdump`
+   命令中的 `_vhe.ko` 改为 `.ko`，检查 `ub_lrpc_domain.ko`。
 
 2. **在共享机器上先确认占用，再换模块。** 结束自己启动的 A 侧连接/探针，
    再结束自己启动的旧 B owner。与其他用户确认设备空闲后，在 A 执行：
@@ -92,7 +101,7 @@ B owner 独立轮询并记录两个最终值。每次原子操作最多重试 25
 
    ```sh
    ./build-owner/lrpc-ub-domain-owner lrpc_ub_domain --provider-numa 1 --social-shared \
-     2>&1 | tee shared-owner.log
+     2>&1 | tee shared-owner-lse-1.log
    ```
 
    A 机器（在 `eRPC-LRPC-UB/` 下，用另一终端）：
@@ -100,14 +109,15 @@ B owner 独立轮询并记录两个最终值。每次原子操作最多重试 25
    ```sh
    sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
      taskset -c 1,2 ./build-caller/lrpc-ub-domain-shared-probe \
-     --cpus 1,2 --rounds 4 --increments 100 --observe-ms 5000 \
-     2>&1 | tee shared-a.log
+     --cpus 1,2 --rounds 4 --increments 1 --observe-ms 5000 \
+     2>&1 | tee shared-a-lse-1.log
    ```
 
    等 B 日志出现最终观察值后，在保存了两份日志的一台机器运行：
 
    ```sh
-   python3 scripts/check-shared-probe.py --a-log shared-a.log --b-log shared-owner.log
+   python3 scripts/check-shared-probe.py \
+     --a-log shared-a-lse-1.log --b-log shared-owner-lse-1.log
    ```
 
    若两份日志分别留在 A、B，先把其中一份复制到**自己的实验目录**，再给
@@ -126,48 +136,29 @@ B 观察到每次递增。A/B 日志必须来自同一轮 owner；若 B 最终�
 只重跑检查器，不要自动重发原子操作。
 
 若原子阶段失败，请保留 A/B 日志、`dmesg` 中的 `ub_domain` 记录、模块版本、
-内核版本、CPU/NUMA 与 UBSM 映射方式。`EAGAIN`、异常向量或计数不一致
-都应先当成平台语义或实现待诊断，不能宣称原子能力已验证。
+内核版本、CPU/NUMA 与 UBSM 映射方式。异常向量或计数不一致都应先当成
+实现或平台语义待诊断，不能宣称 LSE 原子能力已验证。
 
-### 原子阶段失败时的 A 侧诊断
+### LSE 真机对照与失败诊断
 
-若此前已完成本页的双端部署，本次诊断仅改动 A 的用户态探针；同步
-`demo/ub/domain_shared_probe.c`、本文档和 `SOURCE_MANIFEST.sha256` 到 A。
-以下命令均在各自机器的 `eRPC-LRPC-UB/` 目录执行。**A 先编译一次**：
+旧版 `LDAXR/STLXR` 在 A 侧一次调用中 256 次均报告失败，但 A/B 计数器均为
+256；不能继续执行或复用旧版重试测试。这次是**服务代码镜像修改**，必须先
+按上面第 1、2 步同步双端源码、重编 B owner 与 A 模块/caller，并安全替换 A
+已加载的旧模块。不能沿用旧诊断版本的“只重编 A caller”步骤。
 
-```sh
-python3 scripts/manifest.py --check
-sh scripts/build.sh caller
-```
+第一轮每 worker 1 次的 B/A 启动及离线校验命令见上面第 3 步。
+若未同时得到 A 的 `UB_DOMAIN_SHARED_ATOMIC_PASS`、
+`UB_DOMAIN_SHARED_CAMPAIGN_PASS` 和离线 `UB_DOMAIN_SHARED_VISIBILITY_PASS`，
+请停止，不要运行更大样本。第一轮通过后，A 结束并让 B 再观察几秒，
+然后 Ctrl+C 结束**自己启动的** B owner。每一轮都要用新的 owner 清零计数器。
+以下仍以 B provider NUMA 1、A CPU 1 和 2 为例。
 
-不必重新构建 B owner、内核模块或重新 `insmod`。每一轮都要重启**自己启动的**
-B `--social-shared` owner，以清零共享计数器并获得新 generation。
-以下沿用 B provider NUMA 1 和 A CPU 1、2 的示例；实际机器不同时按本页前文调整。
-
-第一轮，B 先启动 owner，保持终端运行：
-
-```sh
-./build-owner/lrpc-ub-domain-owner lrpc_ub_domain \
-  --provider-numa 1 --social-shared \
-  2>&1 | tee shared-owner-1.log
-```
-
-随后 A 运行每 worker 递增 1 次的探针：
-
-```sh
-sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
-  taskset -c 1,2 ./build-caller/lrpc-ub-domain-shared-probe \
-  --cpus 1,2 --rounds 4 --increments 1 --observe-ms 5000 \
-  2>&1 | tee shared-a-1.log
-```
-
-A 结束后让 B 再观察几秒，再用 Ctrl+C 结束这轮自己启动的 owner。
 第二轮**重新启动** B owner：
 
 ```sh
 ./build-owner/lrpc-ub-domain-owner lrpc_ub_domain \
   --provider-numa 1 --social-shared \
-  2>&1 | tee shared-owner-10.log
+  2>&1 | tee shared-owner-lse-10.log
 ```
 
 随后 A 运行：
@@ -176,17 +167,24 @@ A 结束后让 B 再观察几秒，再用 Ctrl+C 结束这轮自己启动的 own
 sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
   taskset -c 1,2 ./build-caller/lrpc-ub-domain-shared-probe \
   --cpus 1,2 --rounds 4 --increments 10 --observe-ms 5000 \
-  2>&1 | tee shared-a-10.log
+  2>&1 | tee shared-a-lse-10.log
 ```
 
-同样结束这轮 B owner 后，第三轮用新 owner 测每 worker 100 次：
+同一轮的两份日志收齐后执行：
+
+```sh
+python3 scripts/check-shared-probe.py \
+  --a-log shared-a-lse-10.log --b-log shared-owner-lse-10.log
+```
+
+第二轮也通过并结束这轮 B owner 后，第三轮用新 owner 测每 worker 100 次：
 
 B：
 
 ```sh
 ./build-owner/lrpc-ub-domain-owner lrpc_ub_domain \
   --provider-numa 1 --social-shared \
-  2>&1 | tee shared-owner-100.log
+  2>&1 | tee shared-owner-lse-100.log
 ```
 
 A：
@@ -195,7 +193,14 @@ A：
 sudo env LRPC_UB_DOMAIN_NAME=lrpc_ub_domain \
   taskset -c 1,2 ./build-caller/lrpc-ub-domain-shared-probe \
   --cpus 1,2 --rounds 4 --increments 100 --observe-ms 5000 \
-  2>&1 | tee shared-a-100.log
+  2>&1 | tee shared-a-lse-100.log
+```
+
+同轮日志收齐后执行：
+
+```sh
+python3 scripts/check-shared-probe.py \
+  --a-log shared-a-lse-100.log --b-log shared-owner-lse-100.log
 ```
 
 这三轮的理论递增总数分别为 2、20、200。不要混用不同轮次或不同
@@ -208,8 +213,10 @@ generation 的 A/B 日志。保留 A 的 `UB_SOCIAL_CALL_FAIL`、
 发生失败时，`UB_DOMAIN_SHARED_WORKER_DIAG` 记录每个 worker 已**返回成功**的
 调用数、最后一个返回的旧值、失败请求序号及返回状态。
 `UB_DOMAIN_SHARED_ATOMIC_DIAG` 汇总所有成功返回的旧值是否重复或越过理论上限。
-`counter_snapshot_valid=1` 表示该 worker 在 `EAGAIN` 后额外做了一次只读查询；
+`counter_snapshot_valid=1` 表示该 worker 在异常的 `EAGAIN` 后额外做了一次只读查询；
 这可能与另一 worker 的在途调用并发，**不是最终计数**。若为 `0`，
 不得使用 `counter_snapshot` 的数值。B 的 `UB_DOMAIN_SHARED_OBSERVED index=2`
 仍须与同一 generation 对照；它是周期采样，也可能漏掉中间状态。
-新增诊断不会将失败轮次判为 PASS，也不会自动重试原子写入。
+诊断不会将失败轮次判为 PASS，也不会自动重试原子写入。LSE 版本若仍出现
+`EAGAIN`、异常或计数错误，应保留日志并检查实际加载的模块、B owner 镜像及
+shadow 页表属性，不应直接归因为 UB 原子能力缺失。
