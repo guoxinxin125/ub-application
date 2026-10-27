@@ -1,0 +1,17 @@
+SN_DOMAIN_CONFIG role=user_timeline enabled=1 path=domain wire_abi=2 scope=user-timeline-read source=0 clients=2 lanes=1 receivers=1 proxies=3 stride=2 connections=3 routing=per-source-lane-round-robin fallback=none
+SN_DOMAIN_PEER role=user_timeline source=1 receiver_base=1 lanes=1
+SN_DOMAIN_PEER role=user_timeline source=2 receiver_base=11 lanes=1
+SN_DOMAIN_INSTANCE role=user_timeline domain=2 receiver_base=2
+SN_DOMAIN_INSTANCE role=user_timeline domain=3 receiver_base=16
+SN_DOMAIN_INSTANCE role=user_timeline domain=4 receiver_base=17
+SN_DOMAIN_READY role=user_timeline lane=0 source=0 wire_abi=2 slot=0 identity=12318288554324063417 services=4 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=fused entries=2 transitions=3
+SN_DOMAIN_DONE role=user_timeline lane=0 source=0 calls=2000 backend=ub
+SN_DOMAIN_ROUTE role=user_timeline lane=0 source=0 domain=2 calls=0 backend=ub
+SN_DOMAIN_ROUTE role=user_timeline lane=0 source=0 domain=3 calls=0 backend=ub
+SN_DOMAIN_ROUTE role=user_timeline lane=0 source=0 domain=4 calls=0 backend=ub
+UB: ub_manager rejected endpoint unregister
+[user_timeline] mongodb init finished! Total init 908 users
+Rpc 6: Created Server session_num = 0 for client [H: 76.53.137.82:31851, R: 21, S: 1] from 76.53.137.82 (rpc 21)
+Rpc 6: Created Server session_num = 1 for client [H: 76.53.137.82:31861, R: 31, S: 1] from 76.53.137.82 (rpc 31)
+Rpc 6: Created Server session_num = 2 for client [H: 76.53.137.81:31859, R: 29, S: 0] from 76.53.137.81 (rpc 29)
+UB_DOMAIN_BOUND cpu=6 page_tables=B heap=B code=A astack=A estack=A code_mode=remote-social code_source=B-published shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=none call_object=connection-reuse nested_path=fused multi=1 slot=0 identity=12318288554324063417 generation=5522360474001444401 nginx_count=3 service_profile=social-user-read
