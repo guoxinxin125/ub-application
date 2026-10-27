@@ -47,12 +47,15 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     int rc, saved;
     unsigned int d, l;
     unsigned int nested_path;
-    unsigned int code_mode = UD_CODE_LEGACY;
+    unsigned int code_mode = profile == UD_PROFILE_SOCIAL ?
+                             UD_CODE_REMOTE_SOCIAL : UD_CODE_LEGACY;
     const char *code_mode_name = getenv("LRPC_UB_CODE_MODE");
     const char *social_read_name = getenv("LRPC_UB_SOCIAL_READ_SERVICE");
     if (!h || procedure < 1 || procedure > 3 || epoch != 1) return ud_error(-EINVAL);
-    if (code_mode_name && code_mode_name[0] && strcmp(code_mode_name, "legacy")) {
-        if (!strcmp(code_mode_name, "remote") && profile == UD_PROFILE_MICRO)
+    if (code_mode_name && code_mode_name[0]) {
+        if (!strcmp(code_mode_name, "legacy") && profile != UD_PROFILE_SOCIAL)
+            code_mode = UD_CODE_LEGACY;
+        else if (!strcmp(code_mode_name, "remote") && profile == UD_PROFILE_MICRO)
             code_mode = UD_CODE_REMOTE_VERIFIED;
         else if (!strcmp(code_mode_name, "remote-social") && profile == UD_PROFILE_SOCIAL)
             code_mode = UD_CODE_REMOTE_SOCIAL;
@@ -80,25 +83,19 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
      * Connection-time only; B has announced OWNER_READY and owns the bytes. */
     for (size_t off = 0; off < UD_BYTES; off += UD_PAGE)
         (void)*((volatile unsigned char *)client->region.base + off);
-    if (code_mode != UD_CODE_LEGACY || profile == UD_PROFILE_SOCIAL) {
+    if (code_mode != UD_CODE_LEGACY) {
         memcpy(&remote, (char *)client->region.base + UD_REMOTE_META_OFFSET, sizeof(remote));
-        if (code_mode == UD_CODE_LEGACY) {
-            if (remote.magic == UD_REMOTE_MAGIC) {
+        if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
+            remote.mode != code_mode) { errno = EPROTONOSUPPORT; goto fail; }
+        if (code_mode == UD_CODE_REMOTE_SOCIAL) {
+            if (!social_read_name ||
+                (strcmp(social_read_name, "user") && strcmp(social_read_name, "home")) ||
+                remote.reserved != (!strcmp(social_read_name, "home") ?
+                                    UD_SOCIAL_CODE_HOME : UD_SOCIAL_CODE_USER)) {
                 errno = EPROTONOSUPPORT; goto fail;
             }
-        } else {
-            if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
-                remote.mode != code_mode) { errno = EPROTONOSUPPORT; goto fail; }
-            if (code_mode == UD_CODE_REMOTE_SOCIAL) {
-                if (!social_read_name ||
-                    (strcmp(social_read_name, "user") && strcmp(social_read_name, "home")) ||
-                    remote.reserved != (!strcmp(social_read_name, "home") ?
-                                        UD_SOCIAL_CODE_HOME : UD_SOCIAL_CODE_USER)) {
-                    errno = EPROTONOSUPPORT; goto fail;
-                }
-            } else if (remote.reserved) {
-                errno = EPROTONOSUPPORT; goto fail;
-            }
+        } else if (remote.reserved) {
+            errno = EPROTONOSUPPORT; goto fail;
         }
     }
     if (__atomic_load_n((uint64_t *)client->region.base, __ATOMIC_ACQUIRE) == UD_POOL_MAGIC) {

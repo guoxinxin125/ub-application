@@ -9,8 +9,8 @@
 多连接访问同一 B 侧页的读写/原子更新实验见
 [共享页正确性探针](SOCIAL_SHARED_PROBE.md)；它同样不是业务写入。
 [B 发布受限代码 direct/nested 可选实验](REMOTE_CODE.md)默认关闭，保留原有运行路径。
-[SocialNetwork User/Home 只读路径的可选 B 发布路由代码](SOCIAL_REMOTE_CODE.md)
-也默认关闭，不改变原域路径或 RPC 基线。
+[SocialNetwork User/Home 只读路径的 B 发布路由代码](SOCIAL_REMOTE_CODE.md)
+是这两条域路径的必选代码来源；RPC 基线、写入/共享原子探针不受影响。
 如果这次同步的是新增的共享读写/原子探针，**从该文档的“第一次部署或代码更新”
 开始执行**：A/B 都要重编译，A 还要在设备空闲时重新加载新模块；只运行
 `sh scripts/build.sh caller` 不会更新已加载模块。
@@ -111,7 +111,7 @@ PA 探针 → prepare-only → 单次 Direct/Nested → TLB 对照。
 
 这是受信任、固定映射、只读服务的实验实现，不是任意 Linux 服务的透明迁移；
 不包括业务写入、动态撤销映射、多 A 协议或 B 在线重启。
-SocialNetwork 的可选单 lane 接入单独使用 `--social` owner，见
+SocialNetwork 的单 lane 只读域接入单独使用 `--social --remote-code` owner，见
 [UserTimeline UB 接入说明](SOCIAL_USER_READ.md)，不能把微测试 owner 当成应用 owner。
 
 ### 更新两端并替换 A 模块

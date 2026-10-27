@@ -1,9 +1,9 @@
-# SocialNetwork 可选 B 发布路由代码：User/Home 只读
+# SocialNetwork B 发布路由代码：User/Home 只读
 
 此路径只替换 **LB 与 nginx 的四段受限路由代码**，不复制或执行 B 上完整的
 C++ 代理进程。Client、Timeline、PostStorage 的现有业务路径和数据库布局不变。
-默认 `LRPC_UB_CODE_MODE` 不设置时，继续使用原先的 A/B 字节匹配域路径；
-RPC 基线、写入/共享原子探针也不启用此功能。每次连接从 B 拷贝代码到 A，
+User/Home 只读域路径必须使用 B 发布代码包；不再支持原先的 A/B 预置代码
+逐字节匹配路径。RPC 基线、写入/共享原子探针不启用此功能。每次连接从 B 拷贝代码到 A，
 A 内核验证四段指令、复制到本地执行页并清理 I-cache；稳态调用不再复制代码。
 
 本版只支持**单 nginx、每轮单一 User 或 Home 读工作负载**。B 代码使用固定
@@ -74,6 +74,7 @@ sh scripts/build.sh caller
 sh scripts/build-module.sh --vhe
 modinfo -F vermagic kernel/ub-domain/ub_lrpc_domain_vhe.ko
 modinfo -F ud_remote_code kernel/ub-domain/ub_lrpc_domain_vhe.ko
+# 应显示 direct-nested-opt-in-social-read-required-abi1
 cmake -S "$REPO/eRPC" -B "$REPO/eRPC/cmake-build-social-ub-domain" \
   -DAPP=social_network_cxl -DTRANSPORT=ub -DPERF=ON \
   -DERPC_SN_DOMAIN_PROXY=ON -DERPC_SN_DOMAIN_BACKEND=ub \
@@ -111,7 +112,7 @@ sudo cat /sys/module/ub_lrpc_domain_vhe/parameters/allow_remote_code
 先在 B 的实验终端运行。`source` 会设置 `REPO`、`SN_CONFIG`、`SN_BUILD_DIR`
 及一个默认 `SN_LOG_DIR`；下面**紧接着覆盖日志目录**，所以别在 `export SN_LOG_DIR`
 后再次 `source`。默认路径也能用，但独立目录更方便与 RPC/legacy 对照，不会混入旧日志。
-不要在 B 设置 `LRPC_UB_CODE_MODE`；B 只发布代码。
+不要在 B 设置 `LRPC_UB_CODE_MODE`；B 只发布代码。缺少 B 代码包时启动器会拒绝启动。
 
 ```sh
 # B：在已填写 config/social-env.local.sh、配置 JSON 和代码包之后
@@ -207,9 +208,9 @@ grep -E 'UB_DOMAIN_BOUND|SN_DOMAIN_E2E|SN_DOMAIN_ERROR' \
   "$REPO/eRPC-LRPC-UB/results/social-home-remote-a/home_timeline.log"
 ```
 
-公平对照需在**另两轮**使用相同配置、CPU/NUMA、预热和样本数，分别运行
-不设 `LRPC_UB_CODE_MODE`/`LRPC_UB_SOCIAL_CODE_BUNDLE` 的默认域路径，以及
-`--mode rpc` 的基线；每轮分别设置独立 `SN_LOG_DIR`。RPC 基线完整的构建和
+公平对照需在**另一轮**使用相同配置、CPU/NUMA、预热和样本数，运行
+`--mode rpc` 的基线；两轮分别设置独立 `SN_LOG_DIR`。若要比较历史旧域结果，
+应明确标注其代码来源和旧版构建，不要把它当作当前默认域路径。RPC 基线完整的构建和
 运行命令见 [UserTimeline](SOCIAL_USER_READ.md) / [HomeTimeline](SOCIAL_HOME_READ.md)。
 远端代码轮不启动普通 nginx/LB 进程；不能把它和 RPC 轮日志混在一起。
 

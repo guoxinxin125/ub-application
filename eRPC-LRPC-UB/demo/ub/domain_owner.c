@@ -49,6 +49,10 @@ int main(int argc, char **argv)
         fputs("--remote-code supports micro direct/nested or --social read routing only\n", stderr);
         return 2;
     }
+    if (social && !write && !shared && !remote_file) {
+        fputs("--social read routing requires --remote-code BUNDLE\n", stderr);
+        return 2;
+    }
     count = ub_provider_parse(&options, argc, argv, 1, pos, 2);
     if (count < 0) {
         fprintf(stderr, "usage: %s [SHM_NAME] [--provider-host HOST] "

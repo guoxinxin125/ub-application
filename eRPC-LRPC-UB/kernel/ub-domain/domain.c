@@ -397,6 +397,8 @@ static int ud_prepare_pool(struct ud_session *s, void __user *arg)
     if (tag.magic == UD_PROFILE_MAGIC) {
         if (tag.abi != UD_POOL_ABI || tag.profile != s->profile) return -EPROTONOSUPPORT;
     } else if (s->profile) return -EPROTONOSUPPORT;
+    if (s->profile == UD_PROFILE_SOCIAL && s->code_mode != UD_CODE_REMOTE_SOCIAL)
+        return -EPROTONOSUPPORT;
     if (s->code_mode == UD_CODE_REMOTE_SOCIAL) {
         if (!allow_remote_code || s->profile != UD_PROFILE_SOCIAL ||
             copy_from_user(&remote, (void __user *)(input.domain.import_va +
@@ -781,7 +783,7 @@ static int ud_run_social(struct ud_session *s)
             call->message.value != 1)))) ||
         call->message.status || call->message.action || call->message.target || call->message.ticket)
         return -EINVAL;
-    if (s->code_mode == UD_CODE_REMOTE_SOCIAL &&
+    if (s->profile == UD_PROFILE_SOCIAL &&
         ((call->message.type == US_USER_REQ || call->message.type == US_USER_RESP) ?
          s->remote_service != UD_SOCIAL_CODE_USER :
          s->remote_service != UD_SOCIAL_CODE_HOME))
@@ -810,7 +812,7 @@ static int ud_run_social(struct ud_session *s)
         ud_initial_regs(s, first+1, &gate.leaf);
         gate.middle.x[0] += US_MAPPED_OFFSET;
         gate.leaf.x[0] += US_MAPPED_OFFSET;
-        if (s->code_mode == UD_CODE_REMOTE_SOCIAL) {
+        if (s->profile == UD_PROFILE_SOCIAL) {
             size = s->remote_words[first] * sizeof(u32);
             second_size = s->remote_words[first+1] * sizeof(u32);
         } else {
@@ -849,7 +851,7 @@ static int ud_run_social(struct ud_session *s)
     } else for (i = 0; i < 2; ++i) {
         unsigned int d = first+i;
         ud_initial_regs(s, d, &r); r.x[0] += US_MAPPED_OFFSET;
-        if (s->code_mode == UD_CODE_REMOTE_SOCIAL)
+        if (s->profile == UD_PROFILE_SOCIAL)
             size = s->remote_words[d] * sizeof(u32);
         else ud_profile_service(s->profile, d, &size);
         ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
@@ -913,6 +915,9 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         if (mode != UD_CODE_LEGACY && mode != UD_CODE_REMOTE_VERIFIED &&
             mode != UD_CODE_REMOTE_SOCIAL) {
             rc = -EINVAL; break;
+        }
+        if (mode == UD_CODE_LEGACY && s->profile == UD_PROFILE_SOCIAL) {
+            rc = -EOPNOTSUPP; break;
         }
         if (mode != UD_CODE_LEGACY &&
             (!allow_remote_code || s->profile != (mode == UD_CODE_REMOTE_SOCIAL ?
@@ -1103,7 +1108,7 @@ MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MOD
 MODULE_INFO(ud_nested, "legacy,fused");
 MODULE_INFO(ud_multi, "pool-v2-8-slots-single-importer-kernel");
 MODULE_INFO(ud_social, "user-home-read-opt-in-private-write-and-shared-lse-atomic-probe-abi2-legacy,fused");
-MODULE_INFO(ud_remote_code, "opt-in-direct-nested-and-single-nginx-read-abi1");
+MODULE_INFO(ud_remote_code, "direct-nested-opt-in-social-read-required-abi1");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

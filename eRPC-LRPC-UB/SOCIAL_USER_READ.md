@@ -1,7 +1,7 @@
 # UserTimeline read：AArch64 UB 路由域接入
 
-本页默认仍是原来的 A/B 字节匹配域路径；若要试连接时验证 B 发布的受限
-LB/nginx 代码，参见[可选远端代码模式](SOCIAL_REMOTE_CODE.md)，不要直接复用
+本页的只读域路径现要求 B 发布受限 LB/nginx 路由代码；完整的代码包生成、
+B/A 构建与运行命令见[远端代码模式](SOCIAL_REMOTE_CODE.md)，不要直接复用
 direct/nested 微测试代码包。
 
 多个**独立 Client 进程**并发以及 RPC / fused-domain 两条完整路径的对照，见 [并发实验步骤](SOCIAL_CONCURRENT_READ.md)。原文以下步骤仍是单 Client 路径。
@@ -35,6 +35,12 @@ HomeTimeline 把 `--workload user` 改为 `--workload home`。诊断轮加 `--pr
 `SN_CONFIG`、`SN_BUILD_DIR`、`SN_LOG_DIR` 会一起设好，然后可运行：
 
 ```sh
+# B 侧先执行；A 不需要设置代码包路径
+if [ "$SOCIAL_HOST_SIDE" = B ]; then
+  ./build-owner/lrpc-ub-remote-social-code-gen "$REPO/eRPC-LRPC-UB/social-user.bin" \
+    --service user --nop-padding 0
+  export LRPC_UB_SOCIAL_CODE_BUNDLE="$REPO/eRPC-LRPC-UB/social-user.bin"
+fi
 bash scripts/run-social-session.sh --side "$SOCIAL_HOST_SIDE" --mode domain --config "$SN_CONFIG"
 # A 若需 MongoDB 隧道，在上面命令后加 --ssh-b USER@B
 ```
@@ -142,7 +148,7 @@ modinfo -F ud_social kernel/ub-domain/ub_lrpc_domain_vhe.ko
 # 新模块应输出 user-home-read-and-opt-in-write-probe-abi2-legacy,fused
 # 已加载 VHE 旧模块且所有连接已退出时才执行 rmmod；未加载则跳过：
 sudo rmmod ub_lrpc_domain_vhe
-sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1
+sudo insmod kernel/ub-domain/ub_lrpc_domain_vhe.ko experimental=1 vhe_gate=1 allow_remote_code=1
 ```
 
 EL1 机器改用不带 `--vhe` 的构建与 `ub_lrpc_domain.ko experimental=1`。
@@ -152,6 +158,8 @@ UB-eRPC 应用服务**。先构建 owner；B 不需要 kernel-devel 或 OBMM 开
 ```sh
 cd "$REPO/eRPC-LRPC-UB"
 sh scripts/build.sh owner
+./build-owner/lrpc-ub-remote-social-code-gen "$REPO/eRPC-LRPC-UB/social-user.bin" \
+  --service user --nop-padding 0
 ```
 
 A 构建域应用，产物隔离到新的 CMake 目录：
@@ -168,7 +176,8 @@ cmake --build "$REPO/eRPC/cmake-build-social-ub-domain" -j2 \
 
 **B：构建域模式所需的 PostStorage 和 manager。** 这些进程不执行域切换，使用
 `PROXY=OFF` 的 `-rpc` 构建目录；这也是 `run-social.sh --side B --mode domain --config ...`
-默认读取的目录。B 的 LB/nginx 域镜像已包含在上面的 owner 中，无需启动对应 eRPC 进程。
+默认读取的目录。B 的 LB/nginx 只读域镜像必须由代码包生成器提供给 owner，
+无需启动对应 eRPC 进程；旧的无代码包启动命令已不适用于只读域模式。
 
 ```sh
 # B，沿用本节开头的 REPO、UBSM 和应用依赖环境变量：
@@ -209,6 +218,7 @@ A/B 启动前用 `ldd` 检查各自二进制，不能有 `not found`。B 不需�
 cd "$REPO/eRPC-LRPC-UB"
 export LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017
 export LRPC_UB_PROVIDER_NUMA=1
+export LRPC_UB_SOCIAL_CODE_BUNDLE="$REPO/eRPC-LRPC-UB/social-user.bin"
 sh scripts/run-social.sh --side B --mode domain
 ```
 
@@ -218,6 +228,7 @@ sh scripts/run-social.sh --side B --mode domain
 cd "$REPO/eRPC-LRPC-UB"
 sudo env LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017 \
   LRPC_UBSM_SDK_MODE=owned LRPC_UB_NESTED_PATH=legacy \
+  LRPC_UB_SOCIAL_READ_SERVICE=user \
   taskset -c 1 ./build-caller/lrpc-ub-social-probe --samples 1
 ```
 
@@ -317,6 +328,7 @@ export ERPC_UB_MEMORY_MODE=one-sided ERPC_UB_REGION_MB=2048 ERPC_UB_ARENA_MB=64
 export ERPC_UB_REGION_PREFIX=sn_lrpc_lab_1017
 export ERPC_UB_MANAGER_SOCKET=/tmp/sn_lrpc_lab_1017_b.sock
 export LRPC_UB_DOMAIN_NAME=lrpc_social_lab_1017
+export LRPC_UB_SOCIAL_CODE_BUNDLE="$REPO/eRPC-LRPC-UB/social-user.bin"
 export SN_LOG_DIR="$REPO/eRPC-LRPC-UB/results/social-domain-b"
 # 按实际依赖设置 LD_LIBRARY_PATH；默认使用 cmake-build-social-ub-rpc。
 cd "$REPO/eRPC-LRPC-UB"
@@ -399,8 +411,8 @@ NUMA 2/3 也使用按节点独立的辅助绑核计数器和实际 CPU 数，仍
 
 ### 应用 fused 路由：先小样本验证
 
-只有 A 的新模块和域客户端/应用需要重新构建；B 的 `--social` owner 发布格式和
-PostStorage 二进制没有变化。按第 2 节先结束旧连接，再在 A 构建、检查并换成本次
+本次只读代码来源收敛要求 A 重新构建/更换模块和域客户端/应用，B 重新构建 owner
+并生成 User 代码包；PostStorage 二进制不因此变化。按第 2 节先结束旧连接，再在 A 构建、检查并换成本次
 `ud_social=user-home-read-and-opt-in-write-probe-abi2-legacy,fused` 模块；VHE/EL1 仍按各自原有步骤，
 不要更改机器启动配置。B 按第 5 节同一命令启动新会话。A 显式选择 fused：
 
@@ -615,7 +627,8 @@ NUMA 分配函数，补足 adapter 测试未覆盖的入口策略。DB/网络仍
 代码本地化实现和未实现的公开函数声明；仍不要混用两套目录的 `lrpc.h` 或旧用户态静态库。
 **这次 fused 接入修改了 A 的 EL1/VHE nested gate 和 social 分发代码**，因此运行 fused
 前必须在 A 重新编译并更换匹配模块及域应用（第 2 节命令）；只修改脚本或继续跑已验证的
-legacy/RPC 时不需要因此重启机器、MongoDB 或 UB 服务。B 的 owner 发布格式未变。
+legacy/RPC 时不需要因此重启机器、MongoDB 或 UB 服务。当前只读域必须使用
+B 发布的代码包；旧的无代码包 owner 已不兼容，需重建 B owner 并生成代码包。
 
 本轮源码范围：
 

@@ -3,7 +3,7 @@
 默认的 owner、caller、模块和 `run-ub-domain-smoke.sh` 不传新选项时，仍走原先的
 `services.S` 字节匹配路径。本实验**只支持单连接 direct/nested**，不改变 query、
 SocialNetwork、读写探针及其 ABI。SocialNetwork 另有独立的
-[可选只读远端代码模式](SOCIAL_REMOTE_CODE.md)，不能把本页的微基准代码包用于它。
+[必选的 SocialNetwork 只读 B 发布代码模式](SOCIAL_REMOTE_CODE.md)，不能把本页的微基准代码包用于它。
 B 的代码包只交给 B owner；A 不编译、不持有它。
 A 模块只内置一个指令格式验证器，不内置代码包的具体算术指令或立即数。
 

@@ -23,11 +23,13 @@ int ud_pool_initialize_profile(void *base, __u64 generation, unsigned int profil
     memset(base, 0, UD_BYTES);
     for (d = 0; d < UD_DOMAINS; ++d) {
         struct ud_initial initial = {UD_ARGS, UD_DATA, UD_STACK+UD_PAGE, UD_VA};
-        unsigned long size;
-        const unsigned char *code = ud_profile_service(profile, d, &size);
         if (profile != UD_PROFILE_MICRO) initial.heap += us_config_offset(d);
-        if (!size || size > UD_PAGE) return -EINVAL;
-        memcpy((char *)base + UD_IMAGE(d), code, size);
+        if (profile != UD_PROFILE_SOCIAL) {
+            unsigned long size;
+            const unsigned char *code = ud_profile_service(profile, d, &size);
+            if (!code || !size || size > UD_PAGE) return -EINVAL;
+            memcpy((char *)base + UD_IMAGE(d), code, size);
+        } /* Read-only social images must be published by B before OWNER_READY. */
         memcpy((char *)base + UD_CONTEXT(d), &initial, sizeof(initial));
     }
     heap = (__u64 *)((char *)base + UD_HEAP);

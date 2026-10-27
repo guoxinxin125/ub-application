@@ -17,20 +17,6 @@ us_lb_forward_start:
     str w4, [x0, #68]           /* ACTION_DOMAIN */
     brk #0x4c0
 us_lb_forward_end:
-.global us_nginx_forward_start, us_nginx_forward_end
-us_nginx_forward_start:
-    ldr w2, [x0, #64]           /* request type */
-    cmp w2, #11                 /* US_HOME_REQ */
-    b.eq 1f
-    ldr w2, [x1, #36]           /* UserTimeline endpoint */
-    b 2f
-1:  ldr w2, [x1, #40]           /* HomeTimeline endpoint */
-2:
-    str w2, [x0, #72]
-    mov w2, #1
-    str w2, [x0, #68]           /* ACTION_RPC */
-    brk #0x4c0
-us_nginx_forward_end:
 .global us_nginx_forward_write_start, us_nginx_forward_write_end
 us_nginx_forward_write_start:
     ldr w2, [x0, #64]

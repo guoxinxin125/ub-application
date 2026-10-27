@@ -1,6 +1,6 @@
 # HomeTimeline read：UB 双机端到端对照
 
-本页默认仍是原来的 A/B 字节匹配域路径；只读的可选 B 发布代码接入见
+本页的只读域路径必须使用 B 发布的受限路由代码；完整部署命令见
 [SocialNetwork 远端代码模式](SOCIAL_REMOTE_CODE.md)。
 
 多个**独立 Client 进程**的 RPC / fused-domain 对照见 [并发实验步骤](SOCIAL_CONCURRENT_READ.md)。原文以下步骤仍是单 Client 路径。
@@ -28,7 +28,7 @@ python3 scripts/prepare-social.py --workload home \
   --b-core-base 13
 ```
 
-在 A 构建应用的两种版本，并构建/加载与当前内核完全匹配的域模块；在 B 构建 owner 和 RPC 应用。若机器已运行旧的 `ud_social=user-read-...` 模块，须先结束本项目所有连接，再按 UserTimeline 文档的安全顺序更换模块；不要在其他用户连接仍在时强制卸载。默认域路径要求 B owner 和 A 模块使用同一版 `social_services.S` 服务镜像；可选远端代码模式则使用独立的受限验证规则。
+在 A 构建应用的两种版本，并构建/加载与当前内核完全匹配的域模块；在 B 构建 owner、Home 代码包和 RPC 应用。若机器已运行旧模块，须先结束本项目所有连接，再按 UserTimeline 文档的安全顺序更换模块；不要在其他用户连接仍在时强制卸载。只读域模式不再使用 A/B 预置字节匹配；B owner 缺少 `--remote-code` 将拒绝启动。
 
 ```sh
 # A：复用原文档的 UBSM_INCLUDE_DIR/LIBRARY、OBMM_INCLUDE_DIR/LIBRARY 设置
@@ -53,6 +53,8 @@ cmake --build "$REPO/eRPC/cmake-build-social-ub-rpc" -j2 \
 # B：相同源码版本和 SDK 路径；B 不需要 A 的内核模块
 cd "$REPO/eRPC-LRPC-UB"
 sh scripts/build.sh owner
+./build-owner/lrpc-ub-remote-social-code-gen "$REPO/eRPC-LRPC-UB/social-home.bin" \
+  --service home --nop-padding 0
 cmake -S "$REPO/eRPC" -B "$REPO/eRPC/cmake-build-social-ub-rpc" \
   -DAPP=social_network_cxl -DTRANSPORT=ub -DPERF=ON \
   -DERPC_SN_DOMAIN_PROXY=OFF -DERPC_SN_DOMAIN_BACKEND=ub \
@@ -72,6 +74,7 @@ bash scripts/run-social-session.sh --side A --mode rpc \
   --config "$REPO/eRPC-LRPC-UB/campaign-home-read/config-a.json" --ssh-b USER@B
 
 # B：域模式；另起一轮，先结束前一轮，再启动 owner+PostStorage
+export LRPC_UB_SOCIAL_CODE_BUNDLE="$REPO/eRPC-LRPC-UB/social-home.bin"
 bash scripts/run-social-session.sh --side B --mode domain \
   --config "$REPO/eRPC-LRPC-UB/campaign-home-read/config-b.json"
 # A：域模式，默认 fused；显式选择 legacy 可设 LRPC_UB_NESTED_PATH=legacy

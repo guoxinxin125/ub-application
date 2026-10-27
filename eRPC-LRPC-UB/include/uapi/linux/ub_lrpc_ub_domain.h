@@ -127,7 +127,7 @@ struct ud_profile_header { __u64 magic; __u32 abi, profile; };
 #define UD_SET_PROFILE _IOW('U', 0x89, __u32)
 /* Separate, opt-in bounded-code modes. Legacy remains default. B publishes
  * verified AArch64 code; A does not require a byte-identical local image. */
-#define UD_CODE_LEGACY 0U
+#define UD_CODE_LEGACY 0U /* micro and write/shared probes; not social read */
 #define UD_CODE_REMOTE_VERIFIED 1U
 #define UD_CODE_REMOTE_SOCIAL 2U /* opt-in single-nginx read routing */
 #define UD_SOCIAL_CODE_USER 1U
