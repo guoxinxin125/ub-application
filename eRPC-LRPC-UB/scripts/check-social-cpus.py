@@ -44,6 +44,15 @@ def check(config, services, nodes, allowed):
     if common['client_num']!=1 or common['server_num']!=1:
         raise ValueError('multi-process experiment requires one lane per process')
     placements = [(name, config[name]['bind_core_offset']) for name in services]
+    if 'nginx' in services:
+        nginx = config.get('domain_proxy', {}).get('nginx_instances', [])
+        if nginx and len(nginx) not in (1, 3):
+            raise ValueError('require one or three nginx instances')
+        if len(nginx) == 3:
+            if nginx[0]['server_addr'] != config['nginx']['server_addr'] or nginx[0]['rpc_id'] != config['nginx']['rpc_id']:
+                raise ValueError('first nginx must match base endpoint')
+            placements = [(name, base) for name, base in placements if name != 'nginx']
+            placements.extend((f'nginx-{i+1}', entry['bind_core_offset']) for i, entry in enumerate(nginx))
     if 'client' in services:
         clients = config.get('domain_proxy', {}).get('clients', [])
         if clients:

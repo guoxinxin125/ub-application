@@ -24,7 +24,7 @@ int main(int argc, char **argv)
     unsigned long size;
     static __u64 observed[UD_CLIENTS][UD_PAGE / sizeof(__u64)];
     static __u64 observed_identity[UD_CLIENTS];
-    int rc, failed = 0, count, multi = 0, social = 0, write = 0, shared = 0, i, j;
+    int rc, failed = 0, count, multi = 0, social = 0, write = 0, shared = 0, experimental_nginx3 = 0, i, j;
     for (i = j = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--social")) {
             if (social) return 2;
@@ -41,6 +41,9 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--remote-code")) {
             if (remote_file || i + 1 == argc) return 2;
             remote_file = argv[++i];
+        } else if (!strcmp(argv[i], "--experimental-nginx3")) {
+            if (experimental_nginx3) return 2;
+            experimental_nginx3 = 1;
         } else argv[j++] = argv[i];
     }
     argc = j; argv[j] = NULL;
@@ -53,11 +56,15 @@ int main(int argc, char **argv)
         fputs("--social read routing requires --remote-code BUNDLE\n", stderr);
         return 2;
     }
+    if (experimental_nginx3 && (!social || write || shared || !remote_file)) {
+        fputs("--experimental-nginx3 requires --social --remote-code BUNDLE\n", stderr);
+        return 2;
+    }
     count = ub_provider_parse(&options, argc, argv, 1, pos, 2);
     if (count < 0) {
         fprintf(stderr, "usage: %s [SHM_NAME] [--provider-host HOST] "
                 "[--provider-numa N] [--provider-socket N] [--provider-port N] "
-                "[--multi|--social|--social-write|--social-shared|--remote-code BUNDLE]\n"
+                "[--multi|--social|--social-write|--social-shared] [--remote-code BUNDLE] [--experimental-nginx3]\n"
                 "legacy: %s B_PROVIDER_HOST SHM_NAME\n", argv[0], argv[0]);
         return 2;
     }
@@ -79,6 +86,15 @@ int main(int argc, char **argv)
             fputs("UB_DOMAIN_OWNER_FAIL remote-code/profile mismatch\n", stderr);
             return 2;
         }
+        if (social && ud_remote_social_count(remote_bundle.manifest.reserved) == 3 &&
+            !experimental_nginx3) {
+            fputs("UB_DOMAIN_OWNER_FAIL three-nginx requires --experimental-nginx3\n", stderr);
+            return 2;
+        }
+        if (experimental_nginx3 && (!social || ud_remote_social_count(remote_bundle.manifest.reserved) != 3)) {
+            fputs("UB_DOMAIN_OWNER_FAIL --experimental-nginx3 requires a three-nginx social bundle\n", stderr);
+            return 2;
+        }
     }
     if (signal(SIGINT, stop) == SIG_ERR || signal(SIGTERM, stop) == SIG_ERR) return 1;
     rc = lrpc_ubsm_owner_open(&region, name, UD_BYTES, &options.provider);
@@ -93,17 +109,21 @@ int main(int argc, char **argv)
             fprintf(stderr, "UB_DOMAIN_OWNER_FAIL pool-init\n"); failed = 1; goto out;
         }
         if (remote_file) {
+            if (social)
+                us_heap_init_count((void *)((char *)region.base + UD_HEAP),
+                                   ud_remote_social_count(remote_bundle.manifest.reserved));
             memcpy((char *)region.base + UD_REMOTE_META_OFFSET,
                    &remote_bundle.manifest, sizeof(remote_bundle.manifest));
             for (d = 0; d < UD_DOMAINS; ++d)
                 memcpy((char *)region.base + UD_IMAGE(d), remote_bundle.image[d],
                        remote_bundle.manifest.words[d] * sizeof(__u32));
         }
-        printf("UB_DOMAIN_OWNER_READY multi=1 capacity=%u generation=%llu page_tables=B heap=B profile=%s code_mode=%s\n",
+        printf("UB_DOMAIN_OWNER_READY multi=1 capacity=%u generation=%llu page_tables=B heap=B profile=%s code_mode=%s nginx_count=%u\n",
                UD_CLIENTS, (unsigned long long)generation,
                shared ? "social-shared-probe" :
                write ? "social-write-probe" : social ? "social-user-read" : "micro",
-               remote_file ? "remote-social" : "legacy");
+               remote_file ? "remote-social" : "legacy",
+               social && remote_file ? ud_remote_social_count(remote_bundle.manifest.reserved) : 0);
         fflush(stdout);
         if (shared) {
             printf("UB_DOMAIN_SHARED_READY generation=%llu cell=0 counter=0\n",

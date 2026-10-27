@@ -11,6 +11,8 @@
 [B 发布受限代码 direct/nested 可选实验](REMOTE_CODE.md)默认关闭，保留原有运行路径。
 [SocialNetwork User/Home 只读路径的 B 发布路由代码](SOCIAL_REMOTE_CODE.md)
 是这两条域路径的必选代码来源；RPC 基线、写入/共享原子探针不受影响。
+[实验性三 nginx 域路由](SOCIAL_3NGINX.md)尚需 AArch64 Linux/UB 真机验收；
+不代表已有三实例 RPC 基线。
 如果这次同步的是新增的共享读写/原子探针，**从该文档的“第一次部署或代码更新”
 开始执行**：A/B 都要重编译，A 还要在设备空闲时重新加载新模块；只运行
 `sh scripts/build.sh caller` 不会更新已加载模块。

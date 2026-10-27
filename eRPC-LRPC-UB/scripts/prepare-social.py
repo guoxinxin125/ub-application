@@ -60,10 +60,12 @@ def cpu_blocks(topology, side, numa, count):
 def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
             timeline_db_host=None, timeline_db_port=None,
             storage_db_host=None, storage_db_port=None, workload='user', clients=1,
-            b_core_base=0, cpu_topology=None):
+            b_core_base=0, cpu_topology=None, nginx_count=1):
     a, b = host(a), host(b)
     if workload not in ('user', 'home'):
         raise ValueError('workload must be user or home')
+    if nginx_count not in (1, 3):
+        raise ValueError('domain nginx_count must be 1 or 3')
     if a == b or not 1 <= samples <= 5000 or min(numa_a, numa_b, b_core_base) < 0 or not 1 <= clients <= 4:
         raise ValueError('require two different hosts, nonnegative NUMA/B core base, 1..5000 samples, 1..4 clients')
     if cpu_topology is not None and b_core_base != 0:
@@ -73,7 +75,8 @@ def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
     placements = {'client': a, timeline: a, 'post_storage': b,
                   'nginx': b, 'load_balance': b}
     a_blocks = cpu_blocks(cpu_topology, 'A', numa_a, clients+1) if cpu_topology is not None else [3*i for i in range(clients+1)]
-    b_blocks = cpu_blocks(cpu_topology, 'B', numa_b, 3) if cpu_topology is not None else [b_core_base+3*i for i in range(3)]
+    b_count = 5 if nginx_count == 3 else 3
+    b_blocks = cpu_blocks(cpu_topology, 'B', numa_b, b_count) if cpu_topology is not None else [b_core_base+3*i for i in range(b_count)]
     offsets = {'client': a_blocks[0], timeline: a_blocks[-1],
                'nginx': b_blocks[0], 'load_balance': b_blocks[1], 'post_storage': b_blocks[2]}
     original_client = original['client']
@@ -106,8 +109,17 @@ def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
         if workload == 'home':
             c.setdefault('social_graph_mongodb', {})['connections'] = c['user_timeline_mongodb']['connections']
         c.pop('domain_proxy', None)
-        if clients > 1:
-            c['domain_proxy'] = {'clients': copy.deepcopy(registry)}
+        if clients > 1 or nginx_count == 3:
+            c['domain_proxy'] = {}
+            if clients > 1:
+                c['domain_proxy']['clients'] = copy.deepcopy(registry)
+            if nginx_count == 3:
+                first = c['nginx']
+                port = int(first['server_addr'].rsplit(':', 1)[1])
+                if port+19 > 65535: raise ValueError('nginx domain port range exceeds 65535')
+                c['domain_proxy']['nginx_instances'] = [copy.deepcopy(first)] + [
+                    {'rpc_id': 16+i, 'server_addr': b+':'+str(port+18+i),
+                     'bind_core_offset': b_blocks[3+i]} for i in range(2)]
         for key, db_host, db_port in (
                 ('user_timeline_mongodb', timeline_db_host, timeline_db_port),
                 ('post_storage_mongodb', storage_db_host, storage_db_port)):
@@ -134,6 +146,11 @@ def prepare(original, a, b, samples=10, numa_a=0, numa_b=1,
         if base in used or base+20 in used or client['server_addr'] in addresses:
             raise ValueError('client registration collides with an existing service')
         used.update((base, base+20)); addresses.add(client['server_addr'])
+    for nginx in configs[0].get('domain_proxy', {}).get('nginx_instances', [])[1:]:
+        base = nginx['rpc_id']
+        if base in used or base+20 in used or nginx['server_addr'] in addresses:
+            raise ValueError('nginx domain registration collides with an existing service')
+        used.update((base, base+20)); addresses.add(nginx['server_addr'])
     return configs
 
 
@@ -152,6 +169,8 @@ def main():
                         help='A/B node CPU lists and allowed affinities; choose disjoint three-CPU blocks automatically')
     parser.add_argument('--samples', type=int, default=10)
     parser.add_argument('--clients', type=int, default=1, help='independent client processes, 1..4')
+    parser.add_argument('--nginx-count', type=int, choices=(1, 3), default=1,
+                        help='number of nginx instances in domain and RPC read campaigns')
     parser.add_argument('--workload', choices=('user', 'home'), default='user')
     parser.add_argument('--timeline-db-host')
     parser.add_argument('--timeline-db-port', type=int)
@@ -166,7 +185,7 @@ def main():
                            args.host_b, args.samples, args.numa_a, args.numa_b,
                            args.timeline_db_host, args.timeline_db_port,
                            args.storage_db_host, args.storage_db_port, args.workload, args.clients,
-                           args.b_core_base, topology)[index]
+                           args.b_core_base, topology, args.nginx_count)[index]
                    for index, source in enumerate(sources)]
         if configs[0].get('domain_proxy') != configs[1].get('domain_proxy'):
             raise ValueError('A/B client registries differ; use matching source templates')
@@ -175,7 +194,7 @@ def main():
             (args.output/('config-'+side+'.json')).write_text(json.dumps(config, indent=2)+'\n', encoding='utf-8')
     except (ValueError, KeyError, OSError) as exc:
         parser.error(str(exc))
-    print(f'UB_SOCIAL_CONFIG_READY scope={args.workload}-read clients={args.clients} lane_per_client=1 concurrency=1 nginx=1 '
+    print(f'UB_SOCIAL_CONFIG_READY scope={args.workload}-read clients={args.clients} lane_per_client=1 concurrency=1 nginx={args.nginx_count} '
           f'A=client,{args.workload}_timeline B=post_storage,lb,nginx,domain-owner database=explicit-overrides-only')
     a_config = configs[0]
     print('UB_SOCIAL_CPU_PLAN A_clients=' + ','.join(str(c['bind_core_offset']) for c in

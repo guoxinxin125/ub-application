@@ -62,7 +62,7 @@ module_param(experimental, bool, 0400);
 MODULE_PARM_DESC(experimental, "Opt into bounded IRQ-masked EL0 gate on a test machine");
 static bool allow_remote_code;
 module_param(allow_remote_code, bool, 0400);
-MODULE_PARM_DESC(allow_remote_code, "Opt into verified, branch-free B-published direct/nested code");
+MODULE_PARM_DESC(allow_remote_code, "Opt into verified, branch-free B-published micro and social code");
 #ifdef UD_VHE_GATE
 static bool vhe_gate;
 module_param(vhe_gate, bool, 0400);
@@ -79,15 +79,19 @@ struct ud_session {
     unsigned long asid[UD_DOMAINS];
     void *empty_root;
     u64 completion;
-    u32 nested_path, profile, code_mode, remote_service;
+    u32 nested_path, profile, code_mode, remote_service, social_nginx_count;
     u32 remote_words[UD_DOMAINS];
     u64 pool_generation;
     unsigned int pool_bank, pool_slot;
     bool multi, pool_reserved, pool_exposed, pool_reusable;
     struct ud_prepare p;
     void *code[UD_DOMAINS], *stack[UD_DOMAINS], *args[UD_DOMAINS];
+    struct ud_social_extra social_extra;
+    struct mm_struct *social_token[UD_SOCIAL_EXTRA_DOMAINS];
+    unsigned long social_asid[UD_SOCIAL_EXTRA_DOMAINS];
+    void *social_code[UD_SOCIAL_EXTRA_DOMAINS], *social_stack[UD_SOCIAL_EXTRA_DOMAINS];
     struct ud_initial initial[UD_DOMAINS];
-    struct file *import_file[UD_DOMAINS * 4 + 2];
+    struct file *import_file[UD_DOMAINS * 4 + 2 + UD_SOCIAL_EXTRA_DOMAINS * 4];
     bool prepared, committed;
 };
 
@@ -240,6 +244,15 @@ static int ud_mapping(struct ud_session *s, bool initialize)
         if (initialize) s->p.contract.write_pa = pa;
         else if (s->p.contract.write_pa != pa) return -ESTALE;
     }
+    if (s->profile == UD_PROFILE_SOCIAL && s->social_nginx_count == 3) {
+        for (d = 0; d < UD_SOCIAL_EXTRA_DOMAINS; ++d) for (l = 0; l < 4; ++l) {
+            rc = ud_import_pa(s, UD_SOCIAL_EXTRA_TABLE(s->pool_slot,d,l), &pa,
+                              UD_DOMAINS*4+2+d*4+l, initialize);
+            if (rc) return rc;
+            if (initialize) s->social_extra.domain[d].table_pa[l] = pa;
+            else if (s->social_extra.domain[d].table_pa[l] != pa) return -ESTALE;
+        }
+    }
     return 0;
 }
 
@@ -258,6 +271,19 @@ static void ud_free_pages(struct ud_session *s)
         }
         kfree(s->asid_token[d]);
         s->asid_token[d] = NULL;
+    }
+    for (d = 0; d < UD_SOCIAL_EXTRA_DOMAINS; ++d) {
+        if (s->social_asid[d]) {
+            u64 operand = (u64)s->social_asid[d] << 48;
+            asm volatile("dsb ishst; tlbi aside1is, %0; dsb ish; isb"
+                         : : "r"(operand) : "memory");
+            arm64_mm_context_put(s->social_token[d]);
+            s->social_asid[d] = 0;
+        }
+        kfree(s->social_token[d]); s->social_token[d] = NULL;
+        if (s->social_code[d]) free_page((unsigned long)s->social_code[d]);
+        if (s->social_stack[d]) free_page((unsigned long)s->social_stack[d]);
+        s->social_code[d] = s->social_stack[d] = NULL;
     }
     if (s->empty_root) free_page((unsigned long)s->empty_root);
     s->empty_root = NULL;
@@ -346,6 +372,27 @@ static int ud_prepare_pages(struct ud_session *s, const struct ud_prepare *input
          * handoff needs neither a payload copy nor a remote argument access. */
         s->p.contract.args_pa[d] = virt_to_phys(s->args[s->profile != UD_PROFILE_MICRO ? 0 : d]);
     }
+    if (s->profile == UD_PROFILE_SOCIAL && s->social_nginx_count == 3) {
+        s->social_extra.nonce = s->p.contract.nonce;
+        s->social_extra.abi = UD_SOCIAL_EXTRA_ABI;
+        s->social_extra.domains = UD_SOCIAL_EXTRA_DOMAINS;
+        for (d = 0; d < UD_SOCIAL_EXTRA_DOMAINS; ++d) {
+            u64 operand;
+            s->social_token[d] = kzalloc(sizeof(struct mm_struct), GFP_KERNEL);
+            if (!s->social_token[d]) { rc = -ENOMEM; goto fail; }
+            init_new_context(NULL, s->social_token[d]);
+            s->social_asid[d] = arm64_mm_context_get(s->social_token[d]);
+            if (!s->social_asid[d]) { rc = -ENOSPC; goto fail; }
+            operand = (u64)s->social_asid[d] << 48;
+            asm volatile("dsb ishst; tlbi aside1is, %0; dsb ish; isb"
+                         : : "r"(operand) : "memory");
+            s->social_code[d] = (void *)get_zeroed_page(GFP_KERNEL);
+            s->social_stack[d] = (void *)get_zeroed_page(GFP_KERNEL);
+            if (!s->social_code[d] || !s->social_stack[d]) { rc = -ENOMEM; goto fail; }
+            s->social_extra.domain[d].code_pa = virt_to_phys(s->social_code[d]);
+            s->social_extra.domain[d].stack_pa = virt_to_phys(s->social_stack[d]);
+        }
+    }
     if (!ud_contract_valid(&s->p.contract)) { rc = -ERANGE; goto fail; }
     return 0;
 fail:
@@ -405,9 +452,10 @@ static int ud_prepare_pool(struct ud_session *s, void __user *arg)
                            UD_REMOTE_META_OFFSET), sizeof(remote))) return -EPROTONOSUPPORT;
         if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
             remote.mode != UD_CODE_REMOTE_SOCIAL ||
-            (remote.reserved != UD_SOCIAL_CODE_USER &&
-             remote.reserved != UD_SOCIAL_CODE_HOME))
+            !ud_remote_social_count(remote.reserved))
             return -EPROTONOSUPPORT;
+        s->social_nginx_count = ud_remote_social_count(remote.reserved);
+        s->remote_service = remote.reserved & UD_SOCIAL_CODE_KIND_MASK;
     } else if (s->code_mode != UD_CODE_LEGACY) return -EPROTONOSUPPORT;
     s->multi = true; s->pool_generation = input.generation;
     s->pool_exposed = s->pool_reusable = false;
@@ -459,12 +507,10 @@ static int ud_commit(struct ud_session *s)
         if (remote.magic != UD_REMOTE_MAGIC || remote.abi != UD_REMOTE_ABI ||
             remote.mode != s->code_mode ||
             (s->code_mode == UD_CODE_REMOTE_SOCIAL ?
-             (remote.reserved != UD_SOCIAL_CODE_USER &&
-              remote.reserved != UD_SOCIAL_CODE_HOME) : remote.reserved)) {
+             (ud_remote_social_count(remote.reserved) != s->social_nginx_count ||
+              (remote.reserved & UD_SOCIAL_CODE_KIND_MASK) != s->remote_service) : remote.reserved)) {
             rc = -EBADMSG; goto out;
         }
-        if (s->code_mode == UD_CODE_REMOTE_SOCIAL)
-            s->remote_service = remote.reserved;
     }
     for (d = 0; d < UD_DOMAINS; ++d) {
         struct ud_initial initial = {UD_ARGS, UD_DATA, UD_STACK + UD_PAGE, UD_VA};
@@ -494,9 +540,14 @@ static int ud_commit(struct ud_session *s)
                   ud_remote_image_valid(d, s->code[d], remote.words[d]))) {
                 rc = -EBADMSG; goto out;
             }
+            if (s->code_mode == UD_CODE_REMOTE_SOCIAL && d == UD_DIRECT &&
+                (((u32 *)s->code[d])[0] == ud_remote_social_lb3_word(0)) !=
+                (ud_remote_social_count(remote.reserved) == 3)) {
+                rc = -EBADMSG; goto out;
+            }
             if (s->code_mode == UD_CODE_REMOTE_SOCIAL && d == UD_MIDDLE &&
                 ((u32 *)s->code[d])[0] !=
-                (remote.reserved == UD_SOCIAL_CODE_HOME ?
+                (s->remote_service == UD_SOCIAL_CODE_HOME ?
                  UD_RS_LDR_HOME : UD_RS_LDR_USER)) {
                 rc = -EBADMSG; goto out;
             }
@@ -504,10 +555,38 @@ static int ud_commit(struct ud_session *s)
         } else if (memcmp(code, s->code[d], size)) { rc = -EBADMSG; goto out; }
         flush_icache_range((unsigned long)s->code[d], (unsigned long)s->code[d] + size);
     }
+    if (s->profile == UD_PROFILE_SOCIAL && s->social_nginx_count == 3) {
+        struct ud_social_extra published;
+        rc = ud_copy(s, UD_SOCIAL_EXTRA_SLOT(s->pool_slot), &published, sizeof(published));
+        if (rc) goto out;
+        if (memcmp(&published, &s->social_extra, sizeof(published))) { rc = -EBADMSG; goto out; }
+        for (d = 0; d < UD_SOCIAL_EXTRA_DOMAINS; ++d) {
+            struct ud_contract adapted;
+            unsigned int entry = (d & 1U) ? UD_LEAF : UD_MIDDLE;
+            if (!ud_social_extra_contract(&s->p.contract, &published, d, &adapted)) {
+                rc = -EBADMSG; goto out;
+            }
+            for (l = 0; l < 4; ++l) {
+                ud_build_table(&adapted, entry, l, expected);
+                rc = ud_copy(s, UD_SOCIAL_EXTRA_TABLE(s->pool_slot,d,l), actual, UD_PAGE);
+                if (rc) goto out;
+                if (memcmp(expected, actual, UD_PAGE)) { rc = -EBADMSG; goto out; }
+            }
+            size = s->remote_words[entry] * sizeof(u32);
+            rc = ud_copy(s, UD_IMAGE(entry), s->social_code[d], size);
+            if (rc) goto out;
+            /* Match the already verified B image, never an A-compiled service. */
+            if (memcmp(s->code[entry], s->social_code[d], size)) { rc = -EBADMSG; goto out; }
+            flush_icache_range((unsigned long)s->social_code[d],
+                               (unsigned long)s->social_code[d] + size);
+        }
+    }
     rc = ud_copy(s, UD_HEAP, actual, UD_PAGE);
     if (rc) goto out;
     if (s->profile != UD_PROFILE_MICRO) {
-        if (!us_heap_valid((void *)actual)) { rc = -EBADMSG; goto out; }
+        if (!(s->profile == UD_PROFILE_SOCIAL ?
+              us_heap_valid_count((void *)actual, s->social_nginx_count) :
+              us_heap_valid((void *)actual))) { rc = -EBADMSG; goto out; }
     } else {
         if (actual[0] != 100) { rc = -EBADMSG; goto out; }
         for (d = 0; d < 32; ++d)
@@ -746,6 +825,21 @@ static int ud_tlb_probe(struct ud_session *s, void __user *arg)
     if (copy_to_user(arg, &p, sizeof(p))) return -EFAULT;
     return rc;
 }
+static unsigned int ud_social_base_entry(unsigned int entry)
+{
+    return entry < UD_DOMAINS ? entry : ((entry-UD_DOMAINS) & 1U ? UD_LEAF : UD_MIDDLE);
+}
+static void ud_social_initial_regs(struct ud_session *s, unsigned int entry, struct ud_regs *r)
+{
+    ud_initial_regs(s, ud_social_base_entry(entry), r);
+}
+static u64 ud_social_root(struct ud_session *s, unsigned int entry)
+{
+    if (entry < UD_DOMAINS)
+        return s->p.contract.table_pa[entry][0] | ((u64)s->asid[entry] << 48);
+    entry -= UD_DOMAINS;
+    return s->social_extra.domain[entry].table_pa[0] | ((u64)s->social_asid[entry] << 48);
+}
 /* Routing chain: legacy A->LB->A->nginx->A, or fused A->LB->nginx->A.
  * The reverse chain visits nginx before LB. Each call enters two domains.
  * B config is RO, code is A-local RX, arguments are A-local shared WB.
@@ -757,7 +851,7 @@ static int ud_run_social(struct ud_session *s)
     struct us_call *call = (void *)((char *)s->args[0]+US_MAPPED_OFFSET);
     struct us_message input;
     struct ud_regs r;
-    unsigned int first, i;
+    unsigned int first, second, nginx = 2, i;
     unsigned long flags, size;
     u64 tcr, start;
     int rc;
@@ -789,7 +883,19 @@ static int ud_run_social(struct ud_session *s)
          s->remote_service != UD_SOCIAL_CODE_HOME))
         return -EPROTONOSUPPORT;
     input = call->message;
-    first = call->direction == US_FORWARD ? 0 : 2;
+    if (s->profile == UD_PROFILE_SOCIAL && s->social_nginx_count == 3) {
+        nginx = call->direction == US_FORWARD ?
+            us_select_nginx((u32)input.request, s->social_nginx_count) : call->domain[0];
+        if (nginx < US_NGINX_FIRST || nginx >= US_NGINX_FIRST + s->social_nginx_count)
+            return -EINVAL;
+    }
+    if (call->direction == US_FORWARD) {
+        first = UD_DIRECT;
+        second = nginx == 2 ? UD_MIDDLE : UD_DOMAINS + 2 * (nginx - 3);
+    } else {
+        first = nginx == 2 ? UD_LEAF : UD_DOMAINS + 2 * (nginx - 3) + 1;
+        second = UD_QUERY;
+    }
     call->entries = call->transitions = call->fault_vector = 0;
     call->domain[0] = call->domain[1] = 0;
     m->esr = m->far = m->elapsed_ns = 0;
@@ -808,26 +914,24 @@ static int ud_run_social(struct ud_session *s)
     if (s->nested_path == UD_NESTED_FUSED) {
         struct ud_nested_gate gate = {0};
         unsigned long second_size;
-        ud_initial_regs(s, first, &gate.middle);
-        ud_initial_regs(s, first+1, &gate.leaf);
+        ud_social_initial_regs(s, first, &gate.middle);
+        ud_social_initial_regs(s, second, &gate.leaf);
         gate.middle.x[0] += US_MAPPED_OFFSET;
         gate.leaf.x[0] += US_MAPPED_OFFSET;
         if (s->profile == UD_PROFILE_SOCIAL) {
-            size = s->remote_words[first] * sizeof(u32);
-            second_size = s->remote_words[first+1] * sizeof(u32);
+            size = s->remote_words[ud_social_base_entry(first)] * sizeof(u32);
+            second_size = s->remote_words[ud_social_base_entry(second)] * sizeof(u32);
         } else {
             ud_profile_service(s->profile, first, &size);
-            ud_profile_service(s->profile, first+1, &second_size);
+            ud_profile_service(s->profile, second, &second_size);
         }
-        gate.middle_root = s->p.contract.table_pa[first][0] |
-                           ((u64)s->asid[first] << 48);
-        gate.leaf_root = s->p.contract.table_pa[first+1][0] |
-                         ((u64)s->asid[first+1] << 48);
+        gate.middle_root = ud_social_root(s, first);
+        gate.leaf_root = ud_social_root(s, second);
         gate.call_pc = UD_VA + size - 4;
         gate.leaf_pc = UD_VA + second_size - 4;
         gate.mode = UDN_MODE_SOCIAL;
         gate.social_args = (u64)s->args[0];
-        gate.social_target = first ? 1 : 2;
+        gate.social_target = call->direction == US_REVERSE ? 1 : nginx;
         ud_enter_nested_selected(&gate, tcr, virt_to_phys(s->empty_root));
         call->transitions = gate.transitions;
         r = gate.domain == 2 ? gate.leaf : gate.middle;
@@ -836,11 +940,11 @@ static int ud_run_social(struct ud_session *s)
             (r.esr & 0xffff) != 0x4c0 || r.pc != gate.leaf_pc) {
             rc = -EIO; goto bad;
         }
-        call->domain[0] = first ? 2 : 1;
-        call->domain[1] = first ? 1 : 2;
+        call->domain[0] = call->direction == US_REVERSE ? nginx : 1;
+        call->domain[1] = call->direction == US_REVERSE ? 1 : nginx;
         call->entries = 2;
-        if (call->message.action != (first ? US_ACTION_CLIENT : US_ACTION_RPC) ||
-            call->message.target != (first ? 0 :
+        if (call->message.action != (call->direction == US_REVERSE ? US_ACTION_CLIENT : US_ACTION_RPC) ||
+            call->message.target != (call->direction == US_REVERSE ? 0 :
                 (input.type == US_WRITE_REQ ? 104 :
                  (input.type == US_SHARED_WRITE_REQ ||
                   input.type == US_SHARED_READ_REQ ||
@@ -849,25 +953,25 @@ static int ud_run_social(struct ud_session *s)
             rc = -EPROTO; goto bad;
         }
     } else for (i = 0; i < 2; ++i) {
-        unsigned int d = first+i;
-        ud_initial_regs(s, d, &r); r.x[0] += US_MAPPED_OFFSET;
+        unsigned int d = i ? second : first;
+        ud_social_initial_regs(s, d, &r); r.x[0] += US_MAPPED_OFFSET;
         if (s->profile == UD_PROFILE_SOCIAL)
-            size = s->remote_words[d] * sizeof(u32);
+            size = s->remote_words[ud_social_base_entry(d)] * sizeof(u32);
         else ud_profile_service(s->profile, d, &size);
-        ud_enter_selected(&r, s->p.contract.table_pa[d][0] | ((u64)s->asid[d] << 48),
+        ud_enter_selected(&r, ud_social_root(s, d),
                           tcr, virt_to_phys(s->empty_root), 0);
         call->transitions += 2;
         if (r.vector != 8 || (r.esr >> 26) != 0x3c || (r.esr & 0xffff) != 0x4c0 ||
             r.pc != UD_VA+size-4) { rc = -EIO; goto bad; }
-        call->domain[i] = first ? (i ? 1 : 2) : i+1;
+        call->domain[i] = call->direction == US_REVERSE ? (i ? 1 : nginx) : (i ? nginx : 1);
         ++call->entries;
-        if (call->message.action != (i ? (first ? US_ACTION_CLIENT : US_ACTION_RPC) : US_ACTION_DOMAIN) ||
-            call->message.target != (i ? (first ? 0 :
+        if (call->message.action != (i ? (call->direction == US_REVERSE ? US_ACTION_CLIENT : US_ACTION_RPC) : US_ACTION_DOMAIN) ||
+            call->message.target != (i ? (call->direction == US_REVERSE ? 0 :
                 (input.type == US_WRITE_REQ ? 104 :
                  (input.type == US_SHARED_WRITE_REQ ||
                   input.type == US_SHARED_READ_REQ ||
                   input.type == US_SHARED_FETCH_ADD_REQ) ? 105 :
-                 input.type == US_HOME_REQ ? 103 : 102)) : (first ? 1 : 2))) {
+                 input.type == US_HOME_REQ ? 103 : 102)) : (call->direction == US_REVERSE ? 1 : nginx))) {
             rc = -EPROTO; goto bad;
         }
     }
@@ -946,6 +1050,11 @@ static long ud_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         break;
     }
     case UD_POOL_PREPARE: rc = ud_prepare_pool(s, p); break;
+    case UD_SOCIAL_EXTRA_INFO:
+        if (!s->prepared || s->profile != UD_PROFILE_SOCIAL || s->social_nginx_count != 3)
+            rc = -EOPNOTSUPP;
+        else rc = copy_to_user(p, &s->social_extra, sizeof(s->social_extra)) ? -EFAULT : 0;
+        break;
     case UD_CONNECTION_INFO: {
         struct ud_connection_info info = {
             .abi = UD_POOL_ABI, .multi = s->multi,
@@ -1108,7 +1217,7 @@ MODULE_DESCRIPTION("Experimental B-owned UB ARM64 EL0 domain gate (" UD_GATE_MOD
 MODULE_INFO(ud_nested, "legacy,fused");
 MODULE_INFO(ud_multi, "pool-v2-8-slots-single-importer-kernel");
 MODULE_INFO(ud_social, "user-home-read-opt-in-private-write-and-shared-lse-atomic-probe-abi2-legacy,fused");
-MODULE_INFO(ud_remote_code, "direct-nested-opt-in-social-read-required-abi1");
+MODULE_INFO(ud_remote_code, "direct-nested-opt-in-social-read-required-nginx3-exp-abi1");
 #ifdef UD_TRACE_ENABLE
 MODULE_INFO(ud_trace, "enabled");
 #else

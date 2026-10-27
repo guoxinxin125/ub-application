@@ -10,19 +10,33 @@ def rows(text, marker):
             if line.startswith(marker+' ')]
 
 
-def check(logdir, mode, samples, peer_logs=None, chain='legacy', workload='user', clients=1):
+def check(logdir, mode, samples, peer_logs=None, chain='legacy', workload='user', clients=1, nginx_count=1):
     if peer_logs is None:
         raise ValueError('require B --peer-logs; PostStorage is on B, not A')
     if workload not in ('user', 'home'): raise ValueError('invalid workload')
     if not 1 <= clients <= 4: raise ValueError('require 1..4 client processes')
+    if nginx_count not in (1, 3):
+        raise ValueError('require one or three nginx instances')
     timeline = workload+'_timeline'
     client_names = ['client'] if clients == 1 else [f'client-{i}' for i in range(1, clients+1)]
     paths = {name:logdir for name in (*client_names,timeline)}
     paths['post_storage'] = peer_logs
     if mode == 'rpc':
-        paths.update(nginx=peer_logs, load_balance=peer_logs)
+        paths['load_balance'] = peer_logs
+        for name in (['nginx'] if nginx_count == 1 else ['nginx-1','nginx-2','nginx-3']):
+            paths[name] = peer_logs
     logs = {name:(directory/(name+'.log')).read_text(encoding='utf-8',errors='replace')
             for name,directory in paths.items()}
+    if nginx_count == 3 and mode == 'domain':
+        owner = (peer_logs/'domain_owner.log').read_text(encoding='utf-8',errors='replace')
+        if re.search(r'UB_DOMAIN_\w*FAIL|terminate called|Assertion.*failed', owner):
+            raise ValueError('failure in B domain_owner.log')
+        owners = rows(owner, 'UB_DOMAIN_OWNER_READY')
+        published = rows(owner, 'UB_DOMAIN_POOL_PUBLISHED')
+        if (len(owners) != 1 or owners[0].get('nginx_count') != '3' or
+            owners[0].get('code_mode') != 'remote-social' or
+            sum(int(p.get('count',0)) for p in published) < clients+1):
+            raise ValueError('require B three-nginx remote-code owner and all connection publications')
     for name,text in logs.items():
         if re.search(r'SN_DOMAIN_ERROR|SN_DOMAIN_CONFIG_ERROR|SN_MONGODB_ERROR|UB_DOMAIN_\w*FAIL|terminate called|Assertion.*failed',text):
             raise ValueError('failure in '+name+'.log')
@@ -62,6 +76,20 @@ def check(logdir, mode, samples, peer_logs=None, chain='legacy', workload='user'
                 raise ValueError('require UB domain readiness, call count and clean close in '+name)
             if clients>1 and name!=timeline and int(found[0].get('source',0))!=int(name.rsplit('-',1)[1]):
                 raise ValueError('UB client connection source mismatch in '+name)
+            if nginx_count == 3 and int(found[0].get('services',0)) != 4:
+                raise ValueError('require one LB and three nginx domains in '+name)
+            if nginx_count == 3:
+                bound = rows(text, 'UB_DOMAIN_BOUND')
+                if (len(bound) != 1 or bound[0].get('code_mode') != 'remote-social' or
+                    bound[0].get('code_source') != 'B-published' or bound[0].get('nginx_count') != '3'):
+                    raise ValueError('require B-published code binding in '+name)
+            if nginx_count == 3 and name != timeline:
+                routes = rows(text, 'SN_DOMAIN_ROUTE')
+                counts = {int(r['domain']):int(r['calls']) for r in routes}
+                if (len(routes) != 3 or set(counts) != {2,3,4} or
+                    sum(counts.values()) != samples or
+                    (samples >= 3 and not all(counts.values()))):
+                    raise ValueError('missing/incomplete three-nginx route counts in '+name)
             ready.append(found[0])
         else:
             if rows(text,'SN_DOMAIN_READY') or not any(row.get('enabled')=='0'
@@ -70,8 +98,20 @@ def check(logdir, mode, samples, peer_logs=None, chain='legacy', workload='user'
     if ready and (len({r['slot'] for r in ready})!=len(ready) or
                   len({r['identity'] for r in ready})!=len(ready)):
         raise ValueError('caller and reverse executor connections are not isolated')
+    if mode == 'rpc' and nginx_count == 3:
+        totals = [0, 0]
+        for name in ('nginx-1','nginx-2','nginx-3'):
+            proxy = rows(logs[name], 'SN_CXL_PROXY_DONE')
+            if len(proxy) != 1 or proxy[0].get('role') != 'nginx':
+                raise ValueError('missing nginx traffic report in '+name)
+            forward, reverse = int(proxy[0].get('forward',-1)), int(proxy[0].get('reverse',-1))
+            if forward != reverse or (samples >= 3 and forward <= 0):
+                raise ValueError('incomplete nginx traffic in '+name)
+            totals[0] += forward; totals[1] += reverse
+        if totals != [samples*clients, samples*clients]:
+            raise ValueError('incorrect total three-nginx traffic')
     if clients>1 and mode=='rpc':
-        for name in ('load_balance','nginx'):
+        for name in (('load_balance','nginx') if nginx_count == 1 else ('load_balance',)):
             proxy = rows(logs[name],'SN_CXL_PROXY_DONE')
             if (len(proxy)!=1 or proxy[0].get('role')!=name or
                 int(proxy[0].get('forward',-1))!=samples*clients or
@@ -99,14 +139,15 @@ def main():
     parser.add_argument('--mode',required=True,choices=('domain','rpc'))
     parser.add_argument('--samples',required=True,type=int)
     parser.add_argument('--clients',type=int,default=1,help='independent client processes, 1..4')
+    parser.add_argument('--nginx-count',type=int,choices=(1,3),default=1)
     parser.add_argument('--workload',choices=('user','home'),default='user')
     parser.add_argument('--chain',choices=('legacy','fused'),
                         help='expected application domain chain; default fused for domain, legacy for RPC')
     args = parser.parse_args()
     chain = args.chain or ('fused' if args.mode == 'domain' else 'legacy')
-    try: counts = check(args.logs,args.mode,args.samples,args.peer_logs,chain,args.workload,args.clients)
+    try: counts = check(args.logs,args.mode,args.samples,args.peer_logs,chain,args.workload,args.clients,args.nginx_count)
     except (OSError,ValueError,KeyError) as exc: parser.error(str(exc))
-    print(f'UB_SOCIAL_E2E_PASS workload={args.workload} mode={args.mode} chain={chain if args.mode=="domain" else "rpc"} clients={args.clients} samples={args.samples} samples_per_client={args.samples} '
+    print(f'UB_SOCIAL_E2E_PASS workload={args.workload} mode={args.mode} chain={chain if args.mode=="domain" else "rpc"} clients={args.clients} nginx={args.nginx_count} samples={args.samples} samples_per_client={args.samples} '
           f'measured={counts["all"]} nonempty={counts["nonempty"]} empty={counts["empty"]} '
           'scope=application-logs kernel_health_checked=0')
     for r in counts['_reports']:

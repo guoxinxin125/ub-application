@@ -10,6 +10,8 @@
 #define US_MAGIC 0x5542534f43494131ULL
 #define US_ABI 1U
 #define US_SLOTS 15360U
+#define US_MAX_NGINX 3U
+#define US_NGINX_FIRST 2U
 #define US_FORWARD 0U
 #define US_REVERSE 1U
 #define US_USER_REQ 9U
@@ -26,6 +28,13 @@
 #define US_ACTION_DOMAIN 2U
 #define US_ACTION_CLIENT 3U
 #define US_MAPPED_OFFSET 128U
+/* key is the caller's zero-based selection key, not the multi-client wire
+ * request number. Zero means invalid count, never a valid nginx identity. */
+static inline __u32 us_select_nginx(__u32 key, __u32 count)
+{
+    if (!count || count > US_MAX_NGINX) return 0;
+    return US_NGINX_FIRST + (key % US_SLOTS) % count;
+}
 struct us_config {
     __u32 abi, kind, slot_modulus, target_count;
     __u32 nginx[4];
@@ -53,18 +62,19 @@ US_ASSERT(__builtin_offsetof(struct us_message, action) == 68, "service instruct
 US_ASSERT(__builtin_offsetof(struct us_message, target) == 72, "service instruction offsets");
 US_ASSERT(US_MAPPED_OFFSET + sizeof(struct us_call) <= UD_PAGE, "routing A-stack fits page");
 #undef US_ASSERT
-static inline void us_heap_init(struct us_heap *h)
+static inline void us_heap_init_count(struct us_heap *h, unsigned int count)
 {
     unsigned int i, j;
     h->magic = US_MAGIC;
     for (i = 0; i < 2; ++i) {
         struct us_config *c = &h->config[i];
-        c->abi = US_ABI; c->kind = i+1; c->slot_modulus = US_SLOTS; c->target_count = 1;
-        for (j = 0; j < 4; ++j) c->nginx[j] = j ? 0 : 2;
+        c->abi = US_ABI; c->kind = i+1; c->slot_modulus = US_SLOTS; c->target_count = count;
+        for (j = 0; j < 4; ++j) c->nginx[j] = j < count ? US_NGINX_FIRST+j : 0;
         c->compose_endpoint = 101; c->user_endpoint = 102; c->home_endpoint = 103;
         c->return_domain = 1; c->allowed_grants = 0;
     }
 }
+static inline void us_heap_init(struct us_heap *h) { us_heap_init_count(h, 1); }
 static inline unsigned long us_config_offset(unsigned int d)
 {
     return 8 + ((d == 1 || d == 2) ? sizeof(struct us_config) : 0);
@@ -74,6 +84,13 @@ static inline int us_heap_valid(const struct us_heap *h)
 {
     struct us_heap expected;
     us_heap_init(&expected);
+    return !memcmp(h, &expected, sizeof(expected));
+}
+static inline int us_heap_valid_count(const struct us_heap *h, unsigned int count)
+{
+    struct us_heap expected;
+    if (count != 1 && count != 3) return 0;
+    us_heap_init_count(&expected, count);
     return !memcmp(h, &expected, sizeof(expected));
 }
 #define UD_SOCIAL_CALL _IO('U', 0x8a)

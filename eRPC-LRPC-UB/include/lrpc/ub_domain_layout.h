@@ -52,4 +52,59 @@ static inline void ud_build_table(const struct ud_contract *c,
             table[8] = c->write_pa | nc | UD_UXN; /* B data, RW/NX; config stays RO. */
     }
 }
+
+/* Construct the existing page-table contract for one extra nginx entry.
+ * The caller separately validates the source PAs against the imported VMA. */
+static inline int ud_social_extra_contract(const struct ud_contract *base,
+                                           const struct ud_social_extra *extra,
+                                           unsigned int index,
+                                           struct ud_contract *out)
+{
+    unsigned int l, d, e, j, k;
+    if (!base || !extra || !out || base->write_pa || index >= UD_SOCIAL_EXTRA_DOMAINS ||
+        extra->abi != UD_SOCIAL_EXTRA_ABI ||
+        extra->domains != UD_SOCIAL_EXTRA_DOMAINS || extra->nonce != base->nonce ||
+        !ud_contract_valid(base))
+        return 0;
+    /* Separate nginx domains must never silently alias one another or the
+     * original domains' tables/code/stacks, even on a malformed import. */
+    for (e = 0; e < UD_SOCIAL_EXTRA_DOMAINS; ++e) {
+        const struct ud_social_extra_domain *x = &extra->domain[e];
+        if (!ud_pa_valid(x->code_pa) || !ud_pa_valid(x->stack_pa) ||
+            x->code_pa == x->stack_pa || x->code_pa == base->heap_pa ||
+            x->stack_pa == base->heap_pa) return 0;
+        for (d = 0; d < UD_DOMAINS; ++d) {
+            if (x->code_pa == base->code_pa[d] || x->code_pa == base->stack_pa[d] ||
+                x->code_pa == base->args_pa[d] || x->stack_pa == base->code_pa[d] ||
+                x->stack_pa == base->stack_pa[d] || x->stack_pa == base->args_pa[d]) return 0;
+            for (l = 0; l < 4; ++l)
+                if (x->code_pa == base->table_pa[d][l] || x->stack_pa == base->table_pa[d][l]) return 0;
+        }
+        for (j = 0; j < UD_SOCIAL_EXTRA_DOMAINS; ++j) {
+            const struct ud_social_extra_domain *y = &extra->domain[j];
+            if (e != j && (x->code_pa == y->code_pa || x->code_pa == y->stack_pa ||
+                           x->stack_pa == y->code_pa || x->stack_pa == y->stack_pa)) return 0;
+            for (k = 0; k < 4; ++k)
+                if (x->code_pa == y->table_pa[k] || x->stack_pa == y->table_pa[k]) return 0;
+        }
+        for (l = 0; l < 4; ++l) {
+            __u64 table = x->table_pa[l];
+            if (!ud_pa_valid(table) || table == base->heap_pa) return 0;
+            for (d = 0; d < UD_DOMAINS; ++d) {
+                if (table == base->code_pa[d] || table == base->stack_pa[d] ||
+                    table == base->args_pa[d]) return 0;
+                for (k = 0; k < 4; ++k) if (table == base->table_pa[d][k]) return 0;
+            }
+            for (j = 0; j < UD_SOCIAL_EXTRA_DOMAINS; ++j)
+                for (k = 0; k < 4; ++k)
+                    if ((j != e || k != l) && table == extra->domain[j].table_pa[k]) return 0;
+        }
+    }
+    d = (index & 1U) ? UD_LEAF : UD_MIDDLE;
+    *out = *base;
+    out->code_pa[d] = extra->domain[index].code_pa;
+    out->stack_pa[d] = extra->domain[index].stack_pa;
+    for (l = 0; l < 4; ++l) out->table_pa[d][l] = extra->domain[index].table_pa[l];
+    return ud_contract_valid(out);
+}
 #endif

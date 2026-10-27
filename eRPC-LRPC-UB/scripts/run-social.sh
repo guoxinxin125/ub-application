@@ -31,6 +31,11 @@ if [ "$side:$mode" = B:domain ] && [ -z "$config" ]; then
     : "${LRPC_UB_SOCIAL_CODE_BUNDLE:?B/domain requires a B-published read code bundle}"
     [ -f "$LRPC_UB_SOCIAL_CODE_BUNDLE" ] || { echo 'Missing B social code bundle.' >&2; exit 1; }
     set -- "$@" --remote-code "$LRPC_UB_SOCIAL_CODE_BUNDLE"
+    case "${LRPC_UB_ENABLE_3NGINX:-0}" in
+        0) ;;
+        1) set -- "$@" --experimental-nginx3 ;;
+        *) echo 'LRPC_UB_ENABLE_3NGINX must be 0 or 1.' >&2; exit 2 ;;
+    esac
     if [ -n "${LRPC_UB_PROVIDER_HOST:-}" ]; then set -- "$@" --provider-host "$LRPC_UB_PROVIDER_HOST"; fi
     exec env LRPC_UBSM_SDK_MODE=owned "$@"
 fi
@@ -74,6 +79,10 @@ else
 fi
 SN_SERVICES=$(python3 "$root/scripts/check-social-cpus.py" --config "$SN_CONFIG" --side "$side" --mode "$mode" --print-services)
 export SN_SERVICES
+if [ "$side" = B ] && [ "$mode" = rpc ]; then
+    SN_RPC_NGINX_COUNT=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(len(c.get("domain_proxy",{}).get("nginx_instances",[c["nginx"]])))' "$SN_CONFIG")
+    export SN_RPC_NGINX_COUNT
+fi
 if [ "$side" = A ]; then
     SN_CLIENT_IDS=$(python3 - "$SN_CONFIG" <<'PY'
 import json, sys

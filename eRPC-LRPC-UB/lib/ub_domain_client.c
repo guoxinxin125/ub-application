@@ -30,7 +30,8 @@ struct ud_client {
 };
 static int ud_error(int rc) { errno = rc < 0 ? -rc : EIO; return -1; }
 
-static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t epoch, unsigned int profile)
+static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t epoch,
+                           unsigned int profile, unsigned int social_count)
 {
     const char *name = getenv("LRPC_UB_DOMAIN_NAME");
     struct ud_client *client;
@@ -40,6 +41,7 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     struct ud_pool_header header = {0};
     struct ud_remote_manifest remote = {0};
     struct ud_pool_prepare pool = {0};
+    struct ud_social_extra social_extra = {0};
     ubsmem_shmem_info_t info;
     struct lrpc_ubsm_pa address;
     struct timespec begin, now;
@@ -90,8 +92,9 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
         if (code_mode == UD_CODE_REMOTE_SOCIAL) {
             if (!social_read_name ||
                 (strcmp(social_read_name, "user") && strcmp(social_read_name, "home")) ||
-                remote.reserved != (!strcmp(social_read_name, "home") ?
-                                    UD_SOCIAL_CODE_HOME : UD_SOCIAL_CODE_USER)) {
+                (remote.reserved & UD_SOCIAL_CODE_KIND_MASK) !=
+                    (!strcmp(social_read_name, "home") ? UD_SOCIAL_CODE_HOME : UD_SOCIAL_CODE_USER) ||
+                ud_remote_social_count(remote.reserved) != social_count) {
                 errno = EPROTONOSUPPORT; goto fail;
             }
         } else if (remote.reserved) {
@@ -138,6 +141,23 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
     client->info.identity = p.contract.nonce;
     client->info.capacity = client->info.multi ? UD_CLIENTS : 1;
     if (!ud_contract_valid(&p.contract)) { errno = EPROTO; goto fail; }
+    if (profile == UD_PROFILE_SOCIAL && social_count == 3) {
+        if (ioctl(h->fd, UD_SOCIAL_EXTRA_INFO, &social_extra)) goto fail;
+        for (d = 0; d < UD_SOCIAL_EXTRA_DOMAINS; ++d) {
+            struct ud_contract adapted;
+            if (!ud_social_extra_contract(&p.contract, &social_extra, d, &adapted)) {
+                errno = EPROTO; goto fail;
+            }
+            for (l = 0; l < 4; ++l) {
+                rc = lrpc_ubsm_query_pa(&client->region, &info,
+                        UD_SOCIAL_EXTRA_TABLE(pool.slot,d,l), &address);
+                if (rc) { ud_error(rc); goto fail; }
+                if (address.pa != social_extra.domain[d].table_pa[l]) { errno = ESTALE; goto fail; }
+            }
+        }
+        memcpy((char *)client->region.base + UD_SOCIAL_EXTRA_SLOT(pool.slot),
+               &social_extra, sizeof(social_extra));
+    }
     /* Check independent SDK/OBMM and kernel VMA translations agree. */
     for (d = 0; d < UD_DOMAINS; ++d) for (l = 0; l < 4; ++l) {
         rc = lrpc_ubsm_query_pa(&client->region, &info,
@@ -194,13 +214,13 @@ static int ud_bind_profile(struct lrpc_handle *h, uint32_t procedure, uint64_t e
            "code_mode=%s code_source=%s "
            "shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 "
            "payload_user_kernel_copies=0 context_save=%s "
-           "call_object=connection-reuse nested_path=%s multi=%u slot=%u identity=%llu generation=%llu service_profile=%s\n",
+           "call_object=connection-reuse nested_path=%s multi=%u slot=%u identity=%llu generation=%llu nginx_count=%u service_profile=%s\n",
            h->shadow_cpu, code_mode == UD_CODE_REMOTE_VERIFIED ? "remote-verified" :
                           code_mode == UD_CODE_REMOTE_SOCIAL ? "remote-social" : "legacy",
            code_mode != UD_CODE_LEGACY ? "B-published" : "A-B-matched",
            profile ? "none" : "middle-suspend-only", ud_nested_path_name(nested_path),
            client->info.multi, client->info.slot, (unsigned long long)client->info.identity,
-           (unsigned long long)client->info.generation,
+           (unsigned long long)client->info.generation, social_count,
            profile == UD_PROFILE_SOCIAL_SHARED ? "social-shared-probe" :
            profile == UD_PROFILE_SOCIAL_WRITE ? "social-write-probe" :
            profile ? "social-user-read" : "micro");
@@ -213,19 +233,24 @@ fail:
 }
 int ud_lrpc_bind(struct lrpc_handle *h, uint32_t procedure, uint64_t epoch)
 {
-    return ud_bind_profile(h, procedure, epoch, UD_PROFILE_MICRO);
+    return ud_bind_profile(h, procedure, epoch, UD_PROFILE_MICRO, 0);
 }
 int us_client_open(struct lrpc_handle *h)
 {
-    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL);
+    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL, 1);
+}
+int us_client_open_count(struct lrpc_handle *h, unsigned int nginx_count)
+{
+    if (nginx_count != 1 && nginx_count != 3) return ud_error(-EINVAL);
+    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL, nginx_count);
 }
 int us_client_open_write(struct lrpc_handle *h)
 {
-    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL_WRITE);
+    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL_WRITE, 0);
 }
 int us_client_open_shared(struct lrpc_handle *h)
 {
-    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL_SHARED);
+    return ud_bind_profile(h, 1, 1, UD_PROFILE_SOCIAL_SHARED, 0);
 }
 int us_client_info(const struct lrpc_handle *h, struct ud_connection_info *info)
 {

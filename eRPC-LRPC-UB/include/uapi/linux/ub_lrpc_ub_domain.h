@@ -97,6 +97,22 @@ struct ud_trace_call {
 #define UD_CLIENTS 8U
 #define UD_POOL_SLOT(c) (0x100000UL + (c) * 0x1000UL)
 #define UD_POOL_TABLE(c,d,l) (0x110000UL + (c) * 0x10000UL + (d) * 0x4000UL + (l) * 0x1000UL)
+/* Optional SocialNetwork 3-nginx extension. The existing four-domain contract
+ * and pool table layout remain unchanged for micro/write/shared profiles. */
+#define UD_SOCIAL_EXTRA_DOMAINS 4U /* nginx 2/3, forward and return */
+#define UD_SOCIAL_EXTRA_ABI 1U
+#define UD_SOCIAL_EXTRA_SLOT(c) (UD_POOL_SLOT(c) + 0x400UL)
+#define UD_SOCIAL_EXTRA_TABLE(c,d,l) (0x200000UL + (c) * 0x10000UL + (d) * 0x4000UL + (l) * 0x1000UL)
+struct ud_social_extra_domain {
+    __u64 table_pa[4], code_pa, stack_pa;
+};
+struct ud_social_extra {
+    __u64 nonce;
+    __u32 abi, domains;
+    struct ud_social_extra_domain domain[UD_SOCIAL_EXTRA_DOMAINS];
+};
+/* Used only for an opt-in three-nginx social pool, after PREPARE. */
+#define UD_SOCIAL_EXTRA_INFO _IOR('U', 0x8c, struct ud_social_extra)
 struct ud_pool_header {
     __u64 magic, generation;
     __u32 abi, clients, domains, reserved;
@@ -129,9 +145,14 @@ struct ud_profile_header { __u64 magic; __u32 abi, profile; };
  * verified AArch64 code; A does not require a byte-identical local image. */
 #define UD_CODE_LEGACY 0U /* micro and write/shared probes; not social read */
 #define UD_CODE_REMOTE_VERIFIED 1U
-#define UD_CODE_REMOTE_SOCIAL 2U /* opt-in single-nginx read routing */
+#define UD_CODE_REMOTE_SOCIAL 2U /* B-published read routing; 1 or experimental 3 nginx */
 #define UD_SOCIAL_CODE_USER 1U
 #define UD_SOCIAL_CODE_HOME 2U
+/* Single-nginx bundles retain their original USER/HOME tag. Three-nginx
+ * bundles use a new tag so existing modules reject them rather than silently
+ * executing a one-nginx topology. */
+#define UD_SOCIAL_CODE_KIND_MASK 0xffU
+#define UD_SOCIAL_CODE_THREE_NGINX (3U << 8)
 #define UD_SET_CODE_MODE _IOW('U', 0x8b, __u32)
 #define UD_REMOTE_META_OFFSET 0x1000UL
 #define UD_REMOTE_MAGIC 0x554452454d4f5445ULL
@@ -141,7 +162,7 @@ struct ud_remote_manifest {
     __u64 magic;
     __u32 abi, mode;
     __u32 words[UD_DOMAINS];
-    __u32 reserved; /* micro: zero; remote-social: USER or HOME read kind */
+    __u32 reserved; /* micro: zero; social: read kind plus optional topology tag */
 };
 /* File consumed only by B owner; images are copied to UD_IMAGE(d). */
 struct ud_remote_bundle {

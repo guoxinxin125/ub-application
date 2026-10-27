@@ -80,14 +80,17 @@ static inline int ud_remote_bundle_valid(const struct ud_remote_bundle *bundle)
         (bundle->manifest.mode != UD_CODE_REMOTE_VERIFIED &&
          bundle->manifest.mode != UD_CODE_REMOTE_SOCIAL) ||
         (bundle->manifest.mode == UD_CODE_REMOTE_SOCIAL ?
-         (bundle->manifest.reserved != UD_SOCIAL_CODE_USER &&
-          bundle->manifest.reserved != UD_SOCIAL_CODE_HOME) :
+         !ud_remote_social_count(bundle->manifest.reserved) :
          bundle->manifest.reserved))
         return 0;
     if (bundle->manifest.mode == UD_CODE_REMOTE_SOCIAL &&
         bundle->image[UD_MIDDLE][0] !=
-        (bundle->manifest.reserved == UD_SOCIAL_CODE_HOME ?
+        ((bundle->manifest.reserved & UD_SOCIAL_CODE_KIND_MASK) == UD_SOCIAL_CODE_HOME ?
          UD_RS_LDR_HOME : UD_RS_LDR_USER))
+        return 0;
+    if (bundle->manifest.mode == UD_CODE_REMOTE_SOCIAL &&
+        (bundle->image[UD_DIRECT][0] == ud_remote_social_lb3_word(0)) !=
+        (ud_remote_social_count(bundle->manifest.reserved) == 3))
         return 0;
     for (d = 0; d < UD_DOMAINS; ++d) {
         if (!(bundle->manifest.mode == UD_CODE_REMOTE_SOCIAL ?

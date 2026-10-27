@@ -2,6 +2,7 @@
 #include <string.h>
 #include <lrpc/ub_domain_pool.h>
 #include <lrpc/ub_domain_services.h>
+#include <lrpc/ub_remote_social.h>
 _Static_assert(UD_POOL_TABLE(UD_CLIENTS-1, UD_DOMAINS-1, 3) + UD_PAGE <= UD_BYTES,
                "pool tables exceed region");
 _Static_assert(UD_WRITE_HEAP(UD_CLIENTS-1) + UD_PAGE <= UD_BYTES,
@@ -9,6 +10,12 @@ _Static_assert(UD_WRITE_HEAP(UD_CLIENTS-1) + UD_PAGE <= UD_BYTES,
 _Static_assert(UD_SHARED_HEAP >= UD_WRITE_HEAP(UD_CLIENTS-1) + UD_PAGE &&
                UD_SHARED_HEAP + UD_PAGE <= UD_BYTES, "shared page overlaps region");
 _Static_assert(sizeof(struct ud_pool_publication) <= UD_PAGE, "publication exceeds slot");
+_Static_assert(UD_SOCIAL_EXTRA_SLOT(0) >= UD_POOL_SLOT(0) + sizeof(struct ud_pool_publication) &&
+               UD_SOCIAL_EXTRA_SLOT(0) + sizeof(struct ud_social_extra) <= UD_POOL_SLOT(0) + UD_PAGE,
+               "social extra contract exceeds publication page");
+_Static_assert(UD_SOCIAL_EXTRA_TABLE(0,0,0) >= UD_POOL_TABLE(UD_CLIENTS-1,UD_DOMAINS-1,3) + UD_PAGE &&
+               UD_SOCIAL_EXTRA_TABLE(UD_CLIENTS-1,UD_SOCIAL_EXTRA_DOMAINS-1,3) + UD_PAGE <= UD_WRITE_HEAP(0),
+               "social extra page tables overlap existing pool/write pages");
 int ud_pool_initialize(void *base, __u64 generation)
 {
     return ud_pool_initialize_profile(base, generation, UD_PROFILE_MICRO);
@@ -57,18 +64,48 @@ int ud_pool_poll(void *base)
     for (slot = 0; slot < UD_CLIENTS; ++slot) {
         struct ud_pool_publication *p = (void *)((char *)base + UD_POOL_SLOT(slot));
         struct ud_contract c;
+        struct ud_social_extra extra;
+        unsigned int extra_count = 0;
         __u64 request = __atomic_load_n(&p->pub.request, __ATOMIC_ACQUIRE);
         if (!request || request == __atomic_load_n(&p->pub.complete, __ATOMIC_RELAXED)) continue;
         memcpy(&c, &p->pub.contract, sizeof(c));
         p->error = !ud_contract_valid(&c) || c.nonce != request || p->reserved ||
                    (!!c.write_pa != (tag->profile == UD_PROFILE_SOCIAL_WRITE ||
                                      tag->profile == UD_PROFILE_SOCIAL_SHARED)) ? EINVAL : 0;
+        if (!p->error && tag->profile == UD_PROFILE_SOCIAL) {
+            const struct ud_remote_manifest *manifest = (const void *)
+                ((const char *)base + UD_REMOTE_META_OFFSET);
+            unsigned int nginx_count = ud_remote_social_count(manifest->reserved);
+            if (manifest->magic != UD_REMOTE_MAGIC || manifest->abi != UD_REMOTE_ABI ||
+                manifest->mode != UD_CODE_REMOTE_SOCIAL || !nginx_count ||
+                !us_heap_valid_count((const void *)((const char *)base+UD_HEAP), nginx_count))
+                p->error = EINVAL;
+            else if (nginx_count == 3) {
+                memcpy(&extra, (const char *)base + UD_SOCIAL_EXTRA_SLOT(slot), sizeof(extra));
+                for (d = 0; d < UD_SOCIAL_EXTRA_DOMAINS; ++d) {
+                    struct ud_contract adapted;
+                    if (!ud_social_extra_contract(&c, &extra, d, &adapted)) {
+                        p->error = EINVAL; break;
+                    }
+                }
+                if (!p->error) extra_count = UD_SOCIAL_EXTRA_DOMAINS;
+            }
+        }
         if (!p->error) {
             /* Never clear the shared page when another connection joins. */
             if (tag->profile == UD_PROFILE_SOCIAL_WRITE)
                 memset((char *)base + UD_WRITE_HEAP(slot), 0, UD_PAGE);
             for (d = 0; d < UD_DOMAINS; ++d) for (l = 0; l < 4; ++l)
                 ud_build_table(&c, d, l, (void *)((char *)base + UD_POOL_TABLE(slot,d,l)));
+            for (d = 0; d < extra_count; ++d) {
+                struct ud_contract adapted;
+                unsigned int entry = (d & 1U) ? UD_LEAF : UD_MIDDLE;
+                /* Already checked above; the stack snapshot is not shared. */
+                (void)ud_social_extra_contract(&c, &extra, d, &adapted);
+                for (l = 0; l < 4; ++l)
+                    ud_build_table(&adapted, entry, l,
+                        (void *)((char *)base + UD_SOCIAL_EXTRA_TABLE(slot,d,l)));
+            }
             ++p->pub.b_initializations;
         }
         __atomic_store_n(&p->pub.complete, request, __ATOMIC_RELEASE);

@@ -6,7 +6,8 @@ User/Home 只读域路径必须使用 B 发布代码包；不再支持原先的 
 逐字节匹配路径。RPC 基线、写入/共享原子探针不启用此功能。每次连接从 B 拷贝代码到 A，
 A 内核验证四段指令、复制到本地执行页并清理 I-cache；稳态调用不再复制代码。
 
-本版只支持**单 nginx、每轮单一 User 或 Home 读工作负载**。B 代码使用固定
+本页介绍**单 nginx、每轮单一 User 或 Home 读工作负载**；实验性的三 nginx
+域和单独验收步骤见 [SOCIAL_3NGINX.md](SOCIAL_3NGINX.md)。B 代码使用固定
 `us_config` 字段读取 nginx/Timeline 目标，并写入 A-local 消息的 action/target；
 不允许额外访存、分支、调用或系统调用。B 生成代码包时选择 `user` 或 `home`；
 A 启动器从配置文件自动检测对应服务，连接时核对代码包的服务标记。只有尾部
@@ -74,7 +75,7 @@ sh scripts/build.sh caller
 sh scripts/build-module.sh --vhe
 modinfo -F vermagic kernel/ub-domain/ub_lrpc_domain_vhe.ko
 modinfo -F ud_remote_code kernel/ub-domain/ub_lrpc_domain_vhe.ko
-# 应显示 direct-nested-opt-in-social-read-required-abi1
+# 应显示 direct-nested-opt-in-social-read-required-nginx3-exp-abi1
 cmake -S "$REPO/eRPC" -B "$REPO/eRPC/cmake-build-social-ub-domain" \
   -DAPP=social_network_cxl -DTRANSPORT=ub -DPERF=ON \
   -DERPC_SN_DOMAIN_PROXY=ON -DERPC_SN_DOMAIN_BACKEND=ub \
