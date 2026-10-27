@@ -112,7 +112,7 @@ inline void validate_config(const char *role) {
       config_u32(client.at("write_num")) != 0)
     throw std::invalid_argument("single user/home read workload or disjoint in-flight budget invalid");
 #ifndef ERPC_SN_DOMAIN_UB
-  if (read_service() == ReadService::Home)
+  if (enabled() && read_service() == ReadService::Home)
     throw std::invalid_argument("HomeTimeline domain route currently requires the UB backend");
 #endif
   (void)proxy_count();
