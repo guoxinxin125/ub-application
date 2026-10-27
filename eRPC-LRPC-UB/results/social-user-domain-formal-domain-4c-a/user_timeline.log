@@ -4,10 +4,13 @@ SN_DOMAIN_PEER role=user_timeline source=2 receiver_base=11 lanes=1
 SN_DOMAIN_PEER role=user_timeline source=3 receiver_base=12 lanes=1
 SN_DOMAIN_PEER role=user_timeline source=4 receiver_base=13 lanes=1
 SN_DOMAIN_INSTANCE role=user_timeline domain=2 receiver_base=2
-SN_DOMAIN_ERROR role=user_timeline lane=0 source=0 request_source=0 op=ub-prepare request=0 service=0 function=0 errno=93 reason=Protocol not supported vector=0 fallback=none
+SN_DOMAIN_READY role=user_timeline lane=0 source=0 wire_abi=2 slot=0 identity=1777543742344792637 services=2 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=fused entries=2 transitions=3
+SN_DOMAIN_DONE role=user_timeline lane=0 source=0 calls=4400 backend=ub
+UB: ub_manager rejected endpoint unregister
 [user_timeline] mongodb init finished! Total init 908 users
 Rpc 6: Created Server session_num = 0 for client [H: 76.53.137.82:31862, R: 32, S: 1] from 76.53.137.82 (rpc 32)
-Rpc 6: Created Server session_num = 1 for client [H: 76.53.137.82:31863, R: 33, S: 1] from 76.53.137.82 (rpc 33)
-Rpc 6: Created Server session_num = 2 for client [H: 76.53.137.82:31861, R: 31, S: 1] from 76.53.137.82 (rpc 31)
+Rpc 6: Created Server session_num = 1 for client [H: 76.53.137.82:31861, R: 31, S: 1] from 76.53.137.82 (rpc 31)
+Rpc 6: Created Server session_num = 2 for client [H: 76.53.137.82:31863, R: 33, S: 1] from 76.53.137.82 (rpc 33)
 Rpc 6: Created Server session_num = 3 for client [H: 76.53.137.82:31851, R: 21, S: 1] from 76.53.137.82 (rpc 21)
 Rpc 6: Created Server session_num = 4 for client [H: 76.53.137.81:31859, R: 29, S: 0] from 76.53.137.81 (rpc 29)
+UB_DOMAIN_BOUND cpu=24 page_tables=B heap=B code=A astack=A estack=A code_mode=remote-social code_source=B-published shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=none call_object=connection-reuse nested_path=fused multi=1 slot=0 identity=1777543742344792637 generation=10795419605671982042 service_profile=social-user-read
