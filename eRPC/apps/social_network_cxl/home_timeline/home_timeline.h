@@ -63,6 +63,7 @@ public:
     size_t server_receiver_id_;
 
     int nginx_session_number{};
+    std::vector<int> rpc_nginx_sessions;
     // int client_session_number{};
     int compose_post_session_number{};
     int post_storage_session_number{};

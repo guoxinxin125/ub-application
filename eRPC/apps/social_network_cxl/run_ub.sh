@@ -112,7 +112,12 @@ for name in "${services[@]}"; do
     exit 1
   fi
   echo "Starting $name on UB machine $ERPC_UB_MACHINE_ID"
-  if [[ "$name" == client && -n "${SN_CLIENT_IDS:-}" ]]; then
+  if [[ "$name" == nginx && "${SN_RPC_NGINX_COUNT:-1}" == 3 ]]; then
+    for index in 0 1 2; do
+      ERPC_SN_RPC_NGINX_INDEX="$index" "$bin" --config_file="$CONFIG" >"$LOG_DIR/nginx-$((index+1)).log" 2>&1 &
+      worker_pids+=("$!")
+    done
+  elif [[ "$name" == client && -n "${SN_CLIENT_IDS:-}" ]]; then
     read -r -a ids <<< "$SN_CLIENT_IDS"
     if (( ${#ids[@]} > 1 )); then
       start_dir=$(mktemp -d "$LOG_DIR/.client-start.XXXXXXXX")

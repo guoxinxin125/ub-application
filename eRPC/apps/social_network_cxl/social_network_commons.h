@@ -261,6 +261,17 @@ inline void init_service_config(const std::string& file_path, const std::string&
     FLAGS_bandwidth_file = config.value("bandwidth_file", "bandwidth.txt");
 
     auto server_config = config_json_all[service_name];
+    if (service_name == "nginx") {
+        const char *instance = std::getenv("ERPC_SN_RPC_NGINX_INDEX");
+        if (instance && *instance) {
+            if (instance[1] != '\0' || instance[0] < '0' || instance[0] > '2')
+                throw std::invalid_argument("invalid RPC nginx instance index");
+            const auto &instances = config_json_all.at("domain_proxy").at("nginx_instances");
+            if (!instances.is_array() || instances.size() != 3)
+                throw std::invalid_argument("RPC nginx requires three registered instances");
+            server_config = instances.at(static_cast<size_t>(instance[0] - '0'));
+        }
+    }
     if (server_config.is_null()) {
         fprintf(stderr, "Failed to find %s config\n", service_name.c_str());
         exit(1);

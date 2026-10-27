@@ -138,7 +138,12 @@ inline uint32_t route_key(uint32_t request) {
 }
 inline uint32_t selected_nginx(uint32_t key, uint32_t proxies) {
   if (!proxies || proxies > 3) throw std::invalid_argument("nginx count must be 1..3");
+#if defined(ERPC_SN_DOMAIN_PROXY) && defined(ERPC_SN_DOMAIN_UB)
+  static_assert(kSlots == US_SLOTS, "UB and application route ring must match");
+  return us_select_nginx(key, proxies);
+#else
   return 2 + (key % kSlots) % proxies;
+#endif
 }
 inline uint32_t wire_request(uint32_t request, uint32_t lane, uint32_t lanes,
                              uint32_t source_index = 0, uint32_t sources = 1) {
@@ -203,6 +208,9 @@ class Runtime {
     if (opened_) {
       std::fprintf(stderr, "SN_DOMAIN_DONE role=%s lane=%u source=%u calls=%llu backend=ub\n",
                    role_, lane_, source_, static_cast<unsigned long long>(calls_));
+      for (uint32_t i = 0; i < proxies_; ++i)
+        std::fprintf(stderr, "SN_DOMAIN_ROUTE role=%s lane=%u source=%u domain=%u calls=%llu backend=ub\n",
+            role_, lane_, source_, i + 2, static_cast<unsigned long long>(routes_[i]));
       if (us_client_close(&ub_client_)) fail(role_, lane_, "ub-close", 0, errno);
       opened_ = false;
     }
@@ -240,7 +248,8 @@ class Runtime {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 #ifdef ERPC_SN_DOMAIN_UB
-    if (proxies != 1 || lane != 0) fail(role, lane, "ub-social-one-lane-per-process", 0, ENOTSUP);
+    if ((proxies != 1 && proxies != 3) || lane != 0)
+      fail(role, lane, "ub-social-topology-or-lane", 0, ENOTSUP);
     const char *sdk = std::getenv("LRPC_UBSM_SDK_MODE");
     const char *sampling = std::getenv("ERPC_SN_DOMAIN_KERNEL_EVERY");
     if (!sdk || std::strcmp(sdk, "external")) fail(role, lane, "ub-sdk-mode-must-be-external", 0, EINVAL);
@@ -250,13 +259,14 @@ class Runtime {
     if (ud_nested_path_parse_profile(std::getenv("LRPC_UB_NESTED_PATH"), UD_PROFILE_SOCIAL,
                                      &ub_path_))
       fail(role, lane, "ub-path", 0, errno);
-    if (us_client_open(&ub_client_)) fail(role, lane, "ub-prepare", 0, errno);
+    if (us_client_open_count(&ub_client_, proxies)) fail(role, lane, "ub-prepare", 0, errno);
     opened_ = true;
     struct ud_connection_info info{};
     if (us_client_info(&ub_client_, &info) || !info.multi || !info.identity || info.slot >= UD_CLIENTS)
       fail(role, lane, "ub-prepare-info", 0, EPROTO);
-    std::fprintf(stderr, "SN_DOMAIN_READY role=%s lane=%u source=%u wire_abi=%u slot=%u identity=%llu services=2 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=%s entries=2 transitions=%u\n",
+    std::fprintf(stderr, "SN_DOMAIN_READY role=%s lane=%u source=%u wire_abi=%u slot=%u identity=%llu services=%u grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=%s entries=2 transitions=%u\n",
                  role, lane, source, kWireAbi, info.slot, static_cast<unsigned long long>(info.identity),
+                 proxies + 1,
                  ud_nested_path_name(ub_path_), ub_path_ == UD_NESTED_FUSED ? 3U : 4U);
 #else
     struct rm_prepare plan{}; plan.abi = RM_ABI; plan.count = proxies + 1;
@@ -348,8 +358,10 @@ class Runtime {
 #ifdef ERPC_SN_DOMAIN_PROXY
     if (!opened_) fail(role_, lane_, "not-prepared", wire, ENOTCONN);
 #ifdef ERPC_SN_DOMAIN_UB
-    if (service != (reverse ? 2U : 1U)) fail(role_, lane_, "ub-service", wire, EINVAL);
+    const uint32_t nginx = selected_nginx(key, proxies_);
+    if (service != (reverse ? nginx : 1U)) fail(role_, lane_, "ub-service", wire, EINVAL);
     struct us_call c{}; c.abi = US_ABI; c.direction = reverse ? US_REVERSE : US_FORWARD;
+    if (reverse && proxies_ == 3) c.domain[0] = nginx; /* validated provenance */
     c.message.source = source; c.message.request = reverse ? wire : key;
     c.message.value = wire;
     c.message.type = read == ReadService::Home ? (reverse ? US_HOME_RESP : US_HOME_REQ) :
@@ -366,12 +378,12 @@ class Runtime {
     result.action = input.action; result.target = input.target;
     if (std::memcmp(&input, &result, sizeof(input)) || c.entries != 2 ||
         c.transitions != (ub_path_ == UD_NESTED_FUSED ? 3U : 4U) ||
-        c.domain[0] != service || c.domain[1] != (reverse ? 1U : 2U) ||
+        c.domain[0] != service || c.domain[1] != (reverse ? 1U : nginx) ||
         c.message.action != (reverse ? US_ACTION_CLIENT : US_ACTION_RPC) ||
         c.message.target != (reverse ? 0U : (read == ReadService::Home ? kHomeEndpoint : kUserEndpoint)))
       fail(role_, lane_, "ub-result-contract", wire, EPROTO, service);
-    if (!reverse && metrics().on) ++routes_[0];
-    return reverse ? receiver : 2;
+    if (!reverse) ++routes_[nginx - US_NGINX_FIRST];
+    return reverse ? receiver : nginx;
 #else
     if (read != ReadService::User) fail(role_, lane_, "home-requires-ub-domain", wire, ENOTSUP);
     struct rm_call c{}; c.abi = RM_ABI; c.chain = 1; c.service = service;

@@ -17,6 +17,16 @@ void connect_sessions(ClientContext *c)
         }
         c->nginx_session_number = c->rpc_->create_session(nginx_addr, get_remote_rpc_id(nginx_addr));
         my_assert(c->nginx_session_number >= 0);
+        c->rpc_nginx_sessions.push_back(c->nginx_session_number);
+        if (sn_measure::rpc_baseline() && sn_domain::proxy_count() == 3) {
+            const auto &instances = sn_domain::nginx_instances();
+            for (size_t i = 1; i < instances.size(); ++i) {
+                const int session = c->rpc_->create_session(instances[i].address,
+                    static_cast<uint8_t>(instances[i].rpc_id));
+                my_assert(session >= 0);
+                c->rpc_nginx_sessions.push_back(session);
+            }
+        }
     }
 
     // c->client_session_number = c->rpc_->create_session(client_addr, get_remote_rpc_id(client_addr));
@@ -40,7 +50,8 @@ void connect_sessions(ClientContext *c)
 
     // while (c->num_sm_resps_ != 4)
     const uint64_t deadline = sn_domain::enabled() ? sn_domain::now_ns() + UINT64_C(30000000000) : 0;
-    while (c->num_sm_resps_ != (sn_domain::enabled() ? 1 : (sn_measure::rpc_baseline() ? 2 : 3)) + domain_sessions)
+    while (c->num_sm_resps_ != (sn_domain::enabled() ? 1 : (sn_measure::rpc_baseline() ? 2 : 3)) + domain_sessions +
+           (c->rpc_nginx_sessions.empty() ? 0 : c->rpc_nginx_sessions.size() - 1))
     {
         // printf("[user_timeline] Waiting for sessions... num_sm_resps_=%zu\n", c->num_sm_resps_);
         c->rpc_->run_event_loop(kAppEvLoopMs);
@@ -401,7 +412,10 @@ void handler_user_timeline_read_resp(ClientContext *ctx, const erpc::MsgBuffer &
     //                            callback_user_timeline_read_resp, reinterpret_cast<void *>(req->req_common.req_number % kAppMaxBuffer));
     sn_diag::point("timeline_send_begin", static_cast<uint32_t>(req_msgbuf.get_hdr_req_num()));
     flush_msgbuf_before_send(ctx->rpc_, ctx->req_backward_msgbuf[slot]);
-    ctx->rpc_->enqueue_request(ctx->nginx_session_number, static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP),
+    int nginx_session = ctx->nginx_session_number;
+    if (sn_measure::rpc_baseline() && ctx->rpc_nginx_sessions.size() == 3)
+        nginx_session = ctx->rpc_nginx_sessions.at(sn_domain::rpc_nginx_index(proxy_read_wire_number(req_msgbuf)));
+    ctx->rpc_->enqueue_request(nginx_session, static_cast<uint8_t>(RPC_TYPE::RPC_USER_TIMELINE_READ_RESP),
                                &ctx->req_backward_msgbuf[slot], &resp_msgbuf,
                                callback_user_timeline_read_resp, reinterpret_cast<void *>(slot));
     sn_profile::flow_point("user_timeline", req_msgbuf.get_hdr_req_num(), "response_enqueue");

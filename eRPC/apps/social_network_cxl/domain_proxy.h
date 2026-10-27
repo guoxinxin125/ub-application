@@ -54,6 +54,14 @@ inline uint32_t proxy_count() {
   return static_cast<uint32_t>(n);
 }
 inline uint32_t source_count() { return static_cast<uint32_t>(clients().size()); }
+// Use the application wire identity, never an eRPC per-session header number:
+// transport headers can change at each forwarding hop.
+inline uint32_t rpc_nginx_index(uint32_t wire) {
+  const uint32_t original = source_count() > 1
+      ? wire_original_request(wire, static_cast<uint32_t>(FLAGS_client_num), source_count())
+      : wire;
+  return selected_nginx(route_key(original), proxy_count()) - 2;
+}
 inline ReadService read_service() {
   return config_u32(config_json_all.at("client").at("home_num")) == 1 ?
       ReadService::Home : ReadService::User;
@@ -117,8 +125,9 @@ inline void validate_config(const char *role) {
 #endif
   (void)proxy_count();
 #ifdef ERPC_SN_DOMAIN_UB
-  if (enabled() && (lanes != 1 || source_count() > 4 || proxy_count() != 1 || FLAGS_concurrency != 1))
-    throw std::invalid_argument("UB social domain requires 1..4 Client processes, one lane each, one nginx, concurrency=1");
+  if (enabled() && (lanes != 1 || source_count() > 4 ||
+      (proxy_count() != 1 && proxy_count() != 3) || FLAGS_concurrency != 1))
+    throw std::invalid_argument("UB social domain requires 1..4 Client processes, one lane each, 1 or 3 nginx, concurrency=1");
 #endif
   bool used[64]{};
   std::vector<std::string> addresses;

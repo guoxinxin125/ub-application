@@ -16,10 +16,19 @@ void baseline_ready_handler(erpc::ReqHandle *h, void *c) {
 
 void connect_sessions(ClientContext *c) {
     std::vector<std::string> forward_server_addr = flags_get_balance_servers_index();
+    if (sn_measure::rpc_baseline() && sn_domain::proxy_count() == 3) {
+        forward_server_addr.clear();
+        for (const auto &nginx : sn_domain::nginx_instances())
+            forward_server_addr.push_back(nginx.address);
+    }
 
     c->servers_num_ = static_cast<int>(forward_server_addr.size());
     for (const auto& m : forward_server_addr) {
-        int session_num_forward = c->rpc_->create_session(m, get_remote_rpc_id(m));
+        const auto &registered = sn_domain::nginx_instances();
+        const uint8_t remote_id = sn_measure::rpc_baseline() && registered.size() == 3
+            ? static_cast<uint8_t>(registered[c->session_num_vec_.size()].rpc_id)
+            : get_remote_rpc_id(m);
+        int session_num_forward = c->rpc_->create_session(m, remote_id);
         my_assert(session_num_forward >= 0, "Failed to create session");
         c->session_num_vec_.push_back(session_num_forward);
     }
@@ -267,7 +276,14 @@ void handler_common_req(ClientContext *ctx, const erpc::MsgBuffer &req_msgbuf,
                        prepare_start);
     erpc::MsgBuffer &resp_msgbuf = ctx->resp_forward_msgbuf[slot];
 
-    size_t session_num = ctx->session_num_vec_[slot % ctx->servers_num_];
+    size_t target_index = slot % ctx->servers_num_;
+    if (sn_measure::rpc_baseline() && sn_domain::proxy_count() == 3 &&
+        proxy_inline_timeline_type(static_cast<RPC_TYPE>(req_type))) {
+        const uint32_t wire = inline_msg == nullptr ? proxy_read_wire_number(req_msgbuf)
+                                                    : proxy_read_wire_number(*inline_msg);
+        target_index = sn_domain::rpc_nginx_index(wire);
+    }
+    size_t session_num = ctx->session_num_vec_.at(target_index);
 
     const uint64_t enqueue_start = sn_profile::start();
     ctx->rpc_->enqueue_request(session_num, req_type,
@@ -462,6 +478,8 @@ void server_thread_func(size_t thread_id, ServerContext *ctx, erpc::Nexus *nexus
     rpc.retry_connect_on_invalid_rpc_id_ = true;
     ctx->rpc_ = &rpc;
     ctx->servers_num_ = flags_get_balance_servers_index().size();
+    if (sn_measure::rpc_baseline() && sn_domain::proxy_count() == 3)
+        ctx->servers_num_ = 3;
 
     while (true) {
         ctx->reset_stat();
