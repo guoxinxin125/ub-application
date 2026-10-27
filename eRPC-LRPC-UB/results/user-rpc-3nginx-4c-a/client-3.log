@@ -1,0 +1,11 @@
+SN_DOMAIN_CONFIG role=client enabled=0 path=original-rpc wire_abi=2 scope=user-timeline-read source=3 clients=4 lanes=1 receivers=1 proxies=3 stride=4 connections=5 routing=per-source-lane-round-robin fallback=none
+SN_DOMAIN_PEER role=client source=1 receiver_base=1 lanes=1
+SN_DOMAIN_PEER role=client source=2 receiver_base=11 lanes=1
+SN_DOMAIN_PEER role=client source=3 receiver_base=12 lanes=1
+SN_DOMAIN_PEER role=client source=4 receiver_base=13 lanes=1
+SN_DOMAIN_INSTANCE role=client domain=2 receiver_base=2
+SN_DOMAIN_INSTANCE role=client domain=3 receiver_base=16
+SN_DOMAIN_INSTANCE role=client domain=4 receiver_base=17
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_my_lab_1.sock
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  UB destination endpoint is unavailable
