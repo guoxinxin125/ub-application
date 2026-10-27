@@ -33,6 +33,7 @@ read -r -a services <<< "${SN_SERVICES:-$default_services}"
 mkdir -p "$LOG_DIR"
 manager_pid=""
 worker_pids=()
+worker_names=()
 client_pids=()
 client_logs=()
 start_file=""
@@ -74,6 +75,28 @@ cleanup() {
       kill -TERM "$pid" 2>/dev/null || true
     fi
   done
+  # Application handlers for SIGINT and SIGTERM only raise a flag, so a worker
+  # blocked in a driver call (for example a Timeline waiting on MongoDB) can
+  # outlive both signals. Waiting for it forever would leave it alive, still
+  # holding its SM UDP port, and the next run's Nexus would fail to bind that
+  # port. Escalate to SIGKILL after a bounded grace period.
+  for _ in $(seq 1 100); do
+    workers_alive=0
+    for pid in "${worker_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        workers_alive=1
+        break
+      fi
+    done
+    [[ "$workers_alive" -eq 0 ]] && break
+    sleep 0.05
+  done
+  for index in "${!worker_pids[@]}"; do
+    if kill -0 "${worker_pids[$index]}" 2>/dev/null; then
+      echo "Service ${worker_names[$index]} ignored SIGTERM; killing it so it releases its SM UDP port" >&2
+      kill -KILL "${worker_pids[$index]}" 2>/dev/null || true
+    fi
+  done
   for pid in "${worker_pids[@]}"; do
     wait "$pid" 2>/dev/null || true
   done
@@ -111,11 +134,21 @@ for name in "${services[@]}"; do
     echo "Missing binary: $bin" >&2
     exit 1
   fi
+  # A worker that dies during startup (for example, an eRPC Nexus that cannot
+  # bind its management UDP port) otherwise only shows up as confusing
+  # connection errors in the services started after it.
+  for index in "${!worker_pids[@]}"; do
+    if ! kill -0 "${worker_pids[$index]}" 2>/dev/null; then
+      echo "Service ${worker_names[$index]} exited during startup; inspect $LOG_DIR/${worker_names[$index]}*.log" >&2
+      exit 1
+    fi
+  done
   echo "Starting $name on UB machine $ERPC_UB_MACHINE_ID"
   if [[ "$name" == nginx && "${SN_RPC_NGINX_COUNT:-1}" == 3 ]]; then
     for index in 0 1 2; do
       ERPC_SN_RPC_NGINX_INDEX="$index" "$bin" --config_file="$CONFIG" >"$LOG_DIR/nginx-$((index+1)).log" 2>&1 &
       worker_pids+=("$!")
+      worker_names+=("nginx-$((index+1))")
     done
   elif [[ "$name" == client && -n "${SN_CLIENT_IDS:-}" ]]; then
     read -r -a ids <<< "$SN_CLIENT_IDS"
@@ -127,15 +160,17 @@ for name in "${services[@]}"; do
         log="$LOG_DIR/client-$id.log"
         ERPC_SN_DOMAIN_CLIENT_ID="$id" ERPC_SN_CLIENT_START_FILE="$start_file" \
           "$bin" --config_file="$CONFIG" >"$log" 2>&1 &
-        client_pids+=("$!"); worker_pids+=("$!"); client_logs+=("$log")
+        client_pids+=("$!"); worker_pids+=("$!"); worker_names+=("client-$id"); client_logs+=("$log")
       done
     else
       ERPC_SN_DOMAIN_CLIENT_ID="${ids[0]}" "$bin" --config_file="$CONFIG" >"$LOG_DIR/client.log" 2>&1 &
       worker_pids+=("$!")
+      worker_names+=("client")
     fi
   else
     "$bin" --config_file="$CONFIG" >"$LOG_DIR/$name.log" 2>&1 &
     worker_pids+=("$!")
+    worker_names+=("$name")
   fi
 done
 
