@@ -1,0 +1,2 @@
+ub_manager: machine=1 region=sn_lrpc_my_lab_0000000000000001 bytes=2147483648 socket=/tmp/sn_lrpc_my_lab_1.sock
+ub_manager: shutting down region=sn_lrpc_my_lab_0000000000000001; waiting up to 30000 ms for peer mappings

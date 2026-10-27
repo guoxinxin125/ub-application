@@ -1,0 +1,46 @@
+SN_DOMAIN_CONFIG role=client enabled=1 path=domain wire_abi=2 scope=home-timeline-read source=2 clients=4 lanes=1 receivers=1 proxies=1 stride=4 connections=5 routing=per-source-lane-round-robin fallback=none
+SN_DOMAIN_PEER role=client source=1 receiver_base=1 lanes=1
+SN_DOMAIN_PEER role=client source=2 receiver_base=11 lanes=1
+SN_DOMAIN_PEER role=client source=3 receiver_base=12 lanes=1
+SN_DOMAIN_PEER role=client source=4 receiver_base=13 lanes=1
+SN_DOMAIN_INSTANCE role=client domain=2 receiver_base=2
+SN_DOMAIN_READY role=client lane=0 source=2 wire_abi=2 slot=1 identity=16111923329758564367 services=2 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=fused entries=2 transitions=3
+SN_DOMAIN_INIT source=2 lane=0 peer=timeline-ready ready=1
+SN_DOMAIN_INIT source=2 lane=0 peer=post-storage-ready ready=1
+SN_CLIENT_ARMED source=2
+SN_CLIENT_STARTED source=2 at_ns=400369284047230
+SN_UB_POST_READ_MODE=fields
+SN_DOMAIN_DONE role=client lane=0 source=2 calls=1100 backend=ub
+SN_DOMAIN_CLIENT_DONE source=2 lane=0 completed=1100
+UB: ub_manager rejected endpoint unregister
+SN_DOMAIN_MEASUREMENT source=2 lane=0 abi=2 warmup=100 measured=1000 total=1100 clock=steady_ns slow_ns=50000 slow_limit=32 logging=after-join legacy_timer=off
+SN_DOMAIN_BREAKDOWN_CONTRACT source=2 lane=0 clock=steady_ns scope=call-to-consume boundaries=after-pop,before-flush,handler-entry,after-consume partition=exclusive forward_domain=subset-of-prepare release_included=0 cross_host_clock_subtraction=0
+SN_DOMAIN_CLASS source=2 lane=0 phase=warmup class=all count=100 min_ns=21110 p50_ns=29480 p99_ns=63480 avg_ns=30529.6 max_ns=66030 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=all stage=prepare_to_send count=100 min_ns=3040 p50_ns=3120 p99_ns=3450 avg_ns=3240.6 max_ns=12020 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=all stage=send_to_handler count=100 min_ns=11630 p50_ns=16890 p99_ns=30280 avg_ns=17560.7 max_ns=48870 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=all stage=handler_to_consume count=100 min_ns=5680 p50_ns=9620 p99_ns=14310 avg_ns=9728.3 max_ns=23730 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=all stage=forward_domain count=100 min_ns=2750 p50_ns=2810 p99_ns=3150 avg_ns=2911.9 max_ns=9940 composition=prepare-subset clock=steady_ns
+SN_DOMAIN_CLASS source=2 lane=0 phase=warmup class=empty count=0 min_ns=0 p50_ns=0 p99_ns=0 avg_ns=0.0 max_ns=0 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_CLASS source=2 lane=0 phase=warmup class=nonempty count=100 min_ns=21110 p50_ns=29480 p99_ns=63480 avg_ns=30529.6 max_ns=66030 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=nonempty stage=prepare_to_send count=100 min_ns=3040 p50_ns=3120 p99_ns=3450 avg_ns=3240.6 max_ns=12020 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=nonempty stage=send_to_handler count=100 min_ns=11630 p50_ns=16890 p99_ns=30280 avg_ns=17560.7 max_ns=48870 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=nonempty stage=handler_to_consume count=100 min_ns=5680 p50_ns=9620 p99_ns=14310 avg_ns=9728.3 max_ns=23730 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=warmup class=nonempty stage=forward_domain count=100 min_ns=2750 p50_ns=2810 p99_ns=3150 avg_ns=2911.9 max_ns=9940 composition=prepare-subset clock=steady_ns
+SN_DOMAIN_SLOW source=2 lane=0 phase=warmup request=1 wire=2 class=nonempty count=1 payload_bytes=2048 e2e_ns=66030 prepare_ns=12020 send_to_handler_ns=30280 handler_to_consume_ns=23730 forward_ns=9940 kernel_sampled=0
+SN_DOMAIN_SLOW source=2 lane=0 phase=warmup request=13 wire=50 class=nonempty count=1 payload_bytes=2048 e2e_ns=63480 prepare_ns=3130 send_to_handler_ns=48870 handler_to_consume_ns=11480 forward_ns=2820 kernel_sampled=0
+SN_DOMAIN_SLOW_SUMMARY source=2 lane=0 phase=warmup matched=2 printed=2 dropped=0 threshold_ns=50000
+SN_DOMAIN_CLASS source=2 lane=0 phase=measured class=all count=1000 min_ns=21000 p50_ns=29050 p99_ns=37830 avg_ns=29231.7 max_ns=46410 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=all stage=prepare_to_send count=1000 min_ns=3000 p50_ns=3100 p99_ns=3450 avg_ns=3130.4 max_ns=7060 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=all stage=send_to_handler count=1000 min_ns=11110 p50_ns=16690 p99_ns=25780 avg_ns=16864.7 max_ns=36620 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=all stage=handler_to_consume count=1000 min_ns=5280 p50_ns=9280 p99_ns=14160 avg_ns=9236.6 max_ns=15060 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=all stage=forward_domain count=1000 min_ns=2720 p50_ns=2820 p99_ns=3160 avg_ns=2846.3 max_ns=6760 composition=prepare-subset clock=steady_ns
+SN_DOMAIN_CLASS source=2 lane=0 phase=measured class=empty count=0 min_ns=0 p50_ns=0 p99_ns=0 avg_ns=0.0 max_ns=0 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_CLASS source=2 lane=0 phase=measured class=nonempty count=1000 min_ns=21000 p50_ns=29050 p99_ns=37830 avg_ns=29231.7 max_ns=46410 clock=steady_ns scope=call-to-consume fixture_validation_included=0
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=nonempty stage=prepare_to_send count=1000 min_ns=3000 p50_ns=3100 p99_ns=3450 avg_ns=3130.4 max_ns=7060 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=nonempty stage=send_to_handler count=1000 min_ns=11110 p50_ns=16690 p99_ns=25780 avg_ns=16864.7 max_ns=36620 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=nonempty stage=handler_to_consume count=1000 min_ns=5280 p50_ns=9280 p99_ns=14160 avg_ns=9236.6 max_ns=15060 composition=exclusive clock=steady_ns
+SN_DOMAIN_BREAKDOWN source=2 lane=0 phase=measured class=nonempty stage=forward_domain count=1000 min_ns=2720 p50_ns=2820 p99_ns=3160 avg_ns=2846.3 max_ns=6760 composition=prepare-subset clock=steady_ns
+SN_DOMAIN_SLOW_SUMMARY source=2 lane=0 phase=measured matched=0 printed=0 dropped=0 threshold_ns=50000
+SN_DOMAIN_E2E source=2 completed=1100 expected=1100 nonempty=0 empty=0 fixture=0 p50_ns=29050.0 p99_ns=37830.0 avg_ns=29231.7 scope=call-to-consume fixture_validation_included=0 clock=steady_ns cold_included=0 warmup=100 measured=1000 campaign_begin_ns=400369284053450 campaign_end_ns=400369317575360
+Rpc 11: Created Server session_num = 0 for client [H: 76.53.137.82:31857, R: 27, S: 2] from 76.53.137.82 (rpc 27)
+UB_DOMAIN_BOUND cpu=3 page_tables=B heap=B code=A astack=A estack=A code_mode=remote-social code_source=B-published shadow_pid=0 tlb=retain astack=mmap steady_ioctls=1 payload_user_kernel_copies=0 context_save=none call_object=connection-reuse nested_path=fused multi=1 slot=1 identity=16111923329758564367 generation=5681079721560323498 service_profile=social-user-read
