@@ -10,3 +10,42 @@
   cmake --install nlohmann-json/build
 
   test -f /home/g/.local/include/nlohmann/json.hpp
+
+
+semgrep mcp --help
+
+┌──── ○○○ ────┐
+│ Semgrep CLI │
+└─────────────┘
+
+Usage: semgrep mcp [OPTIONS]
+
+  Entry point for the MCP server
+
+  Supports stdio and streamable-http transports. For stdio, it will read from
+  stdin and write to stdout. For streamable-http, it will start an HTTP server
+  on port 8000.
+
+Options:
+  -v, --version                   Show version and exit.
+  -t, --transport [stdio|streamable-http]
+                                  Transport protocol to use: stdio or
+                                  streamable-http
+  -p, --port INTEGER              Port to use for the MCP server
+  -k, --hook [post-tool-cli-scan|stop-cli-scan|record-file-edit|inject-secure-defaults|inject-secure-defaults-short|supply-chain-scan]
+                                  Run specified functionality for agent hooks.
+                                  Currently supports: 1. Running a Semgrep CLI
+                                  scan (via PostTool hook, flag: `post-tool-
+                                  cli-scan`). 2. Running a Semgrep CLI scan
+                                  (via Stop hook, flag: `stop-cli-scan`), must
+                                  be used in conjunction with an AfterFileEdit
+                                  hook (flag: `record-file-edit`). 3.
+                                  Injecting secure defaults context (via
+                                  UserPromptSubmit hook or SessionStart hook,
+                                  flag: `inject-secure-defaults`). 4. Running
+                                  a Semgrep supply chain scan when an install
+                                  command is detected (via PostToolUse Bash
+                                  hook, flag: `supply-chain-scan`).
+  -a, --agent [claude|cursor|windsurf]
+                                  Agent to use for the MCP server
+  -h, --help                      Show this message and exit.
