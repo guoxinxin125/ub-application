@@ -49,3 +49,30 @@ Options:
   -a, --agent [claude|cursor|windsurf]
                                   Agent to use for the MCP server
   -h, --help                      Show this message and exit.
+
+Starting Semgrep MCP server version v1.182.0
+/root/venvs/semgrep-1.182/lib64/python3.11/site-packages/pydantic_settings/sources/utils.py:51: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.
+  warnings.warn(  # noqa: B028  (called from many sources at differing depths, so no stacklevel is correct)
+User doesn't have the Pro Engine installed, not running `semgrep mcp` daemon...
+INFO:     76.53.137.82:59874 - "POST /mcp HTTP/1.1" 200 OK
+INFO:     76.53.137.82:59890 - "POST /mcp HTTP/1.1" 202 Accepted
+semgrep_scan_with_custom_rule failed: Error running semgrep: (7) [00.07][WARNING]: !!! You're using one or more options starting with '--x-'. These options are not part of the semgrep API. They will change or will be removed without notice !!!
+
+┌──── ○○○ ────┐
+│ Semgrep CLI │
+└─────────────┘
+
+✔ Semgrep OSS
+  ✔ Basic security coverage for first-party code vulnerabilities.
+
+✘ Semgrep Code (SAST)
+  ✘ Find and fix vulnerabilities in the code you write with advanced scanning and expert security rules.
+
+✘ Semgrep Secrets
+  ✘ Detect and validate potential secrets in your code.
+
+
+  Loading rules from local config...
+
+INFO:     76.53.137.82:59900 - "POST /mcp HTTP/1.1" 200 OK
+^CStopping MCP server
