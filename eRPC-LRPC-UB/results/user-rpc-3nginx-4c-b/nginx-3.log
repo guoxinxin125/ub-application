@@ -1,0 +1,4 @@
+SN_UB_PROXY_INLINE=0
+SN_UB_PROXY_POLL_BATCH=15360
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_my_lab_2.sock
+UB: endpoint unregister failed: UB machine context: cannot connect to ub_manager at /tmp/sn_lrpc_my_lab_2.sock
