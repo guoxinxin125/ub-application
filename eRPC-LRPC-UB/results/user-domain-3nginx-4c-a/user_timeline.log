@@ -1,0 +1,14 @@
+SN_DOMAIN_CONFIG role=user_timeline enabled=1 path=domain wire_abi=2 scope=user-timeline-read source=0 clients=4 lanes=1 receivers=1 proxies=3 stride=4 connections=5 routing=per-source-lane-round-robin fallback=none
+SN_DOMAIN_PEER role=user_timeline source=1 receiver_base=1 lanes=1
+SN_DOMAIN_PEER role=user_timeline source=2 receiver_base=11 lanes=1
+SN_DOMAIN_PEER role=user_timeline source=3 receiver_base=12 lanes=1
+SN_DOMAIN_PEER role=user_timeline source=4 receiver_base=13 lanes=1
+SN_DOMAIN_INSTANCE role=user_timeline domain=2 receiver_base=2
+SN_DOMAIN_INSTANCE role=user_timeline domain=3 receiver_base=16
+SN_DOMAIN_INSTANCE role=user_timeline domain=4 receiver_base=17
+SN_DOMAIN_READY role=user_timeline lane=0 source=0 wire_abi=2 slot=0 identity=12876657091631676813 services=4 grants=0 call_path=mmap backend=ub config=B code=A astack=A chain=fused entries=2 transitions=3
+SN_DOMAIN_DONE role=user_timeline lane=0 source=0 calls=4000 backend=ub
+SN_DOMAIN_ROUTE role=user_timeline lane=0 source=0 domain=2 calls=0 backend=ub
+SN_DOMAIN_ROUTE role=user_timeline lane=0 source=0 domain=3 calls=0 backend=ub
+SN_DOMAIN_ROUTE role=user_timeline lane=0 source=0 domain=4 calls=0 backend=ub
+UB: ub_manager rejected endpoint unregister

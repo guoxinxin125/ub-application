@@ -6,5 +6,4 @@ SN_DOMAIN_PEER role=user_timeline source=4 receiver_base=13 lanes=1
 SN_DOMAIN_INSTANCE role=user_timeline domain=2 receiver_base=2
 SN_DOMAIN_INSTANCE role=user_timeline domain=3 receiver_base=16
 SN_DOMAIN_INSTANCE role=user_timeline domain=4 receiver_base=17
-terminate called after throwing an instance of 'std::system_error'
-  what():  bind: Address already in use
+UB: ub_manager rejected endpoint unregister
