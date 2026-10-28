@@ -40,6 +40,17 @@ start_file=""
 start_dir=""
 cleanup_started=0
 
+# kill -0 also succeeds for a zombie: a child that already exited but has not
+# been reaped yet. Treating it as alive makes cleanup wait out the whole grace
+# period and then report a misleading "ignored SIGTERM" for a process that
+# actually shut down cleanly, and lets the startup check miss a worker that
+# died. Read the state field from /proc instead; only Z means "already gone".
+worker_alive() {
+  local state
+  state=$(awk '{ sub(/^.*\) /, ""); print $1 }' "/proc/$1/stat" 2>/dev/null) || return 1
+  [[ -n "$state" && "$state" != Z ]]
+}
+
 cleanup() {
   if [[ "$cleanup_started" -ne 0 ]]; then
     return
@@ -59,7 +70,7 @@ cleanup() {
   for _ in $(seq 1 100); do
     workers_alive=0
     for pid in "${worker_pids[@]}"; do
-      if kill -0 "$pid" 2>/dev/null; then
+      if worker_alive "$pid"; then
         workers_alive=1
         break
       fi
@@ -71,7 +82,7 @@ cleanup() {
   # Do not let a worker that cannot complete graceful shutdown keep the local
   # manager alive forever. The manager is still deliberately stopped last.
   for pid in "${worker_pids[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
+    if worker_alive "$pid"; then
       kill -TERM "$pid" 2>/dev/null || true
     fi
   done
@@ -83,7 +94,7 @@ cleanup() {
   for _ in $(seq 1 100); do
     workers_alive=0
     for pid in "${worker_pids[@]}"; do
-      if kill -0 "$pid" 2>/dev/null; then
+      if worker_alive "$pid"; then
         workers_alive=1
         break
       fi
@@ -92,7 +103,7 @@ cleanup() {
     sleep 0.05
   done
   for index in "${!worker_pids[@]}"; do
-    if kill -0 "${worker_pids[$index]}" 2>/dev/null; then
+    if worker_alive "${worker_pids[$index]}"; then
       echo "Service ${worker_names[$index]} ignored SIGTERM; killing it so it releases its SM UDP port" >&2
       kill -KILL "${worker_pids[$index]}" 2>/dev/null || true
     fi
@@ -138,7 +149,7 @@ for name in "${services[@]}"; do
   # bind its management UDP port) otherwise only shows up as confusing
   # connection errors in the services started after it.
   for index in "${!worker_pids[@]}"; do
-    if ! kill -0 "${worker_pids[$index]}" 2>/dev/null; then
+    if ! worker_alive "${worker_pids[$index]}"; then
       echo "Service ${worker_names[$index]} exited during startup; inspect $LOG_DIR/${worker_names[$index]}*.log" >&2
       exit 1
     fi
@@ -187,7 +198,7 @@ if [[ -n "$start_file" ]]; then
     done
     ((armed == ${#client_logs[@]})) && break
     for pid in "${client_pids[@]}"; do
-      if ! kill -0 "$pid" 2>/dev/null; then
+      if ! worker_alive "$pid"; then
         echo "Client exited before start barrier; inspect $LOG_DIR/client-*.log" >&2
         exit 1
       fi

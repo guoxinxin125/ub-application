@@ -61,11 +61,19 @@ void connect_sessions(ClientContext *c) {
         (home ? c->domain_home_session : c->domain_user_session) = session;
     }
     if (sn_measure::rpc_baseline()) {
-        const std::string address = config_json_all.at("nginx").at("server_addr").get<std::string>();
-        c->baseline_nginx_session = c->rpc_->create_session(address, get_remote_rpc_id(address));
-        if (c->baseline_nginx_session < 0) sn_domain::fail("client", 0, "create-nginx-probe", 0, EHOSTUNREACH);
+        // Every LB target needs its own readiness session: the LB may forward
+        // to any registered nginx, not only the base endpoint.
+        c->baseline_nginx_sessions.clear();
+        for (const auto &instance : sn_domain::nginx_instances()) {
+            const int session = c->rpc_->create_session(instance.address,
+                static_cast<uint8_t>(instance.rpc_id));
+            if (session < 0) sn_domain::fail("client", 0, "create-nginx-probe", 0, EHOSTUNREACH);
+            c->baseline_nginx_sessions.push_back(session);
+        }
+        c->baseline_nginx_session = c->baseline_nginx_sessions.front();
     }
-    const size_t expected = sn_measure::rpc_baseline() ? 4 : 2;
+    const size_t expected = sn_measure::rpc_baseline()
+        ? 3 + c->baseline_nginx_sessions.size() : 2;
     const uint64_t deadline = (sn_domain::enabled() || sn_measure::rpc_baseline()) ? sn_domain::now_ns() + UINT64_C(30000000000) : 0;
     while (c->num_sm_resps_ != expected) {
         c->rpc_->run_event_loop(kAppEvLoopMs);
@@ -620,7 +628,8 @@ void client_thread_func(size_t thread_id, ClientContext *ctx, erpc::Nexus *nexus
         domain_wait_ready(ctx, ctx->post_storage_session_num_, "post-storage-ready");
         if (sn_measure::rpc_baseline()) {
             domain_wait_ready(ctx, ctx->load_balance_session_num_, "load-balance-ready");
-            domain_wait_ready(ctx, ctx->baseline_nginx_session, "nginx-ready");
+            for (int session : ctx->baseline_nginx_sessions)
+                domain_wait_ready(ctx, session, "nginx-ready");
         }
     }
 

@@ -153,6 +153,7 @@ class ClientContext : public BasicContext {
   int domain_user_session = -1;
   int domain_home_session = -1;
   int baseline_nginx_session = -1;
+  std::vector<int> baseline_nginx_sessions;
   int domain_ready_status = -1;
   std::atomic<uint32_t> domain_inflight[kAppMaxBuffer]{};
   std::atomic<uint64_t> domain_completed{0};
