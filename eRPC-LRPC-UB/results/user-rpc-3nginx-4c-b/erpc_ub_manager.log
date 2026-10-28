@@ -1,0 +1,21 @@
+ub_manager: machine=2 region=sn_lrpc_my_lab_0000000000000002 bytes=2147483648 socket=/tmp/sn_lrpc_my_lab_2.sock
+ub_manager: shutting down region=sn_lrpc_my_lab_0000000000000002; waiting up to 30000 ms for peer mappings
+[2026-10-28 10:55:54.703 +08:00][ERROR][1995726][281473809776672][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_my_lab_0000000000000002
+[2026-10-28 10:55:54.703 +08:00][ERROR][1995726][281473809776672][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-28 10:55:54.703 +08:00][ERROR][1995726][281473809776672][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-28 10:55:55.204 +08:00][ERROR][1995726][281473809776672][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_my_lab_0000000000000002
+[2026-10-28 10:55:55.204 +08:00][ERROR][1995726][281473809776672][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-28 10:55:55.204 +08:00][ERROR][1995726][281473809776672][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-28 10:55:55.706 +08:00][ERROR][1995726][281473809776672][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_my_lab_0000000000000002
+[2026-10-28 10:55:55.707 +08:00][ERROR][1995726][281473809776672][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-28 10:55:55.707 +08:00][ERROR][1995726][281473809776672][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-28 10:55:56.209 +08:00][ERROR][1995726][281473809776672][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_my_lab_0000000000000002
+[2026-10-28 10:55:56.209 +08:00][ERROR][1995726][281473809776672][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-28 10:55:56.209 +08:00][ERROR][1995726][281473809776672][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-28 10:55:56.711 +08:00][ERROR][1995726][281473809776672][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_my_lab_0000000000000002
+[2026-10-28 10:55:56.711 +08:00][ERROR][1995726][281473809776672][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-28 10:55:56.711 +08:00][ERROR][1995726][281473809776672][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+[2026-10-28 10:55:57.213 +08:00][ERROR][1995726][281473809776672][shm_ipc_command.cpp:109] IpcCall ShmDelete response error : 603 name sn_lrpc_my_lab_0000000000000002
+[2026-10-28 10:55:57.213 +08:00][ERROR][1995726][281473809776672][RackMemShm.cpp:448] ShmIpcCommand::IpcCallShmDelete Delete error 603
+[2026-10-28 10:55:57.213 +08:00][ERROR][1995726][281473809776672][mxmem_shmem.cpp:417] UbsMemShmDelete failed, ret:603
+UB: deleted region sn_lrpc_my_lab_0000000000000002 after 7 attempts while peers released their mappings
