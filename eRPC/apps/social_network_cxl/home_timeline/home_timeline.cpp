@@ -807,11 +807,7 @@ void leader_thread_func()
     }
 
     sleep(2);
-    if (FLAGS_timeout_second != UINT64_MAX)
-    {
-        sleep(FLAGS_timeout_second);
-        ctrl_c_pressed = true;
-    }
+    wait_for_shutdown_or_timeout(FLAGS_timeout_second);
 
     mongodb_init_thread.join();
     for (size_t i = 0; i < FLAGS_client_num; i++)

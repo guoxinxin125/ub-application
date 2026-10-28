@@ -51,6 +51,22 @@ worker_alive() {
   [[ -n "$state" && "$state" != Z ]]
 }
 
+# A worker still alive after both signals is about to be killed. Record where
+# each of its threads is blocked: a spinning thread (state R, no wchan) means
+# the ctrl_c flag was never raised, while a thread waiting in futex/ep_poll
+# means shutdown is stuck inside a driver or library call.
+report_stuck_worker() {
+  local pid=$1 name=$2 state wchan tid
+  state=$(awk '{ sub(/^.*\) /, ""); print $1 }' "/proc/$pid/stat" 2>/dev/null)
+  echo "Service $name ignored SIGTERM (pid=$pid state=${state:-?}); killing it so it releases its SM UDP port" >&2
+  for tid in "/proc/$pid"/task/*; do
+    [[ -r "$tid/stat" ]] || continue
+    state=$(awk '{ sub(/^.*\) /, ""); print $1 }' "$tid/stat" 2>/dev/null)
+    wchan=$(cat "$tid/wchan" 2>/dev/null)
+    echo "  thread tid=${tid##*/} state=${state:-?} wchan=${wchan:-none}" >&2
+  done
+}
+
 cleanup() {
   if [[ "$cleanup_started" -ne 0 ]]; then
     return
@@ -104,7 +120,7 @@ cleanup() {
   done
   for index in "${!worker_pids[@]}"; do
     if worker_alive "${worker_pids[$index]}"; then
-      echo "Service ${worker_names[$index]} ignored SIGTERM; killing it so it releases its SM UDP port" >&2
+      report_stuck_worker "${worker_pids[$index]}" "${worker_names[$index]}"
       kill -KILL "${worker_pids[$index]}" 2>/dev/null || true
     fi
   done

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <array>
 #include <nlohmann/json.hpp>
 #include <csignal>
@@ -199,6 +200,21 @@ static constexpr size_t kAppEvLoopMs = 1000;
 
 volatile sig_atomic_t ctrl_c_pressed = 0;
 void ctrl_c_handler(int) { ctrl_c_pressed = 1; }
+
+// A process-directed signal may be handled by a different worker thread, so
+// one long sleep(timeout_second) in the leader is not a shutdown wait.
+inline void wait_for_shutdown_or_timeout(uint64_t timeout_seconds) {
+    const auto begin = std::chrono::steady_clock::now();
+    while (!ctrl_c_pressed) {
+        if (timeout_seconds != UINT64_MAX &&
+            static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - begin).count()) >= timeout_seconds) {
+            ctrl_c_pressed = 1;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
 
 json config_json_all;
 
