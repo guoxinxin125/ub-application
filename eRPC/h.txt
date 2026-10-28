@@ -84,3 +84,42 @@ python3 test_mcp_client.py
 HTTP 状态码: 200
 扫描返回内容:
  {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"Error executing tool semgrep_scan_with_custom_rule: Error running semgrep: (7) [00.07][WARNING]: !!! You're using one or more options starting with '--x-'. These options are not part of the semgrep API. They will change or will be removed without notice !!! \n\n┌──── \u001b[32m○○○\u001b[39m ────┐\n│ Semgrep CLI │\n└─────────────┘\n\n✔ Semgrep OSS\n  ✔ Basic security coverage for first-party code vulnerabilities.\n\n✘ Semgrep Code (SAST)\n  ✘ Find and fix vulnerabilities in the code you write with advanced scanning and expert s
+
+退出码 RC: 0
+=== 真实报错 STDOUT ===
+ {"version":"1.182.0","results":[{"check_id":"t","path":"/dev/shm/tmp0zij5szr/test.c","start":{"line":1,"col":26,"offset":25},"end":{"line":1,"col":40,"offset":39},"extra":{"message":"m","metadata":{},"severity":"WARNING","fingerprint":"requires login","lines":"requires login","validation_state":"NO_VALIDATOR","engine_kind":"OSS"}}],"errors":[],"paths":{"scanned":["/dev/shm/tmp0zij5szr/test.c"]},"time":{"rules":[],"rules_parse_time":1.1920928955078125e-05,"profiling_times":{},"parsing_time":{"total_time":0.006814002990722656,"per_file_time":{"mean":0.006814002990722656,"std_dev":0.0},"very_slow_stats":{"time_ratio":0.0,"count_ratio":0.0},"very_slow_files":[]},"scanning_time":{"total_time":0.011276006698608398,"per_file_time":{"mean":0.011276006698608398,"std_dev":0.0},"very_slow_stats":{"time_ratio":0.0,"count_ratio":0.0},"very_slow_files":[]},"matching_time":{"total_time":0.0043070316314697266,"per_file_and_rule_time":{"mean":0.0043070316314697266,"std_dev":0.0},"very_slow_stats":{"time_ratio":0.0,"count_ratio":0.0},"very_slow_rules_on_files":[]},"tainting_time":{"total_time":0.0,"per_def_and_rule_time":{"mean":0.0,"std_dev":0.0},"very_slow_stats":{"time_ratio":0.0,"count_ratio":0.0},"very_slow_rules_on_defs":[]},"fixpoint_timeouts":[],"prefiltering":{"project_level_time":0.0,"file_level_time":0.0,"rules_with_project_prefilters_ratio":0.0,"rules_with_file_prefilters_ratio":1.0,"rules_selected_ratio":1.0,"rules_matched_ratio":1.0},"targets":[],"total_bytes":0,"max_memory_bytes":90184512},"engine_requested":"OSS","skipped_rules":[],"profiling_results":[]}
+
+=== 真实报错 STDERR ===
+ [00.07][WARNING]: !!! You're using one or more options starting with '--x-'. These options are not part of the semgrep API. They will change or will be removed without notice !!!
+
+┌──── ○○○ ────┐
+│ Semgrep CLI │
+└─────────────┘
+
+✔ Semgrep OSS
+  ✔ Basic security coverage for first-party code vulnerabilities.
+
+✘ Semgrep Code (SAST)
+  ✘ Find and fix vulnerabilities in the code you write with advanced scanning and expert security rules.
+
+✘ Semgrep Secrets
+  ✘ Detect and validate potential secrets in your code.
+
+
+  Loading rules from local config...
+
+
+┌─────────────┐
+│ Scan Status │
+└─────────────┘
+  Scanning 2 files tracked by git with 1 Code rule:
+  Scanning 2 files.
+
+
+┌──────────────┐
+│ Scan Summary │
+└──────────────┘
+Some files were skipped or only partially analyzed.
+  Scan was limited to files tracked by git.
+
+Ran 1 rule on 1 file: 1 finding.
