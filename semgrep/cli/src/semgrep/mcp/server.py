@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import sys
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
