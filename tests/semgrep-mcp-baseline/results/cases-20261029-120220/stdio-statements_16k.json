@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "timestamp_utc": "2026-10-29T04:18:42.850776+00:00",
+  "transport": "stdio",
+  "endpoint": "stdio-child",
+  "tool": "semgrep_scan_with_custom_rule",
+  "local_semgrep_version": null,
+  "source_file": "statements_16k.py",
+  "source_bytes": 16384,
+  "source_sha256": "b955c8db30eb0a7373f0c462052f6be31c6f91674e32baeec0443799d46c83bd",
+  "rule_sha256": "108abd47d81751cbce2bd3207ac8905d5f1dd16a611ec5024997f9b59ab890e6",
+  "request_bytes_json": 17364,
+  "response_bytes_json": 1474,
+  "call_elapsed_ns": 244855380,
+  "response": {
+    "meta": null,
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"version\": \"1.182.0\",\n  \"results\": [\n    {\n      \"check_id\": \"baseline.python.eval-call\",\n      \"path\": \"statements_16k.py\",\n      \"start\": {\n        \"line\": 3,\n        \"col\": 12,\n        \"offset\": 91\n      },\n      \"end\": {\n        \"line\": 3,\n        \"col\": 28,\n        \"offset\": 107\n      },\n      \"extra\": {\n        \"message\": \"Avoid eval() on Python code.\",\n        \"metadata\": {},\n        \"severity\": \"WARNING\",\n        \"fingerprint\": \"requires login\",\n        \"lines\": \"requires login\",\n        \"validation_state\": \"NO_VALIDATOR\",\n        \"engine_kind\": \"OSS\"\n      }\n    }\n  ],\n  \"errors\": [],\n  \"paths\": {\n    \"scanned\": [\n      \"statements_16k.py\"\n    ]\n  },\n  \"skipped_rules\": [],\n  \"mcp_scan_results\": {}\n}",
+        "annotations": null,
+        "meta": null
+      }
+    ],
+    "structuredContent": {
+      "version": "1.182.0",
+      "results": [
+        {
+          "check_id": "baseline.python.eval-call",
+          "path": "statements_16k.py",
+          "start": {
+            "line": 3,
+            "col": 12,
+            "offset": 91
+          },
+          "end": {
+            "line": 3,
+            "col": 28,
+            "offset": 107
+          },
+          "extra": {
+            "message": "Avoid eval() on Python code.",
+            "metadata": {},
+            "severity": "WARNING",
+            "fingerprint": "requires login",
+            "lines": "requires login",
+            "validation_state": "NO_VALIDATOR",
+            "engine_kind": "OSS"
+          }
+        }
+      ],
+      "errors": [],
+      "paths": {
+        "scanned": [
+          "statements_16k.py"
+        ]
+      },
+      "skipped_rules": [],
+      "mcp_scan_results": {}
+    },
+    "isError": false
+  }
+}

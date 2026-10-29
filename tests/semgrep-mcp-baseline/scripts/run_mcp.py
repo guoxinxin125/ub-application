@@ -58,7 +58,14 @@ async def main():
         env = os.environ.copy()
         env["SEMGREP_IS_HOSTED"] = "true"
         env["SEMGREP_SEND_METRICS"] = "off"
-        params = StdioServerParameters(command=executable, args=["mcp", "-t", "stdio"], env=env)
+        # Disable OpenTelemetry tracing/log export (telemetry.semgrep.dev)
+        # so startup stays fully offline.
+        env["SEMGREP_MCP_DISABLE_TRACING"] = "true"
+        # --no-auth skips the OAuth well-known metadata fetch to semgrep.dev,
+        # which would otherwise fail on machines without DNS/network access.
+        params = StdioServerParameters(
+            command=executable, args=["mcp", "-t", "stdio", "--no-auth"], env=env
+        )
         async with stdio_client(params) as (reader, writer):
             async with ClientSession(reader, writer) as session:
                 response, elapsed_ns = await call(session, source, rule, args.source.name)
