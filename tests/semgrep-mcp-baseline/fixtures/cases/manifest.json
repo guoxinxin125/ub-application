@@ -1,0 +1,47 @@
+{
+  "description": "Synthetic inputs; one eval finding per file at line 3. Byte sizes use UTF-8 LF.",
+  "cases": [
+    {
+      "file": "fixtures/cases/comments_1k.py",
+      "kind": "comments",
+      "bytes": 1024,
+      "lines": 18,
+      "expected": "fixtures/cases/comments_1k.py.expected.json"
+    },
+    {
+      "file": "fixtures/cases/statements_1k.py",
+      "kind": "statements",
+      "bytes": 1024,
+      "lines": 48,
+      "expected": "fixtures/cases/statements_1k.py.expected.json"
+    },
+    {
+      "file": "fixtures/cases/comments_4k.py",
+      "kind": "comments",
+      "bytes": 4096,
+      "lines": 64,
+      "expected": "fixtures/cases/comments_4k.py.expected.json"
+    },
+    {
+      "file": "fixtures/cases/statements_4k.py",
+      "kind": "statements",
+      "bytes": 4096,
+      "lines": 191,
+      "expected": "fixtures/cases/statements_4k.py.expected.json"
+    },
+    {
+      "file": "fixtures/cases/comments_16k.py",
+      "kind": "comments",
+      "bytes": 16384,
+      "lines": 247,
+      "expected": "fixtures/cases/comments_16k.py.expected.json"
+    },
+    {
+      "file": "fixtures/cases/statements_16k.py",
+      "kind": "statements",
+      "bytes": 16384,
+      "lines": 749,
+      "expected": "fixtures/cases/statements_16k.py.expected.json"
+    }
+  ]
+}

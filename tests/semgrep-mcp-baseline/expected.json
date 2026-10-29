@@ -1,0 +1,6 @@
+{
+  "findings": [
+    {"check_id": "baseline.python.eval-call", "path": "sample.py", "line": 2},
+    {"check_id": "baseline.python.eval-call", "path": "sample.py", "line": 10}
+  ]
+}

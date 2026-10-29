@@ -1,0 +1,6 @@
+rules:
+  - id: baseline.python.eval-call
+    languages: [python]
+    severity: WARNING
+    message: Avoid eval() on Python code.
+    pattern: eval($X)

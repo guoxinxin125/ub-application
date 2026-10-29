@@ -1,0 +1,112 @@
+diff --git a/src/core_scan/Core_scan.ml b/src/core_scan/Core_scan.ml
+--- a/src/core_scan/Core_scan.ml
++++ b/src/core_scan/Core_scan.ml
+@@ -1108,18 +1108,17 @@ let post_nosemgrep ~strict pm =
+ (*****************************************************************************)
+ (* Entry point *)
+ (*****************************************************************************)
+
+-(* This is the main function used by pysemgrep right now.
+- * This is also now called from osemgrep.
+- * It takes a set of rules and a set of targets and iteratively process those
+- * targets.
+- * coupling: with Pro_scan.scan() which is a copy paste mostly
+- *)
+-let scan (config : Core_scan_config.t) : Core_result.result_or_exn =
++(* Keep rule preparation separate so a persistent caller can reuse the same
++ * parsed rule objects across scans without bypassing the real scan path. *)
++let prepare_rules (config : Core_scan_config.t) :
++    Rule_error.rules_and_invalid * float =
++  Common.with_time (fun () -> applicable_rules_of_config config)
++
++let scan_with_prepared_rules (config : Core_scan_config.t)
++    (timed_rules : Rule_error.rules_and_invalid * float) :
++    Core_result.result_or_exn =
+   try
+-    let timed_rules =
+-      Common.with_time (fun () -> applicable_rules_of_config config)
+-    in
+     let res : Core_result.t = scan_exn config timed_rules in
+     Ok
+       (res
+@@ -1134,3 +1136,18 @@ let scan (config : Core_scan_config.t) : Core_result.result_or_exn =
+           m "Uncaught exn in Core_scan.scan: %s" (Exception.to_string e));
+       Error e
+
++(* Main entry point used by pysemgrep and osemgrep.
++ * coupling: with Pro_scan.scan() which is a copy paste mostly *)
++let scan (config : Core_scan_config.t) : Core_result.result_or_exn =
++  try
++    let timed_rules = prepare_rules config in
++    scan_with_prepared_rules config timed_rules
++  with
++  | exn ->
++      let raw_bt = Printexc.get_raw_backtrace () in
++      let e = Exception.catch exn in
++      if Hook.get Flag_semgrep.fail_fast then Exception.reraise e
++      else Tracing.record_exn_curr_span exn raw_bt;
++      Logs.err (fun m ->
++          m "Uncaught exn in Core_scan.scan: %s" (Exception.to_string e));
++      Error e
+diff --git a/src/core_scan/Core_scan.mli b/src/core_scan/Core_scan.mli
+--- a/src/core_scan/Core_scan.mli
++++ b/src/core_scan/Core_scan.mli
+@@ -29,5 +29,19 @@ type func = Core_scan_config.t -> Core_result.result_or_exn
+  *)
+ val scan : Core_scan_config.t -> Core_result.result_or_exn
+
++(** Prepare parsed rules once for a persistent series of scans. Rule selection
++    is computed from this configuration, so the caller must not silently
++    change the rule set or applicable target policy between calls. *)
++val prepare_rules :
++  Core_scan_config.t -> Rule_error.rules_and_invalid * float
++
++(** Scan using a rule set prepared by [prepare_rules]. This calls the same parser, matcher, and
++    post-processing path as [scan] but does not reload rules on each call.
++    The caller must keep the rule selection and scan configuration compatible
++    across calls. Intended for a persistent, single-job scanning service. *)
++val scan_with_prepared_rules :
++  Core_scan_config.t ->
++  Rule_error.rules_and_invalid * float ->
++  Core_result.result_or_exn
+
+ (*****************************************************************************)
+diff --git a/src/core_cli/Test_core_CLI.ml b/src/core_cli/Test_core_CLI.ml
+--- a/src/core_cli/Test_core_CLI.ml
++++ b/src/core_cli/Test_core_CLI.ml
+@@ -95,2 +95,35 @@ let semgrep_core_tests : Testo.t list =
+           run_main cmd |> assert_Ok);
++      t "prepared rules scan twice in one process" (fun () ->
++          let rule = Fpath.v "tests/semgrep-core-e2e/rules/basic.yaml" in
++          let target =
++            Fpath.v "tests/semgrep-core-e2e/targets/basic.py"
++            |> Target.mk_unfilterable_lang_target Lang.Python
++          in
++          let config =
++            {
++              Core_scan_config.default with
++              rule_source = Core_scan_config.Rule_files [ rule ];
++              target_source = Core_scan_config.Targets [ target ];
++              output_format = Core_scan_config.NoOutput;
++              num_jobs = Core_scan_config.Force 1;
++              par_conf = Parallelism_config.Process;
++              use_parmap = true;
++            }
++          in
++          let prepared = Core_scan.prepare_rules config in
++          let signature = function
++            | Error _ -> failwith "core scan failed"
++            | Ok result ->
++                if result.errors <> [] then failwith "core scan returned errors";
++                result.processed_matches
++                |> List.map (fun found ->
++                       let start_loc, _ = found.pm.range_loc in
++                       start_loc.pos.line)
++                |> List.sort Int.compare
++          in
++          let first = Core_scan.scan_with_prepared_rules config prepared |> signature in
++          let second = Core_scan.scan_with_prepared_rules config prepared |> signature in
++          let original = Core_scan.scan config |> signature in
++          if first = [] || first <> second || first <> original then
++            failwith "reused rules changed scan findings");
+     ]
