@@ -39,15 +39,22 @@ def main():
     parser.add_argument("--expected", type=Path, default=ROOT / "expected.json")
     args = parser.parse_args()
     expected = json.loads(args.expected.read_text(encoding="utf-8"))
-    actual = unwrap(json.loads(args.result.read_text(encoding="utf-8")))
-    if actual.get("errors"):
-        raise SystemExit(f"SCAN_ERRORS: {actual['errors']}")
+    document = json.loads(args.result.read_text(encoding="utf-8"))
     expected_keys = sorted((x["check_id"], x["path"], x["line"])
                            for x in expected["findings"])
-    actual_keys = sorted(finding_key(x) for x in actual["results"])
-    if actual_keys != expected_keys:
-        raise SystemExit(f"FINDINGS_FAIL expected={expected_keys} actual={actual_keys}")
-    print(f"FINDINGS_PASS count={len(actual_keys)} keys={actual_keys}")
+    records = document.get("samples", [document])
+    for index, record in enumerate(records):
+        if record.get("response", {}).get("isError"):
+            raise SystemExit(f"MCP_ERROR sample={index}")
+        actual = unwrap(record)
+        if actual.get("errors"):
+            raise SystemExit(f"SCAN_ERRORS sample={index}: {actual['errors']}")
+        actual_keys = sorted(finding_key(x) for x in actual["results"])
+        if actual_keys != expected_keys:
+            raise SystemExit(f"FINDINGS_FAIL sample={index} expected={expected_keys} actual={actual_keys}")
+    if not records:
+        raise SystemExit("FINDINGS_FAIL no samples")
+    print(f"FINDINGS_PASS samples={len(records)} count={len(actual_keys)} keys={actual_keys}")
 
 
 if __name__ == "__main__":
