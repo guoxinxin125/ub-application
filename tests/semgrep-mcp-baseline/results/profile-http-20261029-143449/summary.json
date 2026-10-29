@@ -1,0 +1,692 @@
+[
+  {
+    "samples": 100,
+    "end_to_end_ms": {
+      "avg": 179.14443930000002,
+      "p50": 179.11781,
+      "p99": 186.48776
+    },
+    "phases": {
+      "workspace_ns": {
+        "avg_ms": 3.0884934,
+        "p50_ms": 3.0197,
+        "p99_ms": 4.56393,
+        "share_percent": 1.7240241517225816
+      },
+      "validation_ns": {
+        "avg_ms": 0.0036663000000000004,
+        "p50_ms": 0.00361,
+        "p99_ms": 0.00459,
+        "share_percent": 0.002046560872514897
+      },
+      "input_prepare_ns": {
+        "avg_ms": 0.1937428,
+        "p50_ms": 0.19093,
+        "p99_ms": 0.22687,
+        "share_percent": 0.10814893320554216
+      },
+      "rule_write_ns": {
+        "avg_ms": 0.0224012,
+        "p50_ms": 0.02186,
+        "p99_ms": 0.03524,
+        "share_percent": 0.012504546659406134
+      },
+      "scan_args_ns": {
+        "avg_ms": 0.0015490999999999999,
+        "p50_ms": 0.00153,
+        "p99_ms": 0.00185,
+        "share_percent": 0.0008647212305629182
+      },
+      "scan_backend_ns": {
+        "avg_ms": 160.3359145,
+        "p50_ms": 160.1065,
+        "p99_ms": 167.93669,
+        "share_percent": 89.50091620287317
+      },
+      "engine_profile_decode_ns": {
+        "avg_ms": 0.0515111,
+        "p50_ms": 0.05128,
+        "p99_ms": 0.05757,
+        "share_percent": 0.028753948602188068
+      },
+      "result_decode_ns": {
+        "avg_ms": 0.0444089,
+        "p50_ms": 0.04279,
+        "p99_ms": 0.06477,
+        "share_percent": 0.024789438161478005
+      },
+      "scan_metrics_ns": {
+        "avg_ms": 0.7784776,
+        "p50_ms": 0.77904,
+        "p99_ms": 0.85432,
+        "share_percent": 0.4345530361097845
+      },
+      "normalize_ns": {
+        "avg_ms": 0.0220583,
+        "p50_ms": 0.02177,
+        "p99_ms": 0.03151,
+        "share_percent": 0.012313136866649034
+      },
+      "cleanup_ns": {
+        "avg_ms": 0.0654754,
+        "p50_ms": 0.06417,
+        "p99_ms": 0.07701,
+        "share_percent": 0.03654894355406319
+      },
+      "other_tool_ns": {
+        "avg_ms": 0.1495467,
+        "p50_ms": 0.15027,
+        "p99_ms": 0.18837,
+        "share_percent": 0.08347828187374834
+      },
+      "outside_tool_ns": {
+        "avg_ms": 14.387194,
+        "p50_ms": 13.96694,
+        "p99_ms": 17.53122,
+        "share_percent": 8.031058098268305
+      }
+    },
+    "share_definition": "sum of paired phase durations / sum of end-to-end durations",
+    "outside_tool_definition": "transport + framework + encoding/decoding + scheduling + profiling response overhead; NOT pure network",
+    "native_engine_diagnostics": {
+      "rules_parse_time": {
+        "samples": 100,
+        "avg_ms": 0.009856224060058594
+      },
+      "target_parse_times_sum": {
+        "samples": 100,
+        "avg_ms": 6.704363822937012
+      },
+      "target_match_times_sum": {
+        "samples": 100,
+        "avg_ms": 2.286820411682129
+      }
+    },
+    "native_definition": "Semgrep --time seconds converted to ms; nested/possibly overlapping, not added to top-level shares",
+    "group": {
+      "transport": "http",
+      "endpoint": "http://76.53.137.82:8000/mcp",
+      "source_file": "comments_16k.py",
+      "source_sha256": "03ab6a679484b98c4e45edee1765f28a5516eaf242e5541303949a455342c99e",
+      "rule_sha256": "108abd47d81751cbce2bd3207ac8905d5f1dd16a611ec5024997f9b59ab890e6",
+      "server_version": "1.182.0",
+      "backend": "cli-custom-rule",
+      "engine_time_enabled": true
+    }
+  },
+  {
+    "samples": 100,
+    "end_to_end_ms": {
+      "avg": 186.0521746,
+      "p50": 187.13179,
+      "p99": 190.74303
+    },
+    "phases": {
+      "workspace_ns": {
+        "avg_ms": 3.0153655,
+        "p50_ms": 2.988,
+        "p99_ms": 4.26717,
+        "share_percent": 1.6207096243206178
+      },
+      "validation_ns": {
+        "avg_ms": 0.0037556,
+        "p50_ms": 0.00374,
+        "p99_ms": 0.00419,
+        "share_percent": 0.0020185735576992284
+      },
+      "input_prepare_ns": {
+        "avg_ms": 0.1859445,
+        "p50_ms": 0.18468,
+        "p99_ms": 0.1988,
+        "share_percent": 0.09994212666407609
+      },
+      "rule_write_ns": {
+        "avg_ms": 0.021657700000000002,
+        "p50_ms": 0.02138,
+        "p99_ms": 0.03013,
+        "share_percent": 0.011640659426079076
+      },
+      "scan_args_ns": {
+        "avg_ms": 0.0015397,
+        "p50_ms": 0.00151,
+        "p99_ms": 0.00192,
+        "share_percent": 0.0008275635602272611
+      },
+      "scan_backend_ns": {
+        "avg_ms": 168.037132,
+        "p50_ms": 169.60599,
+        "p99_ms": 172.40403,
+        "share_percent": 90.31720933188168
+      },
+      "engine_profile_decode_ns": {
+        "avg_ms": 0.0528413,
+        "p50_ms": 0.05269,
+        "p99_ms": 0.05836,
+        "share_percent": 0.02840133425669726
+      },
+      "result_decode_ns": {
+        "avg_ms": 0.048620699999999996,
+        "p50_ms": 0.04801,
+        "p99_ms": 0.06298,
+        "share_percent": 0.026132830806482817
+      },
+      "scan_metrics_ns": {
+        "avg_ms": 0.7622747,
+        "p50_ms": 0.76001,
+        "p99_ms": 0.88732,
+        "share_percent": 0.4097101802969198
+      },
+      "normalize_ns": {
+        "avg_ms": 0.0223543,
+        "p50_ms": 0.02205,
+        "p99_ms": 0.02796,
+        "share_percent": 0.012015070529576063
+      },
+      "cleanup_ns": {
+        "avg_ms": 0.0618651,
+        "p50_ms": 0.06074,
+        "p99_ms": 0.07179,
+        "share_percent": 0.03325147912568392
+      },
+      "other_tool_ns": {
+        "avg_ms": 0.1524222,
+        "p50_ms": 0.15234,
+        "p99_ms": 0.18762,
+        "share_percent": 0.08192443884501632
+      },
+      "outside_tool_ns": {
+        "avg_ms": 13.6864013,
+        "p50_ms": 13.42259,
+        "p99_ms": 16.31773,
+        "share_percent": 7.3562167867292425
+      }
+    },
+    "share_definition": "sum of paired phase durations / sum of end-to-end durations",
+    "outside_tool_definition": "transport + framework + encoding/decoding + scheduling + profiling response overhead; NOT pure network",
+    "native_engine_diagnostics": {
+      "rules_parse_time": {
+        "samples": 100,
+        "avg_ms": 0.010743141174316406
+      },
+      "target_parse_times_sum": {
+        "samples": 100,
+        "avg_ms": 6.437475681304932
+      },
+      "target_match_times_sum": {
+        "samples": 100,
+        "avg_ms": 2.263920307159424
+      }
+    },
+    "native_definition": "Semgrep --time seconds converted to ms; nested/possibly overlapping, not added to top-level shares",
+    "group": {
+      "transport": "http",
+      "endpoint": "http://76.53.137.82:8000/mcp",
+      "source_file": "comments_1k.py",
+      "source_sha256": "967370cc416480fdd48e608c3b86140b41ddcbe68918a0d5fdb6d875eff79c82",
+      "rule_sha256": "108abd47d81751cbce2bd3207ac8905d5f1dd16a611ec5024997f9b59ab890e6",
+      "server_version": "1.182.0",
+      "backend": "cli-custom-rule",
+      "engine_time_enabled": true
+    }
+  },
+  {
+    "samples": 100,
+    "end_to_end_ms": {
+      "avg": 190.057563,
+      "p50": 189.62821,
+      "p99": 193.78849
+    },
+    "phases": {
+      "workspace_ns": {
+        "avg_ms": 3.3082232,
+        "p50_ms": 3.07794,
+        "p99_ms": 5.33346,
+        "share_percent": 1.7406427546374463
+      },
+      "validation_ns": {
+        "avg_ms": 0.0037765999999999997,
+        "p50_ms": 0.00375,
+        "p99_ms": 0.00422,
+        "share_percent": 0.001987082197828665
+      },
+      "input_prepare_ns": {
+        "avg_ms": 0.18884779999999998,
+        "p50_ms": 0.18757,
+        "p99_ms": 0.21079,
+        "share_percent": 0.0993634754750591
+      },
+      "rule_write_ns": {
+        "avg_ms": 0.0220594,
+        "p50_ms": 0.02186,
+        "p99_ms": 0.02485,
+        "share_percent": 0.011606694125610776
+      },
+      "scan_args_ns": {
+        "avg_ms": 0.0015402,
+        "p50_ms": 0.00152,
+        "p99_ms": 0.00183,
+        "share_percent": 0.0008103860618269634
+      },
+      "scan_backend_ns": {
+        "avg_ms": 170.818984,
+        "p50_ms": 170.79093,
+        "p99_ms": 173.17507,
+        "share_percent": 89.8774988501773
+      },
+      "engine_profile_decode_ns": {
+        "avg_ms": 0.0533466,
+        "p50_ms": 0.05282,
+        "p99_ms": 0.058,
+        "share_percent": 0.02806865412664478
+      },
+      "result_decode_ns": {
+        "avg_ms": 0.0485995,
+        "p50_ms": 0.04841,
+        "p99_ms": 0.05581,
+        "share_percent": 0.0255709371586544
+      },
+      "scan_metrics_ns": {
+        "avg_ms": 0.7645803000000001,
+        "p50_ms": 0.75856,
+        "p99_ms": 0.85194,
+        "share_percent": 0.4022888055236192
+      },
+      "normalize_ns": {
+        "avg_ms": 0.022225099999999998,
+        "p50_ms": 0.0221,
+        "p99_ms": 0.02379,
+        "share_percent": 0.011693878238352452
+      },
+      "cleanup_ns": {
+        "avg_ms": 0.0618213,
+        "p50_ms": 0.06012,
+        "p99_ms": 0.07409,
+        "share_percent": 0.032527671629673585
+      },
+      "other_tool_ns": {
+        "avg_ms": 0.1499987,
+        "p50_ms": 0.14926,
+        "p99_ms": 0.17087,
+        "share_percent": 0.07892277351783154
+      },
+      "outside_tool_ns": {
+        "avg_ms": 14.613560300000001,
+        "p50_ms": 14.0753,
+        "p99_ms": 17.45528,
+        "share_percent": 7.689018037130151
+      }
+    },
+    "share_definition": "sum of paired phase durations / sum of end-to-end durations",
+    "outside_tool_definition": "transport + framework + encoding/decoding + scheduling + profiling response overhead; NOT pure network",
+    "native_engine_diagnostics": {
+      "rules_parse_time": {
+        "samples": 100,
+        "avg_ms": 0.010781288146972656
+      },
+      "target_parse_times_sum": {
+        "samples": 100,
+        "avg_ms": 6.782243251800537
+      },
+      "target_match_times_sum": {
+        "samples": 100,
+        "avg_ms": 2.293057441711426
+      }
+    },
+    "native_definition": "Semgrep --time seconds converted to ms; nested/possibly overlapping, not added to top-level shares",
+    "group": {
+      "transport": "http",
+      "endpoint": "http://76.53.137.82:8000/mcp",
+      "source_file": "comments_4k.py",
+      "source_sha256": "9001bc04a8a1097f00d7873ce34ecfe81fddbe0707b36d0b0245e526ee1deb97",
+      "rule_sha256": "108abd47d81751cbce2bd3207ac8905d5f1dd16a611ec5024997f9b59ab890e6",
+      "server_version": "1.182.0",
+      "backend": "cli-custom-rule",
+      "engine_time_enabled": true
+    }
+  },
+  {
+    "samples": 100,
+    "end_to_end_ms": {
+      "avg": 204.505488,
+      "p50": 202.16813,
+      "p99": 216.84006
+    },
+    "phases": {
+      "workspace_ns": {
+        "avg_ms": 3.0754053,
+        "p50_ms": 3.00256,
+        "p99_ms": 4.46125,
+        "share_percent": 1.5038253154360337
+      },
+      "validation_ns": {
+        "avg_ms": 0.0036285,
+        "p50_ms": 0.00358,
+        "p99_ms": 0.00442,
+        "share_percent": 0.0017742800134537221
+      },
+      "input_prepare_ns": {
+        "avg_ms": 0.1922968,
+        "p50_ms": 0.19086,
+        "p99_ms": 0.22334,
+        "share_percent": 0.09403014162632153
+      },
+      "rule_write_ns": {
+        "avg_ms": 0.022253400000000003,
+        "p50_ms": 0.0221,
+        "p99_ms": 0.02543,
+        "share_percent": 0.01088156617097728
+      },
+      "scan_args_ns": {
+        "avg_ms": 0.0015207,
+        "p50_ms": 0.00149,
+        "p99_ms": 0.00183,
+        "share_percent": 0.0007435986265561734
+      },
+      "scan_backend_ns": {
+        "avg_ms": 185.6106745,
+        "p50_ms": 182.64069,
+        "p99_ms": 196.32043,
+        "share_percent": 90.76073034284538
+      },
+      "engine_profile_decode_ns": {
+        "avg_ms": 0.052971300000000006,
+        "p50_ms": 0.05274,
+        "p99_ms": 0.05947,
+        "share_percent": 0.025902141071148174
+      },
+      "result_decode_ns": {
+        "avg_ms": 0.0446672,
+        "p50_ms": 0.04366,
+        "p99_ms": 0.06314,
+        "share_percent": 0.021841565444933195
+      },
+      "scan_metrics_ns": {
+        "avg_ms": 0.8118559000000001,
+        "p50_ms": 0.79871,
+        "p99_ms": 0.99033,
+        "share_percent": 0.3969848965617979
+      },
+      "normalize_ns": {
+        "avg_ms": 0.021614400000000002,
+        "p50_ms": 0.02159,
+        "p99_ms": 0.02679,
+        "share_percent": 0.010569105118587331
+      },
+      "cleanup_ns": {
+        "avg_ms": 0.0651993,
+        "p50_ms": 0.06347,
+        "p99_ms": 0.08187,
+        "share_percent": 0.031881442712187756
+      },
+      "other_tool_ns": {
+        "avg_ms": 0.14919570000000001,
+        "p50_ms": 0.15058,
+        "p99_ms": 0.21792,
+        "share_percent": 0.07295437470118162
+      },
+      "outside_tool_ns": {
+        "avg_ms": 14.454205,
+        "p50_ms": 13.901,
+        "p99_ms": 17.06823,
+        "share_percent": 7.067881229671451
+      }
+    },
+    "share_definition": "sum of paired phase durations / sum of end-to-end durations",
+    "outside_tool_definition": "transport + framework + encoding/decoding + scheduling + profiling response overhead; NOT pure network",
+    "native_engine_diagnostics": {
+      "rules_parse_time": {
+        "samples": 100,
+        "avg_ms": 0.009846687316894531
+      },
+      "target_parse_times_sum": {
+        "samples": 100,
+        "avg_ms": 25.12638807296753
+      },
+      "target_match_times_sum": {
+        "samples": 100,
+        "avg_ms": 5.514872074127197
+      }
+    },
+    "native_definition": "Semgrep --time seconds converted to ms; nested/possibly overlapping, not added to top-level shares",
+    "group": {
+      "transport": "http",
+      "endpoint": "http://76.53.137.82:8000/mcp",
+      "source_file": "statements_16k.py",
+      "source_sha256": "b955c8db30eb0a7373f0c462052f6be31c6f91674e32baeec0443799d46c83bd",
+      "rule_sha256": "108abd47d81751cbce2bd3207ac8905d5f1dd16a611ec5024997f9b59ab890e6",
+      "server_version": "1.182.0",
+      "backend": "cli-custom-rule",
+      "engine_time_enabled": true
+    }
+  },
+  {
+    "samples": 100,
+    "end_to_end_ms": {
+      "avg": 180.86036030000002,
+      "p50": 182.36784,
+      "p99": 196.79062
+    },
+    "phases": {
+      "workspace_ns": {
+        "avg_ms": 3.3246622,
+        "p50_ms": 3.02928,
+        "p99_ms": 5.28478,
+        "share_percent": 1.838248134906541
+      },
+      "validation_ns": {
+        "avg_ms": 0.0037332,
+        "p50_ms": 0.00369,
+        "p99_ms": 0.00501,
+        "share_percent": 0.0020641338952369654
+      },
+      "input_prepare_ns": {
+        "avg_ms": 0.187142,
+        "p50_ms": 0.18487,
+        "p99_ms": 0.22585,
+        "share_percent": 0.10347319870953503
+      },
+      "rule_write_ns": {
+        "avg_ms": 0.021565900000000002,
+        "p50_ms": 0.02162,
+        "p99_ms": 0.02349,
+        "share_percent": 0.011924061173066235
+      },
+      "scan_args_ns": {
+        "avg_ms": 0.0015495,
+        "p50_ms": 0.00151,
+        "p99_ms": 0.0021,
+        "share_percent": 0.0008567383131548478
+      },
+      "scan_backend_ns": {
+        "avg_ms": 161.2816664,
+        "p50_ms": 164.08968,
+        "p99_ms": 173.11035,
+        "share_percent": 89.1746904255172
+      },
+      "engine_profile_decode_ns": {
+        "avg_ms": 0.0539232,
+        "p50_ms": 0.05321,
+        "p99_ms": 0.07708,
+        "share_percent": 0.029814825045441425
+      },
+      "result_decode_ns": {
+        "avg_ms": 0.047694400000000005,
+        "p50_ms": 0.04737,
+        "p99_ms": 0.07154,
+        "share_percent": 0.0263708420799823
+      },
+      "scan_metrics_ns": {
+        "avg_ms": 0.7616137,
+        "p50_ms": 0.76277,
+        "p99_ms": 0.88263,
+        "share_percent": 0.42110592876000147
+      },
+      "normalize_ns": {
+        "avg_ms": 0.0223027,
+        "p50_ms": 0.0221,
+        "p99_ms": 0.03189,
+        "share_percent": 0.012331447290608985
+      },
+      "cleanup_ns": {
+        "avg_ms": 0.0648267,
+        "p50_ms": 0.06485,
+        "p99_ms": 0.07629,
+        "share_percent": 0.03584350926453396
+      },
+      "other_tool_ns": {
+        "avg_ms": 0.15583970000000003,
+        "p50_ms": 0.15566,
+        "p99_ms": 0.22678,
+        "share_percent": 0.08616575779319621
+      },
+      "outside_tool_ns": {
+        "avg_ms": 14.9338407,
+        "p50_ms": 14.62466,
+        "p99_ms": 17.77277,
+        "share_percent": 8.257110997251507
+      }
+    },
+    "share_definition": "sum of paired phase durations / sum of end-to-end durations",
+    "outside_tool_definition": "transport + framework + encoding/decoding + scheduling + profiling response overhead; NOT pure network",
+    "native_engine_diagnostics": {
+      "rules_parse_time": {
+        "samples": 100,
+        "avg_ms": 0.010075569152832031
+      },
+      "target_parse_times_sum": {
+        "samples": 100,
+        "avg_ms": 6.50172233581543
+      },
+      "target_match_times_sum": {
+        "samples": 100,
+        "avg_ms": 2.2927236557006836
+      }
+    },
+    "native_definition": "Semgrep --time seconds converted to ms; nested/possibly overlapping, not added to top-level shares",
+    "group": {
+      "transport": "http",
+      "endpoint": "http://76.53.137.82:8000/mcp",
+      "source_file": "statements_1k.py",
+      "source_sha256": "31f90ce54eed61a8dcb3814d6b9f44c57bb4b07847fed999acd0eb635268d890",
+      "rule_sha256": "108abd47d81751cbce2bd3207ac8905d5f1dd16a611ec5024997f9b59ab890e6",
+      "server_version": "1.182.0",
+      "backend": "cli-custom-rule",
+      "engine_time_enabled": true
+    }
+  },
+  {
+    "samples": 100,
+    "end_to_end_ms": {
+      "avg": 179.7452939,
+      "p50": 180.20443,
+      "p99": 187.75598
+    },
+    "phases": {
+      "workspace_ns": {
+        "avg_ms": 3.1848582000000003,
+        "p50_ms": 3.02707,
+        "p99_ms": 4.84082,
+        "share_percent": 1.771872926905042
+      },
+      "validation_ns": {
+        "avg_ms": 0.0037381,
+        "p50_ms": 0.0037,
+        "p99_ms": 0.00469,
+        "share_percent": 0.002079665018701221
+      },
+      "input_prepare_ns": {
+        "avg_ms": 0.18812710000000002,
+        "p50_ms": 0.18703,
+        "p99_ms": 0.22578,
+        "share_percent": 0.10466315747029413
+      },
+      "rule_write_ns": {
+        "avg_ms": 0.0221387,
+        "p50_ms": 0.02199,
+        "p99_ms": 0.0247,
+        "share_percent": 0.012316706334640787
+      },
+      "scan_args_ns": {
+        "avg_ms": 0.0015215,
+        "p50_ms": 0.00149,
+        "p99_ms": 0.002,
+        "share_percent": 0.0008464755693945876
+      },
+      "scan_backend_ns": {
+        "avg_ms": 160.84258930000001,
+        "p50_ms": 162.29501,
+        "p99_ms": 169.57127,
+        "share_percent": 89.48361640526934
+      },
+      "engine_profile_decode_ns": {
+        "avg_ms": 0.052758400000000004,
+        "p50_ms": 0.05233,
+        "p99_ms": 0.06336,
+        "share_percent": 0.02935175595159212
+      },
+      "result_decode_ns": {
+        "avg_ms": 0.0429538,
+        "p50_ms": 0.04167,
+        "p99_ms": 0.05957,
+        "share_percent": 0.023897037339902227
+      },
+      "scan_metrics_ns": {
+        "avg_ms": 0.7595363,
+        "p50_ms": 0.75963,
+        "p99_ms": 0.84003,
+        "share_percent": 0.4225625514415763
+      },
+      "normalize_ns": {
+        "avg_ms": 0.022060200000000002,
+        "p50_ms": 0.02176,
+        "p99_ms": 0.02702,
+        "share_percent": 0.012273033424882342
+      },
+      "cleanup_ns": {
+        "avg_ms": 0.0642018,
+        "p50_ms": 0.06326,
+        "p99_ms": 0.07784,
+        "share_percent": 0.035718209143054507
+      },
+      "other_tool_ns": {
+        "avg_ms": 0.14630310000000002,
+        "p50_ms": 0.14736,
+        "p99_ms": 0.17419,
+        "share_percent": 0.08139467622523384
+      },
+      "outside_tool_ns": {
+        "avg_ms": 14.4145074,
+        "p50_ms": 13.78521,
+        "p99_ms": 17.32546,
+        "share_percent": 8.01940739990634
+      }
+    },
+    "share_definition": "sum of paired phase durations / sum of end-to-end durations",
+    "outside_tool_definition": "transport + framework + encoding/decoding + scheduling + profiling response overhead; NOT pure network",
+    "native_engine_diagnostics": {
+      "rules_parse_time": {
+        "samples": 100,
+        "avg_ms": 0.00948190689086914
+      },
+      "target_parse_times_sum": {
+        "samples": 100,
+        "avg_ms": 9.417037963867188
+      },
+      "target_match_times_sum": {
+        "samples": 100,
+        "avg_ms": 2.5752878189086914
+      }
+    },
+    "native_definition": "Semgrep --time seconds converted to ms; nested/possibly overlapping, not added to top-level shares",
+    "group": {
+      "transport": "http",
+      "endpoint": "http://76.53.137.82:8000/mcp",
+      "source_file": "statements_4k.py",
+      "source_sha256": "9001042c1ff60db01f854c8d65a5865c6a292dc15b9d049b9431e05a38afbcde",
+      "rule_sha256": "108abd47d81751cbce2bd3207ac8905d5f1dd16a611ec5024997f9b59ab890e6",
+      "server_version": "1.182.0",
+      "backend": "cli-custom-rule",
+      "engine_time_enabled": true
+    }
+  }
+]
