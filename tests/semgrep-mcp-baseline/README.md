@@ -4,6 +4,10 @@
 
 需要测量**扫描、输入准备和工具外开销的占比**，直接使用 [PROFILING.md](PROFILING.md)：包含 A/B 安装、服务重启、预热采样和汇总的完整顺序，保留已有结果及本地脚本修正。
 
+需要进一步粗估**单向上传/响应返回**，见 [HTTP_TIMESTAMPS.md](HTTP_TIMESTAMPS.md)，其中明确区分零偏差假设、误差上界和双向合计。
+
+本机 **stdio 管道、SDK 编解码与排队**细分见 [STDIO_TIMESTAMPS.md](STDIO_TIMESTAMPS.md)，仅需 A 运行，和跨机 HTTP 分开报告。
+
 本目录用于保存 AArch64 UB 机器上原版 Semgrep 的可复现实验输入和结果。它不修改 Semgrep 源码，不涉及 UB 模块。先使用 `semgrep_scan_with_custom_rule`：该工具接收明确的规则和源码，走 CLI 扫描路径；**不是 daemon 性能基线**。
 
 ## 固定内容

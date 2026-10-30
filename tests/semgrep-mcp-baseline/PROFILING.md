@@ -1,5 +1,9 @@
 # MCP 扫描耗时拆分（可选开关）
 
+新增 [HTTP 收发边界打点](HTTP_TIMESTAMPS.md)：可在假设时钟接近的条件下估算上传/返回，保留误差警告，并计算固定偏差基本抵消的双向合计。它使用新的服务启动入口，不需要重装已有 Python 打点。
+
+单机 stdio 的更细管道与 SDK 打点见 [STDIO_TIMESTAMPS.md](STDIO_TIMESTAMPS.md)，通过 `--stdio-timestamps` 启用，默认路径保持不变。
+
 目标：分析这六个真实 Semgrep 扫描请求中，输入准备、扫描后端、结果处理和工具外开销各占多少。使用现有 `semgrep_scan_with_custom_rule`，**不改变规则或扫描引擎，不是 UB 域内扫描，也不是 daemon 基线**。
 
 ## 1. A/B 安装 Python 打点

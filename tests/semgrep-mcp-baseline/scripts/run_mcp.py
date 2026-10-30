@@ -10,6 +10,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
+import sys
+import tempfile
 from datetime import datetime, timezone
 
 from mcp.client.session import ClientSession
@@ -28,11 +30,16 @@ async def calls(session, source: str, rule: str, filename: str, options):
         raise RuntimeError(f"{name} unavailable; available tools: {sorted(names)}")
     records = []
     for index in range(options.warmup + options.samples):
+        trace = getattr(options, "http_trace", None)
+        trace_start = len(trace.records) if trace else 0
+        stdio_trace = getattr(options, "stdio_trace", None)
+        stdio_before = set(stdio_trace.records) if stdio_trace else set()
         started = time.perf_counter_ns()
         response = await session.call_tool(
             name, {"code_files": [{"path": filename, "content": source}], "rule": rule}
         )
-        elapsed_ns = time.perf_counter_ns() - started
+        call_end = time.perf_counter_ns()
+        elapsed_ns = call_end - started
         raw = response.model_dump(mode="json")
         if response.isError:
             raise RuntimeError(f"MCP tool returned an error: {raw}")
@@ -51,9 +58,28 @@ async def calls(session, source: str, rule: str, filename: str, options):
             raise RuntimeError("Server profile missing: install profiling and restart with SEMGREP_MCP_PROFILE=1")
         if options.engine_time and profile is not None and "engine_time" not in profile:
             raise RuntimeError("Native timings missing: enable SEMGREP_MCP_PROFILE_ENGINE_TIME=1 on server")
+        http_boundary = None
+        http_raw = None
+        if trace:
+            from http_timestamps import estimate
+            attempts = trace.records[trace_start:]
+            if len(attempts) != 1:
+                raise RuntimeError(f"Expected one tools/call HTTP POST, got {len(attempts)}; retries cannot be paired blindly")
+            http_raw = attempts[0]
+            http_boundary = estimate(http_raw, int(options.clock_offset_us * 1000),
+                                     int(options.clock_uncertainty_us * 1000) if options.clock_uncertainty_us is not None else None)
+            http_boundary["client_sdk_outside_http_ns"] = elapsed_ns - http_boundary["http_round_trip_ns"]
         if index >= options.warmup:
-            records.append({"sample": index - options.warmup, "call_elapsed_ns": elapsed_ns,
-                            "server_profile": profile, "response": raw})
+            record = {"sample": index - options.warmup, "call_elapsed_ns": elapsed_ns,
+                            "server_profile": profile, "response": raw,
+                            "http_boundary": http_boundary, "http_timestamps": http_raw}
+            if stdio_trace:
+                new_keys = set(stdio_trace.records) - stdio_before
+                if len(new_keys) != 1:
+                    raise RuntimeError("Expected exactly one stdio tools/call request")
+                record.update(stdio_rpc_key=new_keys.pop(), _stdio_call_start=started,
+                              _stdio_call_end=call_end)
+            records.append(record)
     return records
 
 
@@ -68,6 +94,10 @@ async def main():
     parser.add_argument("--warmup", type=int, default=0)
     parser.add_argument("--profile", action="store_true", help="Require server timings; enable them on stdio child")
     parser.add_argument("--engine-time", action="store_true", help="Also enable --time on stdio child; requires --profile")
+    parser.add_argument("--http-timestamps", action="store_true", help="Requires HTTP boundary server launcher")
+    parser.add_argument("--stdio-timestamps", action="store_true", help="Observe same-host SDK/pipe boundaries; MCP 1.29.0")
+    parser.add_argument("--clock-offset-us", type=float, default=0, help="Estimated B minus A clock offset; default is an assumption, not measured")
+    parser.add_argument("--clock-uncertainty-us", type=float, help="Externally justified error bound on B-minus-A offset")
     args = parser.parse_args()
     if args.transport == "http" and not args.url:
         parser.error("--url is required for HTTP")
@@ -75,6 +105,12 @@ async def main():
         parser.error("samples must be positive and warmup nonnegative")
     if args.engine_time and not args.profile:
         parser.error("--engine-time requires --profile")
+    if args.http_timestamps and (args.transport != "http" or not args.profile):
+        parser.error("--http-timestamps requires --transport http --profile")
+    if args.stdio_timestamps and (args.transport != "stdio" or not args.profile):
+        parser.error("--stdio-timestamps requires --transport stdio --profile")
+    if args.clock_uncertainty_us is not None and args.clock_uncertainty_us < 0:
+        parser.error("clock uncertainty must be nonnegative")
     if args.output.exists():
         parser.error(f"output exists; use a new path: {args.output}")
 
@@ -102,11 +138,28 @@ async def main():
         params = StdioServerParameters(
             command=executable, args=["mcp", "-t", "stdio", "--no-auth"], env=env
         )
-        async with stdio_client(params) as (reader, writer):
-            async with ClientSession(reader, writer) as session:
-                records = await calls(session, source, rule, args.source.name, args)
+        if args.stdio_timestamps:
+            from stdio_timestamps import ClientStdioTrace, traced_stdio_client
+            args.stdio_trace = ClientStdioTrace()
+            with tempfile.TemporaryDirectory(prefix="semgrep-stdio-trace-") as directory:
+                log_path = Path(directory) / "server.jsonl"
+                params = StdioServerParameters(command=sys.executable, args=[
+                    str(Path(__file__).with_name("run_profiled_stdio.py")), "--trace-log", str(log_path)], env=env)
+                async with traced_stdio_client(params, args.stdio_trace) as (reader, writer):
+                    async with ClientSession(reader, writer) as session:
+                        records = await calls(session, source, rule, args.source.name, args)
+                args.stdio_trace.attach(records, log_path)
+        else:
+            async with stdio_client(params) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    records = await calls(session, source, rule, args.source.name, args)
     else:
-        async with streamablehttp_client(args.url) as (reader, writer, _):
+        transport_options = {}
+        if args.http_timestamps:
+            from http_timestamps import ClientHttpTrace
+            args.http_trace = ClientHttpTrace()
+            transport_options["httpx_client_factory"] = args.http_trace.factory
+        async with streamablehttp_client(args.url, **transport_options) as (reader, writer, _):
             async with ClientSession(reader, writer) as session:
                 records = await calls(session, source, rule, args.source.name, args)
 
